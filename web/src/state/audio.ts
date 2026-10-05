@@ -179,7 +179,9 @@ function initialMicrophoneAccessStatus(): MicrophoneAccessStatus {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'unsupported'
   if (!window.isSecureContext) return 'insecure-context'
   if (
-    typeof RTCPeerConnection === 'undefined' ||
+    typeof AudioContext === 'undefined' ||
+    typeof AudioWorkletNode === 'undefined' ||
+    typeof WebAssembly === 'undefined' ||
     typeof navigator.mediaDevices?.getUserMedia !== 'function' ||
     typeof navigator.mediaDevices?.enumerateDevices !== 'function'
   ) {

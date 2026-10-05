@@ -19,7 +19,7 @@ var (
 	ErrNotFound    = errors.New("test call not found")
 	ErrBusy        = errors.New("a test call is already pending or was started recently")
 	ErrEnded       = errors.New("test call is no longer active")
-	ErrUnavailable = errors.New("test calls require Apple push and TURN")
+	ErrUnavailable = errors.New("test calls require Apple push")
 )
 
 type PushSender interface {
@@ -54,7 +54,7 @@ func New(push PushSender, rtc rtcconfig.Provider, logger *slog.Logger) *Service 
 }
 
 func (s *Service) Start(userID, credentialID string, language ...string) (Status, error) {
-	if s == nil || s.push == nil || s.rtc == nil || userID == "" || credentialID == "" {
+	if s == nil || s.push == nil || userID == "" || credentialID == "" {
 		return Status{}, ErrUnavailable
 	}
 	s.mu.Lock()
@@ -295,6 +295,25 @@ func (s *Service) Exchange(ctx context.Context, id, owner, token, offer string) 
 		return "", err
 	}
 	return entry.runtime.Media.Exchange(ctx, id, token, offer, true)
+}
+
+func (s *Service) RequireMedia(ctx context.Context, id, owner string) error {
+	entry, err := s.lookup(id, owner)
+	if err != nil {
+		return err
+	}
+	return entry.runtime.Leases.Require(ctx, id, owner)
+}
+
+func (s *Service) OpenSocket(ctx context.Context, id, owner, token string, transport callmedia.SocketTransport) (*callmedia.Session, error) {
+	entry, err := s.lookup(id, owner)
+	if err != nil {
+		return nil, err
+	}
+	if err := entry.runtime.Leases.Require(ctx, id, owner); err != nil {
+		return nil, err
+	}
+	return entry.runtime.Media.OpenSocket(ctx, id, token, transport)
 }
 
 func (s *Service) Release(ctx context.Context, id, owner, token string) error {

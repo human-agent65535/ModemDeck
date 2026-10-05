@@ -327,7 +327,7 @@ test('audio settings expose persisted devices and browser-local communication so
   assert.match(callMedia, /audioState\.callVolume \/ 100/)
   assert.match(
     callMedia,
-    /const stream = event\.streams\[0\] \?\? new MediaStream\(\[event\.track\]\)[\s\S]*attachRemoteAudio\(stream\)/
+    /remoteStream = destination\.stream[\s\S]*?attachRemoteAudio\(remoteStream\)/
   )
   assert.doesNotMatch(
     callMedia,

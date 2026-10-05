@@ -1,8 +1,8 @@
 import { reactive, watch } from 'vue'
 import { fixtureCallMediaPreview, gateway } from '../api/client'
 import type { CallSession } from '../api/types'
-import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { CALL_AUDIO_FORMAT, CALL_AUDIO_MAX_AGE_MS, CallAudioReceiveClock, callAudioWebSocketURL, decodeCallAudioPacket, encodeCallAudioPacket, isCallAudioReady, isRecoverableCallAudioError } from './callAudioProtocol'
 import {
   applySelectedAudioOutput,
   audioState,
@@ -25,7 +25,12 @@ export type CallMediaStatus =
   | 'active'
   | 'error'
 
-const ICE_GATHERING_TIMEOUT_MS = 5000
+const MEDIA_CONNECT_TIMEOUT_MS = 5000
+const MEDIA_RECONNECT_DELAY_MS = 500
+const MEDIA_STABLE_WINDOW_MS = 1000
+const MEDIA_STABLE_FRAMES = 40
+const MAX_CODEC_PENDING = 3
+const MAX_SOCKET_BUFFER_BYTES = 5 * (12 + 1275)
 const MEDIA_RECOVERY_TIMEOUT_MS = 15_000
 const MEDIA_LOCK_PREFIX = 'modemdeck-call-media:'
 
@@ -46,7 +51,12 @@ export const callMediaState = reactive<{
 let generation = 0
 let attemptedCallID = ''
 let currentCallID = ''
-let peer: RTCPeerConnection | undefined
+let socket: WebSocket | undefined
+let audioRuntime: AudioRuntime | undefined
+let reconnectTimeoutID: number | undefined
+let connectTimeoutID: number | undefined
+let socketWatchdogID: number | undefined
+let socketBufferedSince: number | undefined
 let localStream: MediaStream | undefined
 let remoteStream: MediaStream | undefined
 let remoteAudio: HTMLAudioElement | undefined
@@ -71,8 +81,26 @@ type MicrophonePipeline = {
   source: MediaStreamAudioSourceNode
   gain: GainNode
   limiter: DynamicsCompressorNode
+  filter: BiquadFilterNode
+}
+
+type AudioRuntime = {
+  context: AudioContext
+  node: AudioWorkletNode
   destination: MediaStreamAudioDestinationNode
-  track: MediaStreamTrack
+  worker?: Worker
+  encodePending: number
+  decodePending: number
+  captureBase?: number
+  ready: boolean
+  clock: CallAudioReceiveClock
+  lastActivity: number
+  recoveryAttempts: number
+  stableSince?: number
+  lastSentAt: number
+  lastReceivedAt: number
+  sentFrames: number
+  receivedFrames: number
 }
 
 let microphonePipeline: MicrophonePipeline | undefined
@@ -85,41 +113,64 @@ function clearRecoveryWindow(): void {
 
 function stopMicrophonePipeline(pipeline: MicrophonePipeline): void {
   for (const track of pipeline.capture.getTracks()) track.stop()
-  for (const track of pipeline.destination.stream.getTracks()) track.stop()
   pipeline.source.disconnect()
   pipeline.gain.disconnect()
   pipeline.limiter.disconnect()
-  pipeline.destination.disconnect()
-  void pipeline.context.close()
+  pipeline.filter.disconnect()
 }
 
-async function createMicrophonePipeline(
-  capture: MediaStream
-): Promise<MicrophonePipeline> {
-  const context = new AudioContext()
+async function createMicrophonePipeline(capture: MediaStream): Promise<MicrophonePipeline> {
+  const runtime = audioRuntime
+  if (!runtime) throw new Error(translate('runtime.callAudioFailed'))
+  const context = runtime.context
   try {
-    await context.resume()
     const source = context.createMediaStreamSource(capture)
     const gain = context.createGain()
     gain.gain.value = audioState.microphoneGain / 100
-
     const limiter = context.createDynamicsCompressor()
     limiter.threshold.value = -3
     limiter.knee.value = 0
     limiter.ratio.value = 20
     limiter.attack.value = 0.003
     limiter.release.value = 0.1
-
-    const destination = context.createMediaStreamDestination()
-    source.connect(gain).connect(limiter).connect(destination)
-    const track = destination.stream.getAudioTracks()[0]
-    if (!track) throw new Error(translate('runtime.microphoneTrackMissing'))
-
-    return { capture, context, source, gain, limiter, destination, track }
+    // Low-pass before native-rate -> 16 kHz conversion prevents aliasing.
+    const filter = context.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.value = Math.min(7000, context.sampleRate * 0.45)
+    filter.Q.value = 0.707
+    source.connect(gain).connect(limiter).connect(filter).connect(runtime.node)
+    return { capture, context, source, gain, limiter, filter }
   } catch (error) {
     for (const track of capture.getTracks()) track.stop()
-    void context.close()
     throw error
+  }
+}
+
+function clearSocketResources(): void {
+  if (socketWatchdogID !== undefined) window.clearInterval(socketWatchdogID)
+  socketWatchdogID = undefined
+  socketBufferedSince = undefined
+  if (connectTimeoutID !== undefined) window.clearTimeout(connectTimeoutID)
+  connectTimeoutID = undefined
+  if (reconnectTimeoutID !== undefined) window.clearTimeout(reconnectTimeoutID)
+  reconnectTimeoutID = undefined
+  const old = socket
+  socket = undefined
+  if (old) {
+    old.onopen = old.onmessage = old.onerror = old.onclose = null
+    old.close()
+  }
+  if (audioRuntime) {
+    audioRuntime.ready = false
+    audioRuntime.worker?.terminate()
+    audioRuntime.worker = undefined
+    audioRuntime.encodePending = audioRuntime.decodePending = 0
+    audioRuntime.captureBase = undefined
+    audioRuntime.sentFrames = audioRuntime.receivedFrames = 0
+    audioRuntime.stableSince = undefined
+    audioRuntime.lastSentAt = audioRuntime.lastReceivedAt = -Infinity
+    audioRuntime.clock = new CallAudioReceiveClock()
+    audioRuntime.node.port.postMessage({ type: 'clear' })
   }
 }
 
@@ -133,11 +184,13 @@ function stopResources(): void {
   mediaLockAbort = undefined
   mediaOwnership?.release()
 
-  if (peer) {
-    peer.onconnectionstatechange = null
-    peer.ontrack = null
-    peer.close()
-    peer = undefined
+  clearSocketResources()
+  if (audioRuntime) {
+    audioRuntime.node.port.onmessage = null
+    audioRuntime.node.disconnect()
+    audioRuntime.destination.disconnect()
+    void audioRuntime.context.close()
+    audioRuntime = undefined
   }
   if (microphonePipeline) {
     stopMicrophonePipeline(microphonePipeline)
@@ -170,9 +223,6 @@ function setIdle(status: 'idle' | 'unavailable', callID = ''): void {
 }
 
 function mediaError(error: unknown): string {
-  if (error instanceof ApiError && error.code === 'turn_unavailable') {
-    return translate('runtime.externalCallTURNUnavailable')
-  }
   if (error instanceof DOMException) {
     if (error.name === 'NotAllowedError') return translate('runtime.microphoneUnauthorized')
     if (error.name === 'NotFoundError' || error.name === 'OverconstrainedError') {
@@ -185,24 +235,6 @@ function mediaError(error: unknown): string {
   return error instanceof Error ? error.message : translate('runtime.callAudioFailed')
 }
 
-function waitForICEGathering(connection: RTCPeerConnection): Promise<void> {
-  if (connection.iceGatheringState === 'complete') return Promise.resolve()
-
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      connection.removeEventListener('icegatheringstatechange', onStateChange)
-      reject(new Error(translate('runtime.audioNegotiationTimeout')))
-    }, ICE_GATHERING_TIMEOUT_MS)
-    const onStateChange = () => {
-      if (connection.iceGatheringState !== 'complete') return
-      window.clearTimeout(timeout)
-      connection.removeEventListener('icegatheringstatechange', onStateChange)
-      resolve()
-    }
-    connection.addEventListener('icegatheringstatechange', onStateChange)
-  })
-}
-
 async function playRemoteAudio(): Promise<void> {
   const element = remoteAudio
   if (!element) return
@@ -213,9 +245,11 @@ async function playRemoteAudio(): Promise<void> {
     return
   }
   if (remoteAudio !== element) return
+  const context = audioRuntime?.context
+  if (context?.state === 'suspended') await context.resume().catch(() => undefined)
   await element.play().then(
     () => {
-      callMediaState.playbackBlocked = false
+      callMediaState.playbackBlocked = context?.state === 'suspended'
     },
     () => {
       callMediaState.playbackBlocked = true
@@ -257,101 +291,211 @@ function beginRecoveryWindow(callID: string, token: number): void {
   }, MEDIA_RECOVERY_TIMEOUT_MS)
 }
 
-async function connect(
-  callID: string,
-  token: number,
-  ownership: MediaOwnership,
-  signal: AbortSignal
-): Promise<void> {
+function isCurrent(callID: string, token: number): boolean {
+  return generation === token && currentCallID === callID
+}
+
+function settleMediaRecovery(runtime: AudioRuntime): void {
+  if (recoveryTimeoutID === undefined) return
+  const now = performance.now()
+  if (now - runtime.lastSentAt > CALL_AUDIO_MAX_AGE_MS || now - runtime.lastReceivedAt > CALL_AUDIO_MAX_AGE_MS ||
+      socketBufferedSince !== undefined) {
+    runtime.stableSince = undefined
+    return
+  }
+  runtime.stableSince ??= now
+  if (now - runtime.stableSince < MEDIA_STABLE_WINDOW_MS || runtime.sentFrames < MEDIA_STABLE_FRAMES ||
+      runtime.receivedFrames < MEDIA_STABLE_FRAMES) return
+  // A ready handshake alone does not prove useful media. Keep the original
+  // deadline across repeated early failures; reset only after healthy duplex.
+  clearRecoveryWindow()
+  runtime.recoveryAttempts = 0
+}
+
+function recoverConnection(callID: string, token: number, ownership: MediaOwnership): void {
+  if (!isCurrent(callID, token)) return
+  clearSocketResources()
+  beginRecoveryWindow(callID, token)
+  callMediaState.status = 'recovering'
+  callMediaState.error = ''
+  const attempt = audioRuntime ? audioRuntime.recoveryAttempts++ : 0
+  const delay = MEDIA_RECONNECT_DELAY_MS * 2 ** Math.min(attempt, 2)
+  // Release immediately: WebSocket.close itself may flush buffered frames.
+  // Wait for the old owner to release before the next upgrade. DELETE is
+  // owner scoped, so stale tabs cannot release a replacement owner's media.
+  void gateway.releaseCallMedia(callID, ownership.ownerToken).then(() => {
+    if (!isCurrent(callID, token)) return
+    reconnectTimeoutID = window.setTimeout(() => {
+      reconnectTimeoutID = undefined
+      if (isCurrent(callID, token)) void openAudioSocket(callID, token, ownership)
+    }, delay)
+  }).catch(() => {
+    if (!isCurrent(callID, token)) return
+    reconnectTimeoutID = window.setTimeout(() => {
+      reconnectTimeoutID = undefined
+      if (isCurrent(callID, token)) recoverConnection(callID, token, ownership)
+    }, delay)
+  })
+}
+
+async function openAudioSocket(callID: string, token: number, ownership: MediaOwnership): Promise<void> {
+  const runtime = audioRuntime
+  if (!runtime || !isCurrent(callID, token)) return
+  const worker = new Worker(new URL('./callOpus.worker.ts', import.meta.url), { type: 'module' })
+  runtime.worker = worker
+  connectTimeoutID = window.setTimeout(() => recoverConnection(callID, token, ownership), MEDIA_CONNECT_TIMEOUT_MS)
+  worker.onerror = () => failConnection(callID, token, new Error(translate('runtime.callAudioFailed')))
+  worker.onmessage = ({ data }: MessageEvent<{ type: string; message?: string; payload: Uint8Array; pcm: Float32Array; sequence: number; time: number }>) => {
+    if (!isCurrent(callID, token) || audioRuntime !== runtime || runtime.worker !== worker) return
+    if (data.type === 'ready') {
+      const connection = new WebSocket(callAudioWebSocketURL(callID, window.location))
+      socket = connection
+      connection.binaryType = 'arraybuffer'
+      connection.onopen = () => {
+        if (!isCurrent(callID, token) || socket !== connection) return
+        ownership.claimed = true
+        connection.send(JSON.stringify({ type: 'start', ...CALL_AUDIO_FORMAT, owner_token: ownership.ownerToken }))
+      }
+      connection.onmessage = event => {
+        if (!isCurrent(callID, token) || socket !== connection) return
+        try {
+          runtime.lastActivity = Date.now()
+          if (typeof event.data === 'string') {
+            const message = JSON.parse(event.data) as Record<string, unknown>
+            if (message.type === 'error') {
+              if (isRecoverableCallAudioError(message.code)) {
+                recoverConnection(callID, token, ownership)
+                return
+              }
+              throw new Error(typeof message.message === 'string' ? message.message : translate('runtime.callAudioFailed'))
+            }
+            if (message.type === 'ready') {
+              if (runtime.ready || !isCallAudioReady(message)) throw new Error(translate('runtime.callAudioFailed'))
+              runtime.ready = true
+              if (connectTimeoutID !== undefined) window.clearTimeout(connectTimeoutID)
+              connectTimeoutID = undefined
+              callMediaState.status = 'active'
+              callMediaState.error = ''
+              socketWatchdogID = window.setInterval(() => {
+                if (!isCurrent(callID, token) || socket !== connection) return
+                settleMediaRecovery(runtime)
+                if (Date.now() - runtime.lastActivity > 15_000 ||
+                    (socketBufferedSince !== undefined && performance.now() - socketBufferedSince > CALL_AUDIO_MAX_AGE_MS)) {
+                  recoverConnection(callID, token, ownership)
+                }
+              }, 50)
+              void playRemoteAudio()
+            }
+            return
+          }
+          if (!runtime.ready || !(event.data instanceof ArrayBuffer)) throw new Error(translate('runtime.callAudioFailed'))
+          const packet = decodeCallAudioPacket(event.data)
+          if (!runtime.clock.accept(packet.sequence, packet.timestamp, performance.now()) || runtime.decodePending >= MAX_CODEC_PENDING) return
+          runtime.decodePending += 1
+          worker.postMessage({ type: 'decode', payload: packet.payload, time: runtime.context.currentTime }, [packet.payload.buffer])
+        } catch (error) {
+          failConnection(callID, token, error)
+        }
+      }
+      connection.onerror = () => { /* onclose owns the bounded recovery */ }
+      connection.onclose = event => {
+        if (!isCurrent(callID, token) || socket !== connection) return
+        // Policy/authentication/format errors require an explicit retry.
+        if (event.code === 1008 || event.code === 1002 || event.code === 1003) {
+          failConnection(callID, token, new Error(translate('runtime.callAudioConnectionFailed')))
+        } else recoverConnection(callID, token, ownership)
+      }
+    } else if (data.type === 'encoded') {
+      runtime.encodePending = Math.max(0, runtime.encodePending - 1)
+      const connection = socket
+      if (runtime.ready && connection?.readyState === WebSocket.OPEN &&
+          runtime.context.currentTime - data.time <= CALL_AUDIO_MAX_AGE_MS / 1000) {
+        if (connection.bufferedAmount === 0) socketBufferedSince = undefined
+        else socketBufferedSince ??= performance.now()
+        if (connection.bufferedAmount > MAX_SOCKET_BUFFER_BYTES) {
+          // A TCP writer stall must discard its queued audio through a new
+          // connection; adding silence cannot clear WebSocket's internal queue.
+          recoverConnection(callID, token, ownership)
+          return
+        }
+        connection.send(encodeCallAudioPacket(data.sequence, data.payload))
+        runtime.sentFrames += 1
+        runtime.lastSentAt = performance.now()
+      }
+    } else if (data.type === 'decoded') {
+      runtime.decodePending = Math.max(0, runtime.decodePending - 1)
+      if (runtime.ready && runtime.context.currentTime - data.time <= CALL_AUDIO_MAX_AGE_MS / 1000) {
+        runtime.receivedFrames += 1
+        runtime.lastReceivedAt = performance.now()
+        runtime.node.port.postMessage({ type: 'play', pcm: data.pcm, sentAt: data.time }, [data.pcm.buffer])
+      }
+    } else if (data.type === 'error') {
+      failConnection(callID, token, new Error(data.message || translate('runtime.callAudioFailed')))
+    }
+  }
+}
+
+async function connect(callID: string, token: number, ownership: MediaOwnership): Promise<void> {
   let pendingMicrophone: MediaStream | undefined
-  let pendingPipeline: MicrophonePipeline | undefined
+  let pendingContext: AudioContext | undefined
   try {
     callMediaState.status = 'requesting'
-    if (!navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia || typeof AudioWorkletNode === 'undefined' || typeof WebAssembly === 'undefined') {
       throw new Error(translate('runtime.microphoneHTTPSRequired'))
     }
-    const rtcConfiguration = await gateway.getCallMediaICEConfiguration(
-      callID,
-      signal
-    )
-    pendingMicrophone = await navigator.mediaDevices.getUserMedia({
-      audio: selectedAudioInputConstraints(),
-      video: false
-    })
-    pendingPipeline = await createMicrophonePipeline(pendingMicrophone)
-    if (generation !== token || currentCallID !== callID) {
-      stopMicrophonePipeline(pendingPipeline)
+    pendingMicrophone = await navigator.mediaDevices.getUserMedia({ audio: selectedAudioInputConstraints(), video: false })
+    if (!isCurrent(callID, token)) {
+      for (const track of pendingMicrophone.getTracks()) track.stop()
       return
     }
-    const microphone = pendingMicrophone
-    const pipeline = pendingPipeline
-    localStream = microphone
-    microphonePipeline = pipeline
-    pendingMicrophone = undefined
-    pendingPipeline = undefined
-    markAudioInputActive()
-
-    const connection = new RTCPeerConnection({
-      iceServers: rtcConfiguration.ice_servers.map(server => ({
-        urls: server.urls,
-        ...(server.username ? { username: server.username } : {}),
-        ...(server.credential ? { credential: server.credential } : {})
-      })),
-      iceTransportPolicy: rtcConfiguration.ice_transport_policy
-    })
-    let recovering = false
-    peer = connection
-
-    connection.ontrack = event => {
-      if (generation !== token || currentCallID !== callID) return
-      const stream = event.streams[0] ?? new MediaStream([event.track])
-      remoteStream = stream
-      attachRemoteAudio(stream)
+    pendingContext = new AudioContext({ latencyHint: 'interactive' })
+    // Autoplay may need the existing Resume button; capture can still connect.
+    void pendingContext.resume().catch(() => undefined)
+    const { default: workletURL } = await import('./callAudio.worklet.ts?worker&url')
+    await pendingContext.audioWorklet.addModule(workletURL)
+    if (!isCurrent(callID, token)) {
+      for (const track of pendingMicrophone.getTracks()) track.stop()
+      void pendingContext.close()
+      return
     }
-    connection.onconnectionstatechange = () => {
-      if (generation !== token || currentCallID !== callID) return
-      if (connection.connectionState === 'connected') {
-        recovering = false
-        clearRecoveryWindow()
-        callMediaState.status = 'active'
-        callMediaState.error = ''
-      } else if (connection.connectionState === 'connecting') {
-        callMediaState.status = recovering ? 'recovering' : 'connecting'
-      } else if (connection.connectionState === 'disconnected') {
-        recovering = true
-        beginRecoveryWindow(callID, token)
-        callMediaState.status = 'recovering'
-        callMediaState.error = ''
-      } else if (connection.connectionState === 'failed') {
-        failConnection(callID, token, new Error(translate('runtime.callAudioConnectionFailed')))
-      } else if (connection.connectionState === 'closed') {
-        failConnection(callID, token, new Error(translate('runtime.callAudioConnectionFailed')))
+    const context = pendingContext
+    const node = new AudioWorkletNode(context, 'modemdeck-call-audio', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })
+    const destination = context.createMediaStreamDestination()
+    node.connect(destination)
+    const runtime: AudioRuntime = { context, node, destination, encodePending: 0, decodePending: 0, ready: false, clock: new CallAudioReceiveClock(), lastActivity: Date.now(), recoveryAttempts: 0, lastSentAt: -Infinity, lastReceivedAt: -Infinity, sentFrames: 0, receivedFrames: 0 }
+    audioRuntime = runtime
+    context.onstatechange = () => {
+      if (isCurrent(callID, token) && audioRuntime === runtime) {
+        callMediaState.playbackBlocked = context.state === 'suspended'
       }
     }
-
-    for (const track of pipeline.destination.stream.getAudioTracks()) {
-      connection.addTrack(track, pipeline.destination.stream)
+    pendingContext = undefined
+    localStream = pendingMicrophone
+    pendingMicrophone = undefined
+    const pipeline = await createMicrophonePipeline(localStream)
+    if (!isCurrent(callID, token) || audioRuntime !== runtime) {
+      stopMicrophonePipeline(pipeline)
+      return
     }
-    const offer = await connection.createOffer()
-    await connection.setLocalDescription(offer)
-    await waitForICEGathering(connection)
-    if (generation !== token || currentCallID !== callID) return
-
-    const offerSDP = connection.localDescription?.sdp
-    if (!offerSDP) throw new Error(translate('runtime.audioOfferMissing'))
+    microphonePipeline = pipeline
+    node.port.onmessage = ({ data }: MessageEvent<{ type: string; pcm: Float32Array; index: number; time: number }>) => {
+      if (!isCurrent(callID, token) || audioRuntime !== runtime || !runtime.ready || data.type !== 'capture') return
+      if (runtime.context.currentTime - data.time > CALL_AUDIO_MAX_AGE_MS / 1000 || runtime.encodePending >= MAX_CODEC_PENDING) return
+      if (runtime.captureBase === undefined) runtime.captureBase = data.index
+      // Sequence reflects capture time even when stale frames are discarded.
+      const sequence = (data.index - runtime.captureBase) >>> 0
+      runtime.encodePending += 1
+      if (callMediaState.muted) data.pcm.fill(0)
+      runtime.worker?.postMessage({ type: 'encode', pcm: data.pcm, sequence, time: data.time }, [data.pcm.buffer])
+    }
+    markAudioInputActive()
+    remoteStream = destination.stream
+    attachRemoteAudio(remoteStream)
     callMediaState.status = 'connecting'
-    ownership.claimed = true
-    const answerSDP = await gateway.exchangeCallMedia(
-      callID,
-      ownership.ownerToken,
-      offerSDP,
-      signal
-    )
-    if (generation !== token || currentCallID !== callID) return
-    await connection.setRemoteDescription({ type: 'answer', sdp: answerSDP })
+    await openAudioSocket(callID, token, ownership)
   } catch (error) {
-    if (pendingPipeline) stopMicrophonePipeline(pendingPipeline)
-    else for (const track of pendingMicrophone?.getTracks() || []) track.stop()
+    for (const track of pendingMicrophone?.getTracks() || []) track.stop()
+    if (pendingContext) void pendingContext.close()
     failConnection(callID, token, error)
   }
 }
@@ -387,7 +531,7 @@ async function ownAndConnect(
         }
         mediaOwnership = ownership
         try {
-          await connect(callID, token, ownership, controller.signal)
+          await connect(callID, token, ownership)
           await released
         } finally {
           try {
@@ -468,9 +612,6 @@ export function toggleCallMute(): void {
   if (!localStream) return
   const muted = !callMediaState.muted
   for (const track of localStream.getAudioTracks()) track.enabled = !muted
-  for (const track of microphonePipeline?.destination.stream.getAudioTracks() || []) {
-    track.enabled = !muted
-  }
   callMediaState.muted = muted
 }
 
@@ -480,62 +621,35 @@ export function resumeCallAudio(): void {
 }
 
 async function replaceCallInput(deviceID: string): Promise<void> {
-  if (!peer || !localStream || !microphonePipeline || !currentCallID) return
-  const connection = peer
+  if (!audioRuntime || !localStream || !microphonePipeline || !currentCallID) return
+  const runtime = audioRuntime
   const stream = localStream
   const pipeline = microphonePipeline
   const callID = currentCallID
   const token = ++inputReplaceGeneration
   let replacement: MediaStream | undefined
   let replacementPipeline: MicrophonePipeline | undefined
-
   markAudioInputSwitching()
   try {
-    replacement = await navigator.mediaDevices.getUserMedia({
-      audio: selectedAudioInputConstraints(deviceID),
-      video: false
-    })
-    replacementPipeline = await createMicrophonePipeline(replacement)
-    if (
-      token !== inputReplaceGeneration ||
-      connection !== peer ||
-      stream !== localStream ||
-      callID !== currentCallID
-    ) {
-      stopMicrophonePipeline(replacementPipeline)
-      return
-    }
-
-    const newTrack = replacementPipeline.track
-    const sender = connection
-      .getSenders()
-      .find(candidate => candidate.track?.kind === 'audio')
-    if (!newTrack || !sender) throw new Error(translate('runtime.microphoneTrackMissing'))
-
-    // Keep the replacement silent until it is installed. Mute may change
-    // while replaceTrack is pending, so apply the latest state afterwards.
-    newTrack.enabled = false
+    replacement = await navigator.mediaDevices.getUserMedia({ audio: selectedAudioInputConstraints(deviceID), video: false })
+    // Disable capture before connecting the new graph. Read the latest mute
+    // value only when installed, so an in-flight switch cannot unmute audio.
     for (const track of replacement.getAudioTracks()) track.enabled = false
-    await sender.replaceTrack(newTrack)
-    if (
-      token !== inputReplaceGeneration ||
-      connection !== peer ||
-      stream !== localStream ||
-      callID !== currentCallID
-    ) {
+    if (token !== inputReplaceGeneration || runtime !== audioRuntime || stream !== localStream || callID !== currentCallID) {
+      for (const track of replacement.getTracks()) track.stop()
+      return
+    }
+    replacementPipeline = await createMicrophonePipeline(replacement)
+    if (token !== inputReplaceGeneration || runtime !== audioRuntime || stream !== localStream || callID !== currentCallID) {
       stopMicrophonePipeline(replacementPipeline)
       return
     }
-
     localStream = replacement
     microphonePipeline = replacementPipeline
-    for (const track of localStream.getAudioTracks()) {
-      track.enabled = !callMediaState.muted
-    }
-    newTrack.enabled = !callMediaState.muted
+    stopMicrophonePipeline(pipeline)
+    for (const track of localStream.getAudioTracks()) track.enabled = !callMediaState.muted
     replacement = undefined
     replacementPipeline = undefined
-    stopMicrophonePipeline(pipeline)
     markAudioInputActive()
     void refreshAudioDevices()
   } catch (error) {
@@ -602,6 +716,6 @@ watch(
 watch(
   () => audioState.selectedInputID,
   deviceID => {
-    if (peer && localStream && currentCallID) queueCallInputReplacement(deviceID)
+    if (audioRuntime && localStream && currentCallID) queueCallInputReplacement(deviceID)
   }
 )

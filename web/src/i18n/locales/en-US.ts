@@ -516,12 +516,12 @@ export default {
       'At least one HTTPS route has No TLS Verify turned on, so its origin certificate is not verified. Turn it off.',
     tunnelPublicVerificationFailed:
       'The Tunnel Connector is healthy, but the public API has not verified this instance. The route may still be syncing, or its certificate or SNI configuration may be incorrect.',
-    turnTitle: 'TURN call relay',
+    turnTitle: "TURN relay (legacy clients)",
     turnNotConfigured: 'Not configured',
     turnAvailable: 'Available',
     turnUnavailable: 'Unavailable',
     turnCallUnavailable:
-      'TURN is unavailable. Cloudflare Web and iOS cannot make calls.',
+      "TURN is only used by older clients. Current Web and iOS calls use WSS over HTTPS.",
     cloudflareRequired:
       'Enable Cloudflare Tunnel through the installer before pairing iOS.',
     cloudflareUnavailable:
@@ -1070,7 +1070,7 @@ export default {
   connectivity: {
     remoteAccess: 'Remote access',
     remoteAccessDescription:
-      'Cloudflare Tunnel routes, origin HTTPS, and TURN availability for remote Web and iOS access.'
+      "Cloudflare Tunnel routes and origin HTTPS for remote Web and iOS access."
   },
   tls: {
     automaticCertificate: 'Automatic certificate',
@@ -1157,7 +1157,7 @@ export default {
     failedLineCount: '{failed}/{total} failed',
     failureReason: 'Failure reason',
     httpsRequired: 'Requires a secure HTTPS context',
-    webrtcUnsupported: 'This browser does not support WebRTC microphone access',
+    webrtcUnsupported: "This browser does not support microphone audio processing",
     microphonePermissionWaiting: 'Waiting for microphone permission',
     microphonePermissionRequesting: 'Requesting microphone permission',
     audioAuthorized: 'Authorized · {inputs} inputs · {outputs} outputs',

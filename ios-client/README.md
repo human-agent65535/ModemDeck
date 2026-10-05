@@ -1,7 +1,7 @@
 # ModemDeck iOS
 
 Universal SwiftUI client for iPhone and iPad. The app uses the same authenticated
-ModemDeck API as Web, while Keychain pairing, APNs, PushKit, CallKit, and WebRTC
+ModemDeck API as Web, while Keychain pairing, APNs, PushKit, CallKit, and WSS/Opus
 call audio remain native platform services.
 
 ## UAT milestone
@@ -47,7 +47,7 @@ call audio remain native platform services.
 - Registers standard APNs and VoIP PushKit tokens after pairing and stores them
   through the authenticated `/api/v1/mobile/push` endpoint.
 - Uses CallKit as the owner for incoming and outgoing calls, answer,
-  reject/hang-up, mute, and DTMF, while an audio-only WebRTC peer carries sound
+  reject/hang-up, mute, and DTMF, while an audio-only WSS/Opus stream carries sound
   through the existing call media and lease APIs. The in-app native call surface
   also exposes mute, speaker/receiver routing, connected headset selection,
   keypad, recording, and hang-up after CallKit is hidden.
@@ -56,19 +56,19 @@ call audio remain native platform services.
   original call's state and credential scope before retrying; bearer tokens
   are never stored in the pending-request journal.
 - Offers **Settings → Calls & Audio → Start Call Test** through the same native
-  WebRTC/TURN, media lifecycle and ownership leases as a real call. The server
+  WSS on HTTPS port 443, media lifecycle and ownership leases as a real call. The server
   supplies spoken instructions, a test tone and temporary voice playback without a SIM call,
   recording or durable call history. Pairing's older push-only test still uses
   a local tone and has no server audio session.
-  A countdown and live microphone/received-audio meter make the capture window
+  A countdown and locally measured microphone meter make the capture window
   visible; silent/quiet playback is distinguished from a missing uplink.
 - Offers **Settings → Device Diagnostics → Upload All App Diagnostics**, off
   by default. When enabled, all app diagnostic categories (API, recovery,
   pairing, push, CallKit, audio, permissions, storage and app lifecycle/errors)
-  are sent to the paired server's `/api/v1/mobile/diagnostics` endpoint. TURN
-  events include normalized entry/transport/port, native error code, elapsed
-  time and network type; raw addresses, SDP, credentials and user content are
-  excluded. The device keeps at most 128 local events and 512 pending uploads,
+  are sent to the paired server's `/api/v1/mobile/diagnostics` endpoint. Audio
+  events include WSS connection state, normalized audio route, local capture,
+  successful-send and server-receive counters, elapsed time and network type;
+  raw audio, addresses, credentials and user content are excluded. The device keeps at most 128 local events and 512 pending uploads,
   persists retries across restarts, and isolates queues by pairing. Turning
   off cancels uploads and clears the queue; turning on only sends subsequent
   events. Previously uploaded data remains subject to server log retention.
@@ -249,3 +249,18 @@ physical-device radio changes, background push delivery, or call audio.
    audio, mute, DTMF, hangup, history, and recording playback as applicable.
 6. Revoke the iOS pairing in Web and verify the app returns to onboarding on
    the next request.
+
+Native call audio uses source-built `Copus` from BSD-3-Clause `alta/swift-opus`,
+pinned to revision `6f3cb6bd3ffed1fe5f06d00a962d5c191a50daf8`. No codec runtime
+service is required. AVAudioEngine voice processing provides capture/render AEC
+and AGC after CallKit activation, then converts hardware input to mono 16 kHz
+20 ms Opus packets. The authenticated WSS stream uses the protocol in
+[`docs/call-audio-websocket.md`](../docs/call-audio-websocket.md). Capture and
+playback queues discard stale audio and are limited to 100 ms. The meter is
+measured from processed local capture and displayed at 10 Hz; server reports remain separate from sent counters.
+
+For visual-only audio feedback checks, existing DEBUG UAT call fixtures accept
+`MODEMDECK_UAT_TEST_AUDIO_DYNAMIC=1` alongside `MODEMDECK_UAT_MODE=1`,
+`MODEMDECK_UAT_CALL_STATE=active`, and `MODEMDECK_UAT_TEST_AUDIO=1`. This loops
+low/speaking/silent meter values plus countdown and playback phases at 10 Hz;
+it never activates CallKit, microphone capture, or WSS and is excluded from Release.

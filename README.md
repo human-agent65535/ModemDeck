@@ -49,13 +49,13 @@ sudo ./install.sh
 | M2 单路通话 | ✅ 已实现 | 拨号、接听、拒接、挂断、DTMF、浏览器音频和通话录音。 |
 | M3 多路通话 | 🧪 已实现，未测试 | 每个 Modem 的独立通话会话、线路预占、占线显示和线路切换；待多模组实机验证。 |
 | M4 多用户 | ✅ 已实现 | 初始管理员、普通成员、线路分配、用户通讯录、个人偏好和 Telegram 绑定。 |
-| M5 iOS App + CallKit | 🧪 原生通话链路已实现，待实网 UAT | 已实现按用户配对、受限 Mobile Bearer API、APNs/PushKit、CallKit 接听与拨出、原生 WebRTC 音频、静音、DTMF、挂断及服务端测试来电。iOS 固定使用 Cloudflare HTTPS 并通过 TURN 中继通话媒体；Apple provider 凭据必须在服务器本地配置。 |
+| M5 iOS App + CallKit | 🧪 原生通话链路已实现，待实网 UAT | 已实现按用户配对、受限 Mobile Bearer API、APNs/PushKit、CallKit 接听与拨出、原生语音处理、静音、DTMF、挂断及服务端测试来电。iOS 使用 Cloudflare HTTPS/WSS 传输 Opus 音频；Apple provider 凭据必须在服务器本地配置。 |
 
 只有安装并连接 Cloudflare Tunnel 后才能创建 iOS 配对。二维码包含自动发现的
 Cloudflare API HTTPS 地址和每用户凭据，不包含 LAN 地址，也没有过期时间；
 首次通过该凭据认证的 iOS API 请求会确认配对，关闭二维码不影响等待确认。
-凭据由用户或管理员撤销后才失效。iOS 通话复用现有 Call API、通话租约和 WebRTC
-媒体边界，并通过 Cloudflare TURN 强制中继；来电、拨出、接听、静音、DTMF 与
+凭据由用户或管理员撤销后才失效。iOS 与 Web 通话复用现有 Call API、通话租约和
+公共 PCM 媒体核心，通过 WSS 双向传输 Opus；来电、拨出、接听、静音、DTMF 与
 挂断均由 CallKit 作为原生状态所有者。配对后的 iOS 客户端会把 APNs 与 PushKit
 token 注册到 `/api/v1/mobile/push`。服务端按用户线路权限发送新短信通知，并只为
 允许接听的新来电发送 VoIP push；客户端收到 VoIP payload 后交给 CallKit。
@@ -249,7 +249,7 @@ covered in the [deployment guide](deploy/README.md).
 | M2 Single-call flow | ✅ Implemented | Dial, answer, decline, hang up, DTMF, browser audio, and call recording. |
 | M3 Concurrent calls | 🧪 Implemented, not tested | Independent sessions per modem, line reservations, busy-state display, and line switching; pending multi-modem hardware validation. |
 | M4 Multi-user | ✅ Implemented | Initial administrator, members, line assignments, user address books, personal preferences, and Telegram bindings. |
-| M5 iOS app + CallKit | 🧪 Native call path implemented; carrier UAT pending | Per-user pairing, a constrained Mobile Bearer API, APNs/PushKit, CallKit incoming and outgoing calls, native WebRTC audio, mute, DTMF, hang-up, and a server-originated test call are implemented. iOS always uses Cloudflare HTTPS and relays call media through TURN; Apple provider credentials must be configured locally on the server. |
+| M5 iOS app + CallKit | 🧪 Native call path implemented; carrier UAT pending | Per-user pairing, a constrained Mobile Bearer API, APNs/PushKit, CallKit incoming and outgoing calls, native voice processing, mute, DTMF, hang-up, and a server-originated test call are implemented. iOS carries Opus audio over Cloudflare HTTPS/WSS; Apple provider credentials must be configured locally on the server. |
 
 An iOS pairing can be created only while the installed Cloudflare Tunnel is
 connected. The QR payload contains the automatically discovered Cloudflare API
@@ -259,8 +259,8 @@ QR request. Creating a new QR replaces only that pending request, never an
 already paired device. The first authenticated iOS API request confirms the
 pairing; closing the QR does not cancel the pending credential. Each paired
 device remains valid until the user or an administrator revokes it. iOS calls
-reuse the Call API, call lease, and WebRTC media boundaries with Cloudflare TURN
-relay-only configuration. CallKit
+reuse the Call API, call lease, and shared PCM media core with Web calls, carrying
+bidirectional Opus frames over WSS. CallKit
 owns incoming and outgoing call state, answering, mute, DTMF, and hang-up.
 After pairing, the client registers APNs and PushKit tokens through
 `/api/v1/mobile/push`. The server sends new-message alerts according to each

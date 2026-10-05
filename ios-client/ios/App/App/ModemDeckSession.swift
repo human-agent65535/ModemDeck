@@ -471,6 +471,9 @@ struct ModemDeckPresentedCall: Identifiable, Equatable {
     var capturedPeakDBFS = -96
     var receivedPackets = 0
     var microphoneDBFS: Int?
+    var mediaState = "connecting"
+    var localCapturedFrames = 0
+    var localSentPackets = 0
 
     var id: String { callID }
 }
@@ -539,7 +542,10 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 serverInputDBFS: state["serverInputDBFS"] as? Int ?? -96,
                 capturedPeakDBFS: state["capturedPeakDBFS"] as? Int ?? -96,
                 receivedPackets: state["receivedPackets"] as? Int ?? 0,
-                microphoneDBFS: state["microphoneDBFS"] as? Int
+                microphoneDBFS: state["microphoneDBFS"] as? Int,
+                mediaState: state["mediaState"] as? String ?? "connecting",
+                localCapturedFrames: state["localCapturedFrames"] as? Int ?? 0,
+                localSentPackets: state["localSentPackets"] as? Int ?? 0
             )
             self.call = presentedCall
             if previousCall?.callID != callID {
@@ -866,27 +872,32 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
               ["ringing", "connecting", "active"].contains(state) else {
             return
         }
-        DispatchQueue.main.async { [weak self] in
-            let audioTest = environment["MODEMDECK_UAT_TEST_AUDIO"] == "1"
-            self?.callStateDidChange([
-                "callID": "uat-call-surface",
-                "lineID": "uat-line-a",
-                "remoteNumber": "+1 202 555 0102",
-                "displayName": "UAT Call",
-                "direction": state == "ringing" ? "incoming" : "outgoing",
-                "state": state,
-                "testCall": audioTest,
-                "testAudio": audioTest,
-                "testPhase": audioTest ? "speak" : "",
-                "testRemainingMS": 3000,
-                "microphoneDBFS": -24,
-                "serverInputDBFS": -26,
-                "capturedPeakDBFS": -18,
-                "receivedPackets": 120,
-                "muted": false,
-                "createdAt": ISO8601DateFormatter().string(from: Date()),
-                "activeAt": ISO8601DateFormatter().string(from: Date())
-            ])
+        let dynamic = environment["MODEMDECK_UAT_TEST_AUDIO_DYNAMIC"] == "1"
+        publishUATCallState(state: state, audioTest: environment["MODEMDECK_UAT_TEST_AUDIO"] == "1",
+                            dynamic: dynamic, startedAt: ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// Visual fixture only. No audio engine, microphone, CallKit, or WSS is started.
+    private func publishUATCallState(state: String, audioTest: Bool, dynamic: Bool, startedAt: Double) {
+        let elapsed = (ProcessInfo.processInfo.systemUptime - startedAt).truncatingRemainder(dividingBy: 10)
+        let phase = !dynamic || elapsed < 6 ? "speak" : (elapsed < 9 ? "playback" : "pause")
+        let remaining = dynamic ? Int(max(0, (elapsed < 6 ? 6 - elapsed : (elapsed < 9 ? 9 - elapsed : 10 - elapsed)) * 1000)) : 3000
+        let level = dynamic ? (elapsed < 2 ? -70 : (elapsed < 4 ? Int(-24 + sin(elapsed * 12) * 12) : -96)) : -24
+        callStateDidChange([
+            "callID": "uat-call-surface", "lineID": "uat-line-a", "remoteNumber": "+1 202 555 0102",
+            "displayName": "UAT Call", "direction": state == "ringing" ? "incoming" : "outgoing",
+            "state": state, "testCall": audioTest, "testAudio": audioTest,
+            "testPhase": audioTest ? phase : "", "testRemainingMS": remaining,
+            "microphoneDBFS": level, "serverInputDBFS": -26, "capturedPeakDBFS": -18,
+            "receivedPackets": 120, "localCapturedFrames": 160, "localSentPackets": 150,
+            "mediaState": "active", "muted": false,
+            "createdAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime)),
+            "activeAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime))
+        ])
+        if dynamic {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.publishUATCallState(state: state, audioTest: audioTest, dynamic: dynamic, startedAt: startedAt)
+            }
         }
     }
     #endif

@@ -106,6 +106,7 @@ COPY --chown=101:101 web/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=101:101 --chmod=0755 scripts/nginx-entrypoint.sh /usr/local/bin/modemdeck-web-entrypoint
 COPY --from=web-builder --chown=101:101 /workspace/web/dist/ /usr/share/nginx/html/
 COPY LICENSE NOTICE.md THIRD_PARTY_NOTICES.md /usr/share/licenses/modemdeck/
+COPY web/THIRD_PARTY_NOTICES.md /usr/share/licenses/modemdeck/web-THIRD_PARTY_NOTICES.md
 
 LABEL org.opencontainers.image.title="ModemDeck Web" \
       org.opencontainers.image.description="ModemDeck Web frontend and API reverse proxy" \

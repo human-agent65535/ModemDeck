@@ -55,7 +55,7 @@ test('call ownership uses independent control and server media liveness', async 
   assert.match(runtimeEvents, /onHeartbeat:[\s\S]*?lastHeartbeatAt/)
   assert.match(
     callMedia,
-    /connection\.connectionState === 'disconnected'\) \{[\s\S]*?callMediaState\.status = 'recovering'/
+    /function recoverConnection[\s\S]*?callMediaState\.status = 'recovering'/
   )
   assert.match(
     callState,

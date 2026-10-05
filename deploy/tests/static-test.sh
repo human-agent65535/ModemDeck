@@ -306,15 +306,18 @@ grep -Fq 'proxy_pass http://modemdeck_api;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not proxy API requests"
 grep -Fq 'proxy_buffering off;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx would buffer API event streams"
-connection_header_count=$(grep -Fc 'proxy_set_header Connection "";' "${repo_dir}/web/nginx.conf" || true)
+connection_header_count=$(grep -Fc 'proxy_set_header Connection $websocket_connection;' "${repo_dir}/web/nginx.conf" || true)
 [ "$connection_header_count" -eq 3 ] ||
-    fail "Nginx API proxies do not consistently preserve upstream keepalive"
-if grep -Fq 'proxy_set_header Upgrade ' "${repo_dir}/web/nginx.conf"; then
-    fail "Nginx carries an unused WebSocket upgrade header"
-fi
-if grep -Fq 'map $http_upgrade ' "${repo_dir}/web/nginx.conf"; then
-    fail "Nginx carries an unused WebSocket connection map"
-fi
+    fail "Nginx API proxies do not consistently select keepalive or WebSocket upgrade"
+upgrade_header_count=$(grep -Fc 'proxy_set_header Upgrade $websocket_upgrade;' "${repo_dir}/web/nginx.conf" || true)
+[ "$upgrade_header_count" -eq 3 ] ||
+    fail "Nginx API proxies do not consistently forward WebSocket upgrades"
+grep -Fq 'map $http_upgrade $websocket_upgrade {' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not restrict forwarded Upgrade values"
+grep -Fq '~*^websocket$ websocket;' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx accepts unsupported Upgrade values"
+grep -Fq 'map $websocket_upgrade $websocket_connection {' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not preserve keepalive for non-WebSocket requests"
 grep -Fq 'MODEMDECK_WEB_TLS_DIRECTORY' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
     fail "Nginx entrypoint does not read the managed Web certificate directory"
 grep -Fq '"${tls_directory}/automatic-server.pem"' \

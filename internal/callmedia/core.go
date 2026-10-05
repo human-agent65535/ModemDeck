@@ -48,6 +48,7 @@ type Core struct {
 	lifetimes      map[string]*callLifetime
 	authority      map[string]struct{}
 	authorityKnown bool
+	finalStats     map[string]AudioStatistics
 	prepares       sync.WaitGroup
 	openings       sync.WaitGroup
 }
@@ -124,6 +125,7 @@ func New(options Options) (*Core, error) {
 		ctx:                ctx,
 		cancel:             cancel,
 		owners:             make(map[string]*mediaOwner),
+		finalStats:         make(map[string]AudioStatistics),
 		exchanges:          make(map[string]*exchangeAttempt),
 		hubs:               make(map[string]*hubEntry),
 		lifetimes:          make(map[string]*callLifetime),
@@ -717,6 +719,8 @@ func (c *Core) commit(
 	if !exists || current != owner || owner == nil || owner.session != nil {
 		return ErrCallInUse
 	}
+	session.baseStats = c.finalStats[callID]
+	delete(c.finalStats, callID)
 	owner.session = session
 	return nil
 }
@@ -770,6 +774,14 @@ func (c *Core) releaseWhenDone(
 	<-session.Done()
 	c.mu.Lock()
 	if c.owners[callID] == owner && owner.session == session {
+		if len(c.finalStats) >= 256 {
+			for id := range c.finalStats {
+				delete(c.finalStats, id)
+				break
+			}
+		}
+		c.finalStats[callID] = session.Statistics()
+		session.hub.discardUplink()
 		if owner.connected {
 			c.notifyOwnerState(callID, false)
 		}

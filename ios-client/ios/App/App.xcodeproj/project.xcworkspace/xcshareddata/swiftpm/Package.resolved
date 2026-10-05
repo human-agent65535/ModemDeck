@@ -11,12 +11,11 @@
       }
     },
     {
-      "identity" : "webrtc",
+      "identity" : "swift-opus",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/stasel/WebRTC.git",
+      "location" : "https://github.com/alta/swift-opus.git",
       "state" : {
-        "revision" : "19aa8c1fc7120d50df987b7111f42d5024df3d54",
-        "version" : "151.0.0"
+        "revision" : "6f3cb6bd3ffed1fe5f06d00a962d5c191a50daf8"
       }
     }
   ],

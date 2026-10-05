@@ -3,6 +3,7 @@ module github.com/human-agent65535/modemdeck
 go 1.26.5
 
 require (
+	github.com/gorilla/websocket v1.5.3
 	github.com/nyaruka/phonenumbers/v2 v2.0.5
 	github.com/pion/interceptor v0.1.47
 	github.com/pion/rtp v1.10.5

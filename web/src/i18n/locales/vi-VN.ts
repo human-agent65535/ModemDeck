@@ -497,11 +497,11 @@ export default {
     "originHTTP2Recommended": "Origin HTTPS đã được cấu hình nhưng ít nhất một tuyến chưa bật HTTP2 connection.",
     "originTLSVerificationDisabled": "Ít nhất một tuyến HTTPS đang bật No TLS Verify nên chứng chỉ origin không được xác minh. Hãy tắt tùy chọn này.",
     "tunnelPublicVerificationFailed": "Tunnel Connector hoạt động bình thường nhưng API công khai chưa xác minh được phiên bản này. Tuyến có thể đang đồng bộ hoặc cấu hình chứng chỉ hay SNI chưa đúng.",
-    "turnTitle": "Chuyển tiếp cuộc gọi TURN",
+    "turnTitle": "Chuyển tiếp TURN (ứng dụng cũ)",
     "turnNotConfigured": "Chưa cấu hình",
     "turnAvailable": "Khả dụng",
     "turnUnavailable": "Không khả dụng",
-    "turnCallUnavailable": "TURN không khả dụng. Cloudflare Web và iOS không thể thực hiện cuộc gọi.",
+    "turnCallUnavailable": "TURN chỉ dành cho ứng dụng cũ. Cuộc gọi Web và iOS hiện tại dùng WSS qua HTTPS.",
     "cloudflareRequired": "Hãy bật Cloudflare Tunnel trong trình cài đặt trước khi ghép đôi iOS.",
     "cloudflareUnavailable": "Cloudflare Tunnel đã bật nhưng tuyến API công khai chưa xác minh phiên bản này. Không thể ghép đôi cho đến khi có thể truy cập.",
     "yourDevice": "Thiết bị Apple của bạn",
@@ -1029,7 +1029,7 @@ export default {
   },
   "connectivity": {
     "remoteAccess": "Truy cập từ xa",
-    "remoteAccessDescription": "Các tuyến Cloudflare Tunnel, HTTPS origin và khả năng sẵn sàng của TURN cho truy cập Web và iOS từ xa."
+    "remoteAccessDescription": "Các tuyến Cloudflare Tunnel và HTTPS origin cho truy cập Web và iOS từ xa."
   },
   "tls": {
     "automaticCertificate": "Chứng chỉ tự động",
@@ -1108,7 +1108,7 @@ export default {
     "failedLineCount": "{failed}/{total} bị lỗi",
     "failureReason": "Nguyên nhân lỗi",
     "httpsRequired": "Yêu cầu bối cảnh HTTPS an toàn",
-    "webrtcUnsupported": "Trình duyệt này không hỗ trợ truy cập micrô WebRTC",
+    "webrtcUnsupported": "Trình duyệt này không hỗ trợ xử lý âm thanh micrô",
     "microphonePermissionWaiting": "Đang chờ cấp phép micrô",
     "microphonePermissionRequesting": "Yêu cầu quyền sử dụng micrô",
     "audioAuthorized": "Đã cấp quyền · {inputs} đầu vào · {outputs} đầu ra",

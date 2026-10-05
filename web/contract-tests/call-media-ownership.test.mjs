@@ -24,7 +24,7 @@ test('one tab exclusively owns browser call media', () => {
   assert.match(callMedia, /globalThis\.crypto\.randomUUID\(\)/)
   assert.match(
     callMedia,
-    /gateway\.exchangeCallMedia\([\s\S]*?ownership\.ownerToken[\s\S]*?offerSDP/
+    /connection\.send\(JSON\.stringify\(\{ type: \'start\',[\s\S]*?owner_token: ownership\.ownerToken/
   )
   assert.match(
     callMedia,
@@ -32,29 +32,14 @@ test('one tab exclusively owns browser call media', () => {
   )
 })
 
-test('browser media only gives transient disconnection one fixed recovery window', () => {
+test('browser socket recovery has one fixed deadline and owner-scoped cleanup', () => {
   assert.match(callMedia, /const MEDIA_RECOVERY_TIMEOUT_MS = 15_000/)
-  assert.match(
-    callMedia,
-    /connection\.connectionState === 'disconnected'[\s\S]*?beginRecoveryWindow\(callID, token\)/
-  )
-  assert.match(
-    callMedia,
-    /connection\.connectionState === 'failed'\) \{\s*failConnection\(/
-  )
-  assert.doesNotMatch(
-    callMedia,
-    /connection\.connectionState === 'failed'\) \{\s*beginRecoveryWindow\(/
-  )
-  assert.match(
-    callMedia,
-    /connection\.connectionState === 'connected'[\s\S]*?clearRecoveryWindow\(\)/
-  )
-  assert.match(
-    callMedia,
-    /connection\.connectionState === 'closed'[\s\S]*?failConnection\(/
-  )
-  assert.doesNotMatch(callMedia, /restartIce|iceRestart/)
+  assert.match(callMedia, /if \(recoveryTimeoutID !== undefined\) return/)
+  assert.match(callMedia, /function recoverConnection[\s\S]*?clearSocketResources\(\)[\s\S]*?beginRecoveryWindow\(callID, token\)[\s\S]*?callMediaState.status = 'recovering'/)
+  assert.match(callMedia, /releaseCallMedia\(callID, ownership.ownerToken\)[\s\S]*?isCurrent\(callID, token\)[\s\S]*?openAudioSocket/)
+  assert.match(callMedia, /function settleMediaRecovery[\s\S]*?runtime.sentFrames < MEDIA_STABLE_FRAMES[\s\S]*?runtime.receivedFrames < MEDIA_STABLE_FRAMES[\s\S]*?clearRecoveryWindow\(\)/)
+  assert.match(callMedia, /event.code === 1008[\s\S]*?failConnection/)
+  assert.doesNotMatch(callMedia, /RTCPeerConnection|exchangeCallMedia|getCallMediaICEConfiguration/)
 })
 
 test('session changes release media before credentials are revoked', () => {

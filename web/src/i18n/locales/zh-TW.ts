@@ -505,11 +505,11 @@ export default {
       '至少一條 HTTPS 路由開啟了 No TLS Verify，來源站憑證將不會被驗證。建議關閉。',
     tunnelPublicVerificationFailed:
       'Tunnel Connector 正常，但公網 API 尚未通過執行個體驗證。路由設定可能仍在同步，或存在憑證、SNI 等錯誤。',
-    turnTitle: 'TURN 通話中繼',
+    turnTitle: "TURN 中繼（舊版用戶端）",
     turnNotConfigured: '未設定',
     turnAvailable: '可用',
     turnUnavailable: '不可用',
-    turnCallUnavailable: 'TURN 不可用，透過 Cloudflare 的 Web 與 iOS 無法通話。',
+    turnCallUnavailable: "TURN 僅供舊版用戶端使用；目前 Web 與 iOS 通話使用 HTTPS 上的 WSS。",
     cloudflareRequired: '必須先透過安裝程式啟用 Cloudflare Tunnel，才能配對 iOS。',
     cloudflareUnavailable: 'Cloudflare Tunnel 已啟用，但公網 API 入口尚未通過執行個體驗證，恢復可達前無法配對。',
     yourDevice: '你的 Apple 裝置',
@@ -1047,7 +1047,7 @@ export default {
   },
   connectivity: {
     remoteAccess: '遠端存取',
-    remoteAccessDescription: '供遠端 Web 與 iOS 存取的 Cloudflare Tunnel 路由、來源 HTTPS 與 TURN 可用性。'
+    remoteAccessDescription: "供遠端 Web 與 iOS 存取的 Cloudflare Tunnel 路由與來源 HTTPS。"
   },
   tls: {
     automaticCertificate: '自動證書',
@@ -1126,7 +1126,7 @@ export default {
     failedLineCount: '{failed}/{total} 條失敗',
     failureReason: '失敗原因',
     httpsRequired: '需要 HTTPS 安全上下文',
-    webrtcUnsupported: '當前瀏覽器不支援 WebRTC 麥克風',
+    webrtcUnsupported: "目前瀏覽器不支援麥克風音訊處理",
     microphonePermissionWaiting: '等待麥克風授權',
     microphonePermissionRequesting: '正在請求麥克風許可權',
     audioAuthorized: '已授權 · 輸入 {inputs} · 輸出 {outputs}',

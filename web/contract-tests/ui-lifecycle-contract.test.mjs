@@ -238,7 +238,7 @@ test('active calls apply output changes and replace input before stopping the ol
     'function queueCallInputReplacement(deviceID: string): void {'
   )
 
-  const replaceTrackIndex = replaceInput.indexOf('await sender.replaceTrack(newTrack)')
+  const replaceTrackIndex = replaceInput.indexOf('await createMicrophonePipeline(replacement)')
   const commitStreamIndex = replaceInput.indexOf('localStream = replacement')
   const stopOldStreamIndex = replaceInput.indexOf(
     'stopMicrophonePipeline(pipeline)'
@@ -254,11 +254,11 @@ test('active calls apply output changes and replace input before stopping the ol
   assert.match(callMedia, /!session\.media_available/)
   assert.match(
     callMedia,
-    /connection\.connectionState === 'disconnected'\) \{[\s\S]*?callMediaState\.status = 'recovering'/
+    /function recoverConnection[\s\S]*?callMediaState\.status = 'recovering'/
   )
-  assert.doesNotMatch(
+  assert.match(
     callMedia,
-    /connection\.connectionState === 'disconnected'\) \{\s*failConnection\(/
+    /connection\.onclose = event[\s\S]*?else recoverConnection\(callID, token, ownership\)/
   )
 })
 

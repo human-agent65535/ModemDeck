@@ -497,11 +497,11 @@ export default {
     "originHTTP2Recommended": "Origin HTTPS est configuré, mais HTTP2 connection n’est pas activé sur au moins une route.",
     "originTLSVerificationDisabled": "No TLS Verify est activé sur au moins une route HTTPS ; son certificat d’origine n’est donc pas vérifié. Désactivez cette option.",
     "tunnelPublicVerificationFailed": "Tunnel Connector fonctionne, mais l’API publique n’a pas encore vérifié cette instance. La route est peut-être encore en cours de synchronisation, ou sa configuration de certificat ou de SNI est incorrecte.",
-    "turnTitle": "Relais d’appel TURN",
+    "turnTitle": "Relais TURN (anciens clients)",
     "turnNotConfigured": "Non configuré",
     "turnAvailable": "Disponible",
     "turnUnavailable": "Indisponible",
-    "turnCallUnavailable": "TURN est indisponible. Cloudflare Web et iOS ne peuvent pas passer d’appels.",
+    "turnCallUnavailable": "TURN est réservé aux anciens clients. Les appels Web et iOS actuels utilisent WSS via HTTPS.",
     "cloudflareRequired": "Activez Cloudflare Tunnel dans l’installateur avant de jumeler iOS.",
     "cloudflareUnavailable": "Cloudflare Tunnel est activé, mais la route API publique n’a pas vérifié cette instance. Le jumelage reste indisponible tant qu’elle n’est pas accessible.",
     "yourDevice": "Vos appareils Apple",
@@ -1029,7 +1029,7 @@ export default {
   },
   "connectivity": {
     "remoteAccess": "Accès à distance",
-    "remoteAccessDescription": "Routes Cloudflare Tunnel, HTTPS d’origine et disponibilité de TURN pour l’accès distant Web et iOS."
+    "remoteAccessDescription": "Routes Cloudflare Tunnel et HTTPS d’origine pour l’accès distant Web et iOS."
   },
   "tls": {
     "automaticCertificate": "Certificat automatique",
@@ -1108,7 +1108,7 @@ export default {
     "failedLineCount": "{failed}/{total} en échec",
     "failureReason": "Cause de l’échec",
     "httpsRequired": "Nécessite un contexte HTTPS sécurisé",
-    "webrtcUnsupported": "Ce navigateur ne prend pas en charge l'accès au microphone WebRTC",
+    "webrtcUnsupported": "Ce navigateur ne prend pas en charge le traitement audio du microphone",
     "microphonePermissionWaiting": "En attente de l'autorisation du microphone",
     "microphonePermissionRequesting": "Demander l'autorisation du microphone",
     "audioAuthorized": "Autorisé · Entrées {inputs} · Sorties {outputs}",

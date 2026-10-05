@@ -6,6 +6,9 @@ const limits = {
   initialRequests: 12,
   initialGzip: 230 * kibibyte,
   javascriptGzip: 100 * kibibyte,
+  // The pinned MIT/BSD libopus WASM is embedded in this worker. It loads only
+  // when starting call audio and must never enter the startup requests.
+  callCodecGzip: 180 * kibibyte,
   stylesheetGzip: 20 * kibibyte
 }
 
@@ -80,9 +83,16 @@ if (startupGzip > limits.initialGzip) {
     `worst-case startup JS/CSS is ${formatKibibytes(startupGzip)} gzip (limit ${formatKibibytes(limits.initialGzip)})`
   )
 }
-if (largestJavaScript && largestJavaScript.gzip > limits.javascriptGzip) {
+const lazyCallCodec = measuredAssets.find(asset => /^callOpus\.worker-.*\.js$/.test(asset.name))
+if (lazyCallCodec && (uniqueInitialPaths.some(path => path.endsWith(lazyCallCodec.name)) || lazyCallCodec.gzip > limits.callCodecGzip)) {
+  violations.push(`call codec must stay lazy and below ${formatKibibytes(limits.callCodecGzip)} gzip`)
+}
+const largestApplicationJavaScript = measuredAssets
+  .filter(asset => asset.type === 'js' && asset !== lazyCallCodec)
+  .sort((left, right) => right.gzip - left.gzip)[0]
+if (largestApplicationJavaScript && largestApplicationJavaScript.gzip > limits.javascriptGzip) {
   violations.push(
-    `${largestJavaScript.name} is ${formatKibibytes(largestJavaScript.gzip)} gzip (JS limit ${formatKibibytes(limits.javascriptGzip)})`
+    `${largestApplicationJavaScript.name} is ${formatKibibytes(largestApplicationJavaScript.gzip)} gzip (JS limit ${formatKibibytes(limits.javascriptGzip)})`
   )
 }
 if (largestStylesheet && largestStylesheet.gzip > limits.stylesheetGzip) {

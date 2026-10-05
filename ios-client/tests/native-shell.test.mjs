@@ -92,7 +92,7 @@ test('native iOS registers APNs and PushKit tokens after pairing', async () => {
   assert.match(info, /<string>audio<\/string>/)
 })
 
-test('CallKit owns native WebRTC audio and keeps synthetic calls local', async () => {
+test('CallKit owns native WSS Opus audio and keeps synthetic calls local', async () => {
   const [native, audio, bridge, builder, project, resolved] = await Promise.all([
     source('ios/App/App/ModemDeckNative.swift'),
     source('ios/App/App/ModemDeckCallAudio.swift'),
@@ -102,22 +102,28 @@ test('CallKit owns native WebRTC audio and keeps synthetic calls local', async (
     source('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved')
   ])
 
-  assert.match(project, /stasel\/WebRTC\.git/)
-  assert.match(project, /kind = exactVersion;[\s\S]*version = 151\.0\.0;/)
-  assert.match(project, /WebRTC in Frameworks/)
-  assert.match(resolved, /"identity" : "webrtc"/)
-  assert.match(audio, /useManualAudio = true/)
-  assert.match(audio, /audioSessionDidActivate/)
-  assert.match(audio, /func start\(audioSession: AVAudioSession\)/)
-  assert.match(audio, /outputFormat\(forBus: 0\)/)
-  assert.match(audio, /overrideOutputAudioPort\(\.speaker\)/)
-  assert.ok(
-    audio.indexOf('player.scheduleBuffer') < audio.indexOf('try engine.start()'),
-    'the test tone must be scheduled before the CallKit-owned audio engine starts'
-  )
-  assert.match(audio, /callPath\("media\/ice"\)/)
+  assert.match(project, /alta\/swift-opus\.git/)
+  assert.match(project, /kind = revision;[\s\S]*revision = 6f3cb6bd3ffed1fe5f06d00a962d5c191a50daf8;/)
+  assert.match(project, /Copus in Frameworks/)
+  assert.match(resolved, /"identity" : "swift-opus"/)
+  assert.doesNotMatch(audio, /import WebRTC|RTCPeerConnection/)
+  assert.match(audio, /func didActivate/)
+  assert.match(audio, /guard !stopped, activated, ready, engine == nil/)
+  assert.match(audio, /setVoiceProcessingEnabled\(true\)/)
+  assert.match(audio, /isVoiceProcessingAGCEnabled = true/)
+  assert.match(audio, /opus_encode_float/)
+  assert.match(audio, /opus_decode_float/)
+  assert.match(audio, /callPath\("media\/ws"\)/)
+  assert.match(audio, /components\.scheme = "wss"/)
   assert.match(audio, /callPath\("media"\)/)
   assert.match(audio, /callPath\("lease"\)/)
+  assert.match(audio, /sendQueue\.count >= 4/)
+  assert.match(audio, /playbackPending >= 5/)
+  assert.match(audio, /reconnectAttempts < 4/)
+  assert.match(audio, /timeoutIntervalForResource = 24 \* 60 \* 60/)
+  assert.match(audio, /func start\(audioSession: AVAudioSession\)/)
+  assert.match(audio, /overrideOutputAudioPort\(\.speaker\)/)
+  assert.ok(audio.indexOf('player.scheduleBuffer(buffer, at: nil, options: .loops)') < audio.lastIndexOf('try engine.start()'))
   assert.match(native, /audioSession\.connect/)
   assert.match(native, /sendEndCallAction\(verb: "hangup"/)
   assert.match(native, /sendCallAction\([\s\S]*verb: "dtmf"/)
@@ -643,19 +649,10 @@ test('native communication avatars and phone copying follow the Web identity rul
   assert.match(calls, /ModemDeckRecordingRow[\s\S]*ModemDeckCommunicationAvatar\([\s\S]*channel: \.recording/)
 })
 
-test('native archives generate a UUID-checked WebRTC dSYM', async () => {
-  const [project, script] = await Promise.all([
-    source('ios/App/App.xcodeproj/project.pbxproj'),
-    source('scripts/generate-webrtc-dsym.sh')
-  ])
-
-  assert.match(project, /Generate WebRTC dSYM/)
-  assert.match(project, /scripts\/generate-webrtc-dsym\.sh/)
-  assert.match(project, /DWARF_DSYM_FOLDER_PATH.*WebRTC\.framework\.dSYM/)
-  assert.match(script, /ACTION:-.*install/)
-  assert.match(script, /xcrun dsymutil/)
-  assert.ok((script.match(/xcrun dwarfdump --uuid/g) || []).length >= 2)
-  assert.match(script, /binary_uuids.*!=.*dsym_uuids/)
+test('native source-built Opus does not embed a WebRTC binary or generated dSYM phase', async () => {
+  const project = await source('ios/App/App.xcodeproj/project.pbxproj')
+  assert.doesNotMatch(project, /WebRTC|generate-webrtc-dsym/)
+  assert.match(project, /productName = Copus;/)
 })
 
 test('native communication density keeps compact visuals and full touch targets', async () => {

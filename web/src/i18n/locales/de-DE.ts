@@ -497,11 +497,11 @@ export default {
     "originHTTP2Recommended": "Origin HTTPS ist konfiguriert, aber bei mindestens einer Route ist HTTP2 connection noch nicht aktiviert.",
     "originTLSVerificationDisabled": "Bei mindestens einer HTTPS-Route ist No TLS Verify aktiviert, sodass das Origin-Zertifikat nicht geprüft wird. Deaktiviere diese Option.",
     "tunnelPublicVerificationFailed": "Der Tunnel Connector ist funktionsfähig, aber die öffentliche API hat diese Instanz noch nicht verifiziert. Die Route wird möglicherweise noch synchronisiert oder ihre Zertifikat- bzw. SNI-Konfiguration ist fehlerhaft.",
-    "turnTitle": "TURN-Anruf-Relay",
+    "turnTitle": "TURN-Relay (ältere Clients)",
     "turnNotConfigured": "Nicht konfiguriert",
     "turnAvailable": "Verfügbar",
     "turnUnavailable": "Nicht verfügbar",
-    "turnCallUnavailable": "TURN ist nicht verfügbar. Cloudflare Web und iOS können keine Anrufe führen.",
+    "turnCallUnavailable": "TURN wird nur von älteren Clients verwendet. Aktuelle Web- und iOS-Anrufe verwenden WSS über HTTPS.",
     "cloudflareRequired": "Cloudflare Tunnel muss vor der iOS-Kopplung im Installer aktiviert werden.",
     "cloudflareUnavailable": "Cloudflare Tunnel ist aktiviert, aber die öffentliche API-Route hat diese Instanz nicht verifiziert. Die Kopplung bleibt bis zur Erreichbarkeit deaktiviert.",
     "yourDevice": "Deine Apple-Geräte",
@@ -1029,7 +1029,7 @@ export default {
   },
   "connectivity": {
     "remoteAccess": "Fernzugriff",
-    "remoteAccessDescription": "Cloudflare-Tunnel-Routen, Origin-HTTPS und TURN-Verfügbarkeit für den Fernzugriff über Web und iOS."
+    "remoteAccessDescription": "Cloudflare-Tunnel-Routen und Origin-HTTPS für den Remotezugriff über Web und iOS."
   },
   "tls": {
     "automaticCertificate": "Automatisches Zertifikat",
@@ -1108,7 +1108,7 @@ export default {
     "failedLineCount": "{failed}/{total} ausgefallen",
     "failureReason": "Fehlerursache",
     "httpsRequired": "Erfordert einen sicheren HTTPS-Kontext",
-    "webrtcUnsupported": "Dieser Browser unterstützt keinen WebRTC-Mikrofonzugriff",
+    "webrtcUnsupported": "Dieser Browser unterstützt keine Mikrofon-Audioverarbeitung",
     "microphonePermissionWaiting": "Warten auf Mikrofonerlaubnis",
     "microphonePermissionRequesting": "Bitte um Mikrofonerlaubnis",
     "audioAuthorized": "Autorisiert · {inputs} Eingänge · {outputs} Ausgänge",

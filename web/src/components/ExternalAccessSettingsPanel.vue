@@ -639,8 +639,7 @@ onBeforeUnmount(() => {
           <span
             class="ios-status"
             :class="{
-              'is-active': externalAccess.turn.available,
-              'is-blocked': !externalAccess.turn.available
+              'is-active': externalAccess.turn.available
             }"
           >
             {{
@@ -654,7 +653,7 @@ onBeforeUnmount(() => {
         </template>
         <div
           v-if="!externalAccess.turn.available"
-          class="ios-notice ios-notice--danger"
+          class="ios-notice"
         >
           {{ t('iosPairing.turnCallUnavailable') }}
         </div>

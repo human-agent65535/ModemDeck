@@ -1,0 +1,53 @@
+{
+  "model": "hexgrad/Kokoro-82M-v1.1-zh",
+  "revision": "01e7505bd6a7a2ac4975463114c3a7650a9f7218",
+  "model_sha256": "b1d8410fa44dfb5c15471fd6c4225ea6b4e9ac7fa03c98e8bea47a9928476e2b",
+  "license": "Apache-2.0",
+  "sample_rate": 16000,
+  "channels": 1,
+  "frame_ms": 20,
+  "kokoro": "0.9.4",
+  "misaki": "0.9.4",
+  "prompts": {
+    "zh-guide": {
+      "text": "听到提示音后，请说几句话。",
+      "voice": "zf_001",
+      "speed": 0.95,
+      "voice_sha256": "9bdc9a87e13e9bb1ea3e7803259c2ecbfebaeeb2ff80b5d0c76df1a464c1c962",
+      "pcm_sha256": "9cc87301eabcfcc1521bd903e44506a637bb4a60e75781295f9ba55d290404af",
+      "seconds": 4.26,
+      "rms_dbfs": -22.98,
+      "peak_dbfs": -4.38
+    },
+    "zh-playback": {
+      "text": "现在，回放你刚才的声音。",
+      "voice": "zf_001",
+      "speed": 0.95,
+      "voice_sha256": "9bdc9a87e13e9bb1ea3e7803259c2ecbfebaeeb2ff80b5d0c76df1a464c1c962",
+      "pcm_sha256": "e933671160ff5f3746f2f27bed98f3bd9a8bbbf06816e921fa0ac8fd52a3aec7",
+      "seconds": 3.9,
+      "rms_dbfs": -23.09,
+      "peak_dbfs": -6.05
+    },
+    "en-guide": {
+      "text": "After the beep, say a few words.",
+      "voice": "af_maple",
+      "speed": 0.95,
+      "voice_sha256": "f1211a6b94795d843cb7957568ccf2208e6ce76d2fbb36c7279b24e1be9b862f",
+      "pcm_sha256": "b2ac3b91ddb0443fd63d388495ee90fb07db5719aeed741da7e08088705bfa43",
+      "seconds": 3.38,
+      "rms_dbfs": -24.18,
+      "peak_dbfs": -3.54
+    },
+    "en-playback": {
+      "text": "Now, listen to your voice.",
+      "voice": "af_maple",
+      "speed": 0.95,
+      "voice_sha256": "f1211a6b94795d843cb7957568ccf2208e6ce76d2fbb36c7279b24e1be9b862f",
+      "pcm_sha256": "95401aebc337b630e76fc1db228acc27a03778cba6abcf070deea8280312961a",
+      "seconds": 3.0,
+      "rms_dbfs": -24.3,
+      "peak_dbfs": -3.82
+    }
+  }
+}

@@ -505,11 +505,11 @@ export default {
       '至少一条 HTTPS 路由开启了 No TLS Verify，源站证书不会被验证。建议关闭。',
     tunnelPublicVerificationFailed:
       'Tunnel Connector 正常，但公网 API 尚未通过实例校验。路由配置可能仍在同步，或存在证书、SNI 等错误。',
-    turnTitle: 'TURN 通话中继',
+    turnTitle: "TURN 中继（旧版客户端）",
     turnNotConfigured: '未配置',
     turnAvailable: '可用',
     turnUnavailable: '不可用',
-    turnCallUnavailable: 'TURN 不可用，通过 Cloudflare 的 Web 与 iOS 无法通话。',
+    turnCallUnavailable: "TURN 仅用于旧版客户端；当前 Web 与 iOS 通话使用 HTTPS 上的 WSS。",
     cloudflareRequired: '需要先通过安装器启用 Cloudflare Tunnel，才能配对 iOS。',
     cloudflareUnavailable: 'Cloudflare Tunnel 已启用，但公网 API 入口尚未通过实例校验，恢复可达前不能配对。',
     yourDevice: '你的 Apple 设备',
@@ -1047,7 +1047,7 @@ export default {
   },
   connectivity: {
     remoteAccess: '远程接入',
-    remoteAccessDescription: '用于远程 Web 与 iOS 接入的 Cloudflare Tunnel 路由、源站 HTTPS 与 TURN 可用性。'
+    remoteAccessDescription: "用于远程 Web 与 iOS 接入的 Cloudflare Tunnel 路由与源站 HTTPS。"
   },
   tls: {
     automaticCertificate: '自动证书',
@@ -1126,7 +1126,7 @@ export default {
     failedLineCount: '{failed}/{total} 条失败',
     failureReason: '失败原因',
     httpsRequired: '需要 HTTPS 安全上下文',
-    webrtcUnsupported: '当前浏览器不支持 WebRTC 麦克风',
+    webrtcUnsupported: "当前浏览器不支持麦克风音频处理",
     microphonePermissionWaiting: '等待麦克风授权',
     microphonePermissionRequesting: '正在请求麦克风权限',
     audioAuthorized: '已授权 · 输入 {inputs} · 输出 {outputs}',

@@ -8,6 +8,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
+	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/calltest"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
 )
@@ -64,7 +65,7 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 	}
 	id, action := parts[0], strings.Join(parts[1:], "/")
 	method := http.MethodPost
-	if action == "status" || action == "active" {
+	if action == "status" || action == "active" || action == "media/ws" {
 		method = http.MethodGet
 	}
 	if action == "lease" {
@@ -126,6 +127,14 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 			return
 		}
 		response.WriteHeader(http.StatusNoContent)
+	case "media/ws":
+		if err := api.callTests.RequireMedia(request.Context(), id, owner); err != nil {
+			api.writeCallTestError(response, request, err)
+			return
+		}
+		api.serveMediaSocket(response, request, func(token string, transport callmedia.SocketTransport) (*callmedia.Session, error) {
+			return api.callTests.OpenSocket(request.Context(), id, owner, token, transport)
+		}, func() error { return api.callTests.RequireMedia(request.Context(), id, owner) })
 	case "media/ice":
 		configuration, err := api.callTests.Configuration(request.Context(), id, owner)
 		if err != nil {
@@ -170,7 +179,7 @@ func (api *API) writeCallTestError(response http.ResponseWriter, request *http.R
 	case errors.Is(err, calltest.ErrEnded):
 		writeError(response, http.StatusGone, "test_call_ended", "The test call has ended", "")
 	case errors.Is(err, calltest.ErrUnavailable):
-		writeError(response, http.StatusServiceUnavailable, "test_call_unavailable", "Call tests require configured Apple push and TURN", "")
+		writeError(response, http.StatusServiceUnavailable, "test_call_unavailable", "Call tests require configured Apple push", "")
 	case errors.Is(err, calllease.ErrInvalidArgument), errors.Is(err, calllease.ErrCallNotFound), errors.Is(err, calllease.ErrCallNotActive), errors.Is(err, calllease.ErrCallOwned), errors.Is(err, calllease.ErrHolderBusy), errors.Is(err, calllease.ErrNotOwner):
 		api.writeCallLeaseError(response, request, "control test call owner", err)
 	case errors.Is(err, mediaapp.ErrInvalidArgument), errors.Is(err, mediaapp.ErrNotFound), errors.Is(err, mediaapp.ErrNotActive), errors.Is(err, mediaapp.ErrUnavailable), errors.Is(err, mediaapp.ErrConflict), errors.Is(err, mediaapp.ErrNegotiation):

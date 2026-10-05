@@ -321,13 +321,13 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
 
     static func sanitize(_ fields: [String: String]) -> [String: String] {
         let numbers: Set<String> = ["elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "candidates", "relay_candidates",
-            "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets"]
+            "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets"]
         let flags: Set<String> = ["expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "microphone_track_enabled", "reused_connection"]
         let enums: [String: Set<String>] = [
             "input_route": ["none", "microphone", "receiver", "speaker", "bluetooth", "headphones", "external"],
             "output_route": ["none", "microphone", "receiver", "speaker", "bluetooth", "headphones", "external"],
             "http_protocol": ["h2", "h3", "http/1.1", "other"],
-            "stage": ["idle", "waiting_for_active_call", "fetching_turn_configuration", "creating_offer", "setting_local_description", "gathering_candidates", "exchanging_offer", "applying_answer", "connecting_ice", "connected"],
+            "stage": ["idle", "waiting_for_active_call", "fetching_turn_configuration", "creating_offer", "setting_local_description", "gathering_candidates", "exchanging_offer", "applying_answer", "connecting_ice", "connecting_wss", "reconnecting_wss", "connected"],
             "method": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
             "error_domain": ["url", "cocoa", "osstatus", "callkit", "webrtc", "call_audio", "api", "other"],
             "turn_transport": ["udp", "tcp", "tls"], "turn_host": ["cloudflare", "other"],

@@ -497,11 +497,11 @@ export default {
     "originHTTP2Recommended": "Origin HTTPS está configurado, pero al menos una ruta no tiene activado HTTP2 connection.",
     "originTLSVerificationDisabled": "Al menos una ruta HTTPS tiene activado No TLS Verify, por lo que no se verifica su certificado de origen. Desactívalo.",
     "tunnelPublicVerificationFailed": "Tunnel Connector funciona correctamente, pero la API pública aún no ha verificado esta instancia. La ruta puede seguir sincronizándose o tener una configuración incorrecta de certificado o SNI.",
-    "turnTitle": "Retransmisión TURN",
+    "turnTitle": "Retransmisión TURN (clientes antiguos)",
     "turnNotConfigured": "No configurado",
     "turnAvailable": "Disponible",
     "turnUnavailable": "No disponible",
-    "turnCallUnavailable": "TURN no está disponible. Cloudflare Web e iOS no pueden realizar llamadas.",
+    "turnCallUnavailable": "TURN solo se usa en clientes antiguos. Las llamadas actuales de Web e iOS usan WSS sobre HTTPS.",
     "cloudflareRequired": "Activa Cloudflare Tunnel en el instalador antes de emparejar iOS.",
     "cloudflareUnavailable": "Cloudflare Tunnel está activado, pero la ruta de API pública no ha verificado esta instancia. El emparejamiento no estará disponible hasta que sea accesible.",
     "yourDevice": "Tus dispositivos Apple",
@@ -1029,7 +1029,7 @@ export default {
   },
   "connectivity": {
     "remoteAccess": "Acceso remoto",
-    "remoteAccessDescription": "Rutas de Cloudflare Tunnel, HTTPS de origen y disponibilidad de TURN para el acceso remoto desde Web e iOS."
+    "remoteAccessDescription": "Rutas de Cloudflare Tunnel y HTTPS de origen para acceso remoto desde Web e iOS."
   },
   "tls": {
     "automaticCertificate": "Certificado automático",
@@ -1108,7 +1108,7 @@ export default {
     "failedLineCount": "{failed}/{total} con fallo",
     "failureReason": "Motivo del fallo",
     "httpsRequired": "Requiere un contexto HTTPS seguro",
-    "webrtcUnsupported": "Este navegador no admite el acceso al micrófono WebRTC",
+    "webrtcUnsupported": "Este navegador no admite el procesamiento de audio del micrófono",
     "microphonePermissionWaiting": "Esperando permiso del micrófono",
     "microphonePermissionRequesting": "Solicitando permiso de micrófono",
     "audioAuthorized": "Autorizados · {inputs} entradas · {outputs} salidas",

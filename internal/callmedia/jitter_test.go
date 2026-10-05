@@ -66,7 +66,7 @@ func TestPlayoutSplitsVariableSixtyMillisecondPacket(t *testing.T) {
 	}
 }
 
-func TestPlayoutUsesPLCForTimestampGapAndStopsAtBound(t *testing.T) {
+func TestPlayoutUsesPLCThenSilenceAndRecoversAfterLongGap(t *testing.T) {
 	format := testFormat(8000)
 	config, err := (JitterConfig{MaxConcealment: 40 * time.Millisecond}).normalized()
 	if err != nil {
@@ -124,9 +124,22 @@ func TestPlayoutUsesPLCForTimestampGapAndStopsAtBound(t *testing.T) {
 	if err := bounded.nextFrame(frame); err != nil {
 		t.Fatal(err)
 	}
-	if err := bounded.nextFrame(frame); !errors.Is(err, ErrMediaGap) {
-		t.Fatalf("concealment bound error = %v", err)
+	if err := bounded.nextFrame(frame); err != nil {
+		t.Fatal(err)
 	}
+	if !allBytes(frame, 0) {
+		t.Fatal("extended microphone gap must become silence")
+	}
+	if err := empty.push(testRTP(11, 9700, 20, 0x55)); err != nil {
+		t.Fatal(err)
+	}
+	if err := bounded.nextFrame(frame); err != nil {
+		t.Fatal(err)
+	}
+	if !allBytes(frame, 0x55) {
+		t.Fatal("audio did not resume after extended gap")
+	}
+
 }
 
 func TestJitterCapacityAndSequenceWrapAreBounded(t *testing.T) {

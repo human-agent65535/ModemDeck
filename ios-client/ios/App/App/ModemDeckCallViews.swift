@@ -2347,6 +2347,8 @@ struct ModemDeckActiveCallView: View {
     }
 
     private var stateText: String {
+        if call.mediaState == "reconnecting" { return controller.text("正在恢复音频连接…", "Reconnecting audio…") }
+        if call.mediaState == "waiting_for_audio" { return controller.text("等待系统启用音频…", "Waiting for system audio…") }
         if call.testCall {
             if call.state == "connecting" { return controller.text("正在连接测试音频…", "Connecting test audio…") }
             if isActive && call.testAudio {
@@ -2408,10 +2410,11 @@ struct ModemDeckActiveCallView: View {
 
     private var testAudioFeedback: some View {
         VStack(spacing: 8) {
-            Text(call.microphoneDBFS == nil ? controller.text("服务端收音", "Received audio") : controller.text("麦克风", "Microphone"))
+            Text(controller.text("麦克风", "Microphone"))
                 .font(.caption).foregroundColor(.mdMuted)
-            ProgressView(value: Double(max(0, min(60, (call.microphoneDBFS ?? call.serverInputDBFS) + 60))) / 60)
+            ProgressView(value: Double(max(0, min(60, (call.microphoneDBFS ?? -96) + 60))) / 60)
                 .tint(.mdAccent)
+                .animation(reduceMotion ? nil : .linear(duration: 0.1), value: call.microphoneDBFS)
                 .accessibilityLabel(controller.text("收音电平", "Microphone level"))
             Text(testAudioHint).font(.caption).foregroundColor(.mdMuted)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
@@ -2423,7 +2426,11 @@ struct ModemDeckActiveCallView: View {
     private var testAudioHint: String {
         if call.muted { return controller.text("麦克风已静音", "Microphone is muted") }
         if ["playback", "playback_prompt", "pause"].contains(call.testPhase) {
-            if call.receivedPackets == 0 { return controller.text("服务端尚未收到麦克风音频", "No microphone audio has reached the server") }
+            if call.receivedPackets == 0 {
+                if call.localCapturedFrames == 0 { return controller.text("等待麦克风开始收音", "Waiting for microphone capture") }
+                if call.localSentPackets == 0 { return controller.text("正在发送麦克风音频…", "Sending microphone audio…") }
+                return controller.text("等待服务端确认收音…", "Waiting for the server audio report…")
+            }
             if call.capturedPeakDBFS <= -80 { return controller.text("未检测到声音，请检查麦克风", "No sound detected. Check your microphone") }
             if call.capturedPeakDBFS < -40 { return controller.text("收音偏小，请靠近麦克风再试", "Audio is quiet. Move closer to the microphone") }
             return controller.text("请确认能否听清自己的回放", "Check whether you can hear your voice clearly")

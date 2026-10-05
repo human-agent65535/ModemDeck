@@ -19,11 +19,9 @@ final class Owner {
         owner!.setMuted(true)
         queue.sync {}
         precondition(owner!.muted, "mute must be retained before an audio track exists")
-        queue.sync { owner!.installLocalAudioTrack(Track()) }
-        precondition(!owner!.localAudioTrack!.isEnabled, "new track must inherit the pending mute")
         owner!.setMuted(false)
         queue.sync {}
-        precondition(owner!.localAudioTrack!.isEnabled)
+        precondition(!owner!.muted)
         queue.suspend()
         weak var released = owner
         owner!.stop()

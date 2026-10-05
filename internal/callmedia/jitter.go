@@ -242,6 +242,11 @@ func (p *rtpPlayout) fill() error {
 	}
 
 	delta := int64(int32(packet.timestamp - p.expectedTimestamp))
+	if delta < 0 && p.concealed >= p.config.MaxConcealment {
+		p.expectedTimestamp = packet.timestamp
+		p.concealed = 0
+		delta = 0
+	}
 	if delta < 0 {
 		p.jitter.consume(packet.sequence)
 		return nil
@@ -252,7 +257,10 @@ func (p *rtpPlayout) fill() error {
 		}
 		gapDuration := time.Duration(delta) * time.Second / RTPClockRate
 		if p.concealed+gapDuration > p.config.MaxConcealment {
-			return ErrMediaGap
+			p.expectedTimestamp = packet.timestamp
+			p.concealed = 0
+			p.jitter.rebase(packet.sequence)
+			return nil
 		}
 		duration := concealmentChunk(
 			gapDuration,
@@ -296,7 +304,11 @@ func (p *rtpPlayout) appendConcealment(duration time.Duration) error {
 		return fmt.Errorf("conceal missing Opus packet: duration: %w", ErrInvalidRTP)
 	}
 	if p.concealed+duration > p.config.MaxConcealment {
-		return ErrMediaGap
+		if err := p.appendPCM(make([]byte, p.format.samples(duration)*bytesPerPCMSample)); err != nil {
+			return err
+		}
+		p.expectedTimestamp += uint32(int64(RTPClockRate) * int64(duration) / int64(time.Second))
+		return nil
 	}
 	pcm, err := p.codec.Conceal(duration)
 	if err != nil {

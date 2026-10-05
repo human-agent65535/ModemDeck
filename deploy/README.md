@@ -206,8 +206,13 @@ sudo ./install.sh \
   --cloudflare-token-file /root/modemdeck-cloudflare.token
 ```
 
-For Cloudflare Web and iOS call media, also create a Realtime TURN key and add
-its credentials:
+Current Web and iOS call media use authenticated WSS on the same HTTPS origin,
+with binary Opus frames and no TURN requirement. Deploy the API and Web proxy
+together: the proxy must forward WebSocket upgrades on `/api/`. See the
+[audio protocol](../docs/call-audio-websocket.md) for framing and recovery.
+
+During an upgrade from older WebRTC clients, retain the existing Realtime TURN
+key. Its optional compatibility configuration is:
 
 ```sh
 sudo ./install.sh \
@@ -238,10 +243,15 @@ Origin TLS card. Reverse those Tunnel changes before removing the certificate.
 The installer and Web application do not request a broader Tunnel-edit API
 credential.
 
-Paired clients receive short-lived relay-only ICE configurations, while the
-long-lived TURN API token remains available only to the API container.
+Legacy clients receive short-lived relay-only ICE configurations, while the
+long-lived TURN API token remains available only to the API container. Current
+WSS clients do not request ICE credentials or fall back to TURN. Keep TURN until
+the deployed Web bundle and all paired iOS devices have upgraded and both-way
+audio, receiver/speaker routing, lock-screen calls and recovery have been checked.
 `--disable-cloudflare-turn` removes TURN from the running stack while retaining
-the Tunnel connector and persisted credentials. `--disable-cloudflare` removes
+the Tunnel connector and persisted credentials. Once that transition is verified,
+revoke the dedicated TURN key with its provider and remove its local secret; do
+not revoke the separate Tunnel token. `--disable-cloudflare` removes
 the connector and disables new iOS pairing while retaining application data.
 
 There is no LAN discovery or LAN endpoint in an iOS QR payload. Every iOS

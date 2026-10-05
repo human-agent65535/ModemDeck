@@ -1,7 +1,6 @@
 import AVFoundation
 import Combine
 import UIKit
-import WebRTC
 
 /// Controls the audio session already activated by CallKit. It never activates
 /// another session or creates a player/capture unit.
@@ -36,15 +35,11 @@ final class ModemDeckAudioRoute: NSObject, ObservableObject {
 
     private func select(speaker: Bool, input: AVAudioSessionPortDescription?) {
         guard active else { return }
-        let rtc = RTCAudioSession.sharedInstance()
-        rtc.lockForConfiguration()
-        defer { rtc.unlockForConfiguration() }
+        let session = AVAudioSession.sharedInstance()
         do {
             let builtIn = AVAudioSession.sharedInstance().availableInputs?.first { $0.portType == .builtInMic }
-            // WebRTC's Objective-C wrapper marks this parameter nonnull; AVAudioSession
-            // supports nil to clear the preference. Keep its configuration lock.
             try AVAudioSession.sharedInstance().setPreferredInput(speaker ? nil : (input ?? builtIn))
-            try rtc.overrideOutputAudioPort(speaker ? .speaker : .none)
+            try session.overrideOutputAudioPort(speaker ? .speaker : .none)
             errorMessage = ""
             refresh()
         } catch {

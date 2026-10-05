@@ -497,11 +497,11 @@ export default {
     "originHTTP2Recommended": "Origin HTTPS は設定済みですが、少なくとも 1 つのルートで HTTP2 connection が有効になっていません。",
     "originTLSVerificationDisabled": "少なくとも 1 つの HTTPS ルートで No TLS Verify が有効なため、オリジン証明書が検証されません。無効にしてください。",
     "tunnelPublicVerificationFailed": "Tunnel Connector は正常ですが、公開 API はこのインスタンスをまだ検証できていません。ルートの同期中か、証明書または SNI の設定が正しくない可能性があります。",
-    "turnTitle": "TURN 通話リレー",
+    "turnTitle": "TURN リレー（旧クライアント）",
     "turnNotConfigured": "未設定",
     "turnAvailable": "利用可能",
     "turnUnavailable": "利用不可",
-    "turnCallUnavailable": "TURN を利用できないため、Cloudflare Web と iOS では通話できません。",
+    "turnCallUnavailable": "TURN は旧クライアント専用です。現在の Web と iOS の通話は HTTPS 上の WSS を使用します。",
     "cloudflareRequired": "iOS をペアリングする前に、インストーラーで Cloudflare Tunnel を有効にしてください。",
     "cloudflareUnavailable": "Cloudflare Tunnel は有効ですが、公開 API ルートでこのインスタンスを確認できません。到達可能になるまでペアリングできません。",
     "yourDevice": "あなたの Apple デバイス",
@@ -1029,7 +1029,7 @@ export default {
   },
   "connectivity": {
     "remoteAccess": "リモートアクセス",
-    "remoteAccessDescription": "リモート Web および iOS アクセス向けの Cloudflare Tunnel ルート、オリジン HTTPS、TURN の可用性。"
+    "remoteAccessDescription": "リモート Web と iOS アクセス用の Cloudflare Tunnel ルートとオリジン HTTPS。"
   },
   "tls": {
     "automaticCertificate": "自動証明書",
@@ -1108,7 +1108,7 @@ export default {
     "failedLineCount": "{failed}/{total}回線で障害",
     "failureReason": "障害理由",
     "httpsRequired": "安全なHTTPSコンテキストが必要です",
-    "webrtcUnsupported": "このブラウザは WebRTC マイク アクセスをサポートしていません",
+    "webrtcUnsupported": "このブラウザはマイク音声処理に対応していません",
     "microphonePermissionWaiting": "マイクの許可を待っています",
     "microphonePermissionRequesting": "マイクの許可をリクエストしています",
     "audioAuthorized": "承認済み · {inputs} 入力 · {outputs} 出力",

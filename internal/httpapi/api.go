@@ -554,6 +554,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			api.callAction(response, request, id, action)
 			return
 		}
+		if id, ok := callMediaSocketResourceID(request.URL.Path); ok {
+			api.callMediaSocket(response, request, id)
+			return
+		}
 		if id, ok := callMediaICEConfigurationResourceID(
 			request.URL.Path,
 		); ok {

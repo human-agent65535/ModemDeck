@@ -485,3 +485,20 @@ func (h *mediaHub) cleanup() {
 	h.mu.Unlock()
 	close(h.done)
 }
+
+// discardUplink prevents a replacement owner from replaying microphone frames
+// queued by the previous owner. Recording history in played remains intact.
+func (h *mediaHub) discardUplink() {
+	if h == nil {
+		return
+	}
+	h.writeMu.Lock()
+	defer h.writeMu.Unlock()
+	for {
+		select {
+		case <-h.uplink:
+		default:
+			return
+		}
+	}
+}

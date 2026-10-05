@@ -120,6 +120,41 @@ func (s *Service) Exchange(
 	return result.AnswerSDP, nil
 }
 
+// OpenSocket validates authoritative business state before attaching to the
+// shared media core. HTTP has already authenticated and required the call lease.
+func (s *Service) OpenSocket(ctx context.Context, callID, ownerToken string, transport callmedia.SocketTransport) (*callmedia.Session, error) {
+	if strings.TrimSpace(callID) == "" || strings.TrimSpace(ownerToken) == "" {
+		return nil, ErrInvalidArgument
+	}
+	if _, err := s.refresher.Refresh(ctx); err != nil {
+		return nil, ErrUnavailable
+	}
+	call, err := s.calls.CallByID(ctx, callID)
+	if errors.Is(err, store.ErrCallNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	if call.Phase != "active" {
+		return nil, ErrNotActive
+	}
+	if !call.MediaAvailable {
+		return nil, ErrUnavailable
+	}
+	core, ok := s.core.(interface {
+		OpenSocket(context.Context, callmedia.ActiveCall, string, callmedia.SocketTransport) (*callmedia.Session, error)
+	})
+	if !ok {
+		return nil, ErrUnavailable
+	}
+	session, err := core.OpenSocket(ctx, callmedia.ActiveCall{ID: call.ID, State: callmedia.CallStateActive}, ownerToken, transport)
+	if err != nil {
+		return nil, classifyCoreError(err)
+	}
+	return session, nil
+}
+
 // Configuration is shared by offer negotiation and temporary-call ICE setup.
 func (s *Service) Configuration(ctx context.Context, relayOnly bool) (rtcconfig.Configuration, error) {
 	if !relayOnly {

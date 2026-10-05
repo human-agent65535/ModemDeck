@@ -24,17 +24,17 @@ const ref = value => ({ value })
 
 test('microphone replacement stays silent until installed and preserves the latest mute choice', async () => {
   for (const initialMute of [true, false]) {
-    const raw = { enabled: true }, outgoing = { kind: 'audio', enabled: true }
-    const replacement = { getAudioTracks: () => [raw] }
+    const raw = { enabled: true }
+    const replacement = { getAudioTracks: () => [raw], getTracks: () => [raw] }
     const state = { muted: initialMute }
     const context = evaluate(functions('state/callMedia.ts', ['replaceCallInput']), {
-      peer: { getSenders: () => [{ track: { kind: 'audio' }, replaceTrack: async track => {
-        assert.equal(track.enabled, false, 'no audio leaks during replacement')
-        if (!initialMute) state.muted = true
-      } }] },
-      localStream: {}, microphonePipeline: {}, currentCallID: 'call-test', inputReplaceGeneration: 0,
+      audioRuntime: {}, localStream: {}, microphonePipeline: {}, currentCallID: 'call-test', inputReplaceGeneration: 0,
       navigator: { mediaDevices: { getUserMedia: async () => replacement } },
-      selectedAudioInputConstraints: () => ({}), createMicrophonePipeline: async () => ({ track: outgoing }),
+      selectedAudioInputConstraints: () => ({}), createMicrophonePipeline: async () => {
+        assert.equal(raw.enabled, false, 'new capture is silent before graph connection')
+        if (!initialMute) state.muted = true
+        return {}
+      },
       stopMicrophonePipeline() {}, markAudioInputSwitching() {}, markAudioInputActive() {},
       refreshAudioDevices: async () => {}, markAudioInputError(error) { assert.fail(error) },
       mediaError: error => String(error), translate: key => key, callMediaState: state
@@ -42,7 +42,6 @@ test('microphone replacement stays silent until installed and preserves the late
     await context.replaceCallInput('replacement')
     assert.equal(state.muted, true)
     assert.equal(raw.enabled, false)
-    assert.equal(outgoing.enabled, false)
   }
 })
 

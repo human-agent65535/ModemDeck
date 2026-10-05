@@ -187,14 +187,14 @@ call. There are two positive liveness sources.
 
 ### Media liveness
 
-For an active media-capable call, the server-side WebRTC session is the strong
+For an active media-capable call, the server-side media session is the strong
 liveness signal. `connected` and the existing bounded `recovering` period are
 alive. Loss of SSE or ordinary API connectivity does not affect ownership
 while that media session exists.
 
 Explicit authentication revocation is not a liveness failure. It overrides
 `mediaAlive`, makes further media/control requests fail, closes the existing
-PeerConnection, and starts a targeted hangup immediately without an orphan
+WSS connection (or legacy PeerConnection), and starts a targeted hangup immediately without an orphan
 grace.
 
 When the media session finishes after its transport recovery window, the media
@@ -202,7 +202,7 @@ runtime notifies the ownership manager and starts the orphan deadline. The
 same holder may establish a new media session before that deadline.
 
 The media owner token remains a separate technical boundary. It prevents two
-simultaneous PeerConnections for one call; it neither grants nor transfers
+simultaneous WSS or legacy WebRTC sessions for one call; it neither grants nor transfers
 business call ownership.
 
 ### Control liveness

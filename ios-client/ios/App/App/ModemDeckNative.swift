@@ -538,6 +538,9 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         var capturedPeakDBFS = -96
         var receivedPackets = 0
         var microphoneDBFS: Int?
+        var mediaState = "connecting"
+        var localCapturedFrames = 0
+        var localSentPackets = 0
     }
 
     private struct CallControlTarget {
@@ -2162,6 +2165,9 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             "testAudio": audioTestCallUUIDs.contains(uuid),
             "testPhase": call.testPhase,
             "testRemainingMS": call.testRemainingMS,
+            "mediaState": call.mediaState,
+            "localCapturedFrames": call.localCapturedFrames,
+            "localSentPackets": call.localSentPackets,
             "serverInputDBFS": call.serverInputDBFS,
             "capturedPeakDBFS": call.capturedPeakDBFS,
             "receivedPackets": call.receivedPackets,
@@ -2323,6 +2329,16 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             self.presentedCalls[uuid]?.capturedPeakDBFS = status.capturedPeakDBFS
             self.presentedCalls[uuid]?.receivedPackets = status.receivedPackets
             self.publishCallState()
+        }
+        audioSession.onMediaStateChanged = { [weak self] state in
+            guard let self, self.presentedCalls[uuid] != nil else { return }
+            self.presentedCalls[uuid]?.mediaState = state
+            self.publishCallState()
+        }
+        audioSession.onLocalAudioCountsChanged = { [weak self] captured, sent in
+            guard let self, self.presentedCalls[uuid] != nil else { return }
+            self.presentedCalls[uuid]?.localCapturedFrames = captured
+            self.presentedCalls[uuid]?.localSentPackets = sent
         }
         audioSession.onMicrophoneLevelChanged = { [weak self] level in
             guard let self, self.presentedCalls[uuid] != nil else { return }

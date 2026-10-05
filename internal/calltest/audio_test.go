@@ -45,3 +45,23 @@ func TestGuidanceCaptureAndPlaybackLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestAudioStatusRetainsFinalCaptureMetricsWithoutRetainingAudio(t *testing.T) {
+	endpoint := newAudioEndpoint()
+	endpoint.mu.Lock()
+	endpoint.capturedFrames = 200
+	endpoint.samples = 320
+	endpoint.sumSquares = float64(3277 * 3277 * 320)
+	endpoint.peak = 3277
+	endpoint.mu.Unlock()
+	if err := endpoint.Close(); err != nil {
+		t.Fatal(err)
+	}
+	final := endpoint.Snapshot()
+	if final.Phase != "completed" || final.CapturedFrames != 200 || final.CapturedDBFS != -20 || final.CapturedPeakDBFS != -20 {
+		t.Fatalf("lost final capture statistics: %+v", final)
+	}
+	if len(endpoint.clip) != 0 {
+		t.Fatal("completed test retained captured audio")
+	}
+}

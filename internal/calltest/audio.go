@@ -102,6 +102,11 @@ func (e *audioEndpoint) Snapshot() AudioStatus {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	status := AudioStatus{Phase: "connecting", CapturedDBFS: -96, CapturedPeakDBFS: -96}
+	status.CapturedFrames = e.capturedFrames
+	if e.samples > 0 {
+		status.CapturedDBFS = toDBFS(math.Sqrt(e.sumSquares / float64(e.samples)))
+	}
+	status.CapturedPeakDBFS = toDBFS(e.peak)
 	if e.closed {
 		status.Phase = "completed"
 		return status
@@ -122,11 +127,6 @@ func (e *audioEndpoint) Snapshot() AudioStatus {
 			break
 		}
 	}
-	status.CapturedFrames = e.capturedFrames
-	if e.samples > 0 {
-		status.CapturedDBFS = toDBFS(math.Sqrt(e.sumSquares / float64(e.samples)))
-	}
-	status.CapturedPeakDBFS = toDBFS(e.peak)
 	return status
 }
 

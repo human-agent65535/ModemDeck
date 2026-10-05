@@ -1,6 +1,6 @@
 import AVFoundation
 import Foundation
-import WebRTC
+import Copus
 
 enum ModemDeckCallAudioError: LocalizedError {
     case callEnded
@@ -8,7 +8,6 @@ enum ModemDeckCallAudioError: LocalizedError {
     case mediaUnavailable
     case invalidResponse
     case negotiationFailed
-    case relayUnavailable
     case timedOut
 
     var errorDescription: String? {
@@ -23,8 +22,6 @@ enum ModemDeckCallAudioError: LocalizedError {
             return "ModemDeck returned invalid call audio data."
         case .negotiationFailed:
             return "The iOS device could not establish call audio."
-        case .relayUnavailable:
-            return "The call audio relay could not be reached. Check your network and try again."
         case .timedOut:
             return "Call audio took too long to connect."
         }
@@ -74,30 +71,6 @@ struct ModemDeckActiveCallsResponse: Decodable {
     }
 }
 
-private struct ModemDeckICEConfiguration: Decodable {
-    struct Server: Decodable {
-        let urls: [String]
-        let username: String?
-        let credential: String?
-    }
-
-    let iceServers: [Server]
-    let transportPolicy: String
-
-    enum CodingKeys: String, CodingKey {
-        case iceServers = "ice_servers"
-        case transportPolicy = "ice_transport_policy"
-    }
-}
-
-private struct ModemDeckMediaAnswer: Decodable {
-    let answerSDP: String
-
-    enum CodingKeys: String, CodingKey {
-        case answerSDP = "answer_sdp"
-    }
-}
-
 private struct ModemDeckHTTPError: LocalizedError {
     let status: Int
 
@@ -106,175 +79,629 @@ private struct ModemDeckHTTPError: LocalizedError {
     }
 }
 
+struct ModemDeckAudioPacket {
+    let sequence: UInt32
+    let timestamp: UInt32
+    let payload: Data
+    static func encode(sequence: UInt32, timestamp: UInt32, payload: Data) -> Data {
+        var data = Data([0x4d, 0x44, 1, 0])
+        for value in [sequence, timestamp] {
+            data.append(contentsOf: [UInt8(value >> 24), UInt8((value >> 16) & 255), UInt8((value >> 8) & 255), UInt8(value & 255)])
+        }
+        data.append(payload); return data
+    }
+    static func decode(_ data: Data) -> ModemDeckAudioPacket? {
+        let bytes = Array(data)
+        guard (13...1287).contains(bytes.count), Array(bytes.prefix(4)) == [0x4d, 0x44, 1, 0] else { return nil }
+        func uint32(_ offset: Int) -> UInt32 {
+            (0..<4).reduce(UInt32(0)) { ($0 << 8) | UInt32(bytes[offset + $1]) }
+        }
+        return ModemDeckAudioPacket(sequence: uint32(4), timestamp: uint32(8), payload: Data(bytes.dropFirst(12)))
+    }
+}
+
+/// Remote sample ticks define playout age, independent of receive bursts.
+struct ModemDeckAudioClock {
+    private var sequence: UInt32?
+    private var timestamp: UInt32?
+    private var due = 0.0
+    private var lastArrival: Double?
+    private var recoveryCadence = 0
+    mutating func accept(sequence next: UInt32, timestamp ticks: UInt32, now: Double) -> Bool? {
+        var advance: UInt32 = 1
+        if let sequence, let timestamp {
+            advance = next &- sequence
+            guard Int32(bitPattern: advance) > 0, ticks &- timestamp == advance &* 320 else { return nil }
+            due += Double(advance) * 0.02
+        } else { due = now }
+        sequence = next; timestamp = ticks
+        let gap = lastArrival.map { now - $0 }
+        lastArrival = now
+        let age = now - due
+        if age > 0.1 || age < -0.1 {
+            // Discard stale bursts, then recover a persistent latency change
+            // only after three arrivals resume the real-time sample cadence.
+            let normalGap = gap.map { advance <= 5 && (0.012...0.028).contains($0 / Double(advance)) } ?? false
+            recoveryCadence = normalGap ? recoveryCadence + 1 : 0
+            if recoveryCadence >= 3 {
+                due = now; recoveryCadence = 0; return true
+            }
+            return false
+        }
+        recoveryCadence = 0
+        return true
+    }
+}
+
+/// Ready is transport negotiation only; stable duplex media retires a retry budget.
+struct ModemDeckMediaRecoveryHealth {
+    private var readyAt = Double.infinity
+    private var sentBase = 0
+    private var renderedBase = 0
+    mutating func markReady(now: Double, sent: Int, rendered: Int) {
+        readyAt = now; sentBase = sent; renderedBase = rendered
+    }
+    func isStable(now: Double, sent: Int, rendered: Int, lastSent: Double, lastRendered: Double) -> Bool {
+        now - readyAt >= 1 && sent - sentBase >= 25 && rendered - renderedBase >= 25 &&
+            now - lastSent <= 0.1 && now - lastRendered <= 0.1
+    }
+}
+
+/// One media owner for real and server test calls. CallKit alone activates audio.
 final class ModemDeckCallAudioSession: NSObject {
     typealias ConnectionCompletion = (Result<Void, Error>) -> Void
-
-    private static let factory: RTCPeerConnectionFactory = {
-        RTCInitializeSSL()
-        return RTCPeerConnectionFactory(
-            encoderFactory: RTCDefaultVideoEncoderFactory(),
-            decoderFactory: RTCDefaultVideoDecoderFactory()
-        )
-    }()
-
+    static let activationChanged = Notification.Name("ModemDeckCallAudioActivation")
+    private static var audioActivated = false
     let callID: String
     var onRemoteEnded: (() -> Void)?
     var onBecameActive: (() -> Void)?
     var onTestPhaseChanged: ((String) -> Void)?
     var onTestAudioChanged: ((ModemDeckTestAudioStatus) -> Void)?
     var onMicrophoneLevelChanged: ((Int?) -> Void)?
-
+    var onMediaStateChanged: ((String) -> Void)?
+    var onLocalAudioCountsChanged: ((Int, Int) -> Void)?
     private let credential: ModemDeckCredential
     private let testCall: Bool
     private let ownerToken = UUID().uuidString.lowercased()
     private let queue: DispatchQueue
     private let urlSession: URLSession
-    private var mediaRequest: ModemDeckMediaRequest?
-    private var peerConnection: RTCPeerConnection?
-    private var localAudioTrack: RTCAudioTrack?
+    private var socket: URLSessionWebSocketTask?
+    private var ready = false
+    private var activated = false
+    private var activationObserver: NSObjectProtocol?
+    private var configurationObserver: NSObjectProtocol?
     private var muted = false
-    private var connectCompletion: ConnectionCompletion?
-    private var connectDeadline = Date.distantPast
-    private var activePollAttempt = 0
-    private var waitingForICE = false
-    private var localDescriptionReady = false
-    private var relayRequired = false
-    private var gatheredCandidateCount = 0
-    private var relayCandidateCount = 0
-    private var gatheringTimeout: DispatchWorkItem?
-    private var offerSubmission: DispatchWorkItem?
-    private var connectionStartedAt = ProcessInfo.processInfo.systemUptime
-    private var connectionStage = "idle"
-    private var stageStartedAt = ProcessInfo.processInfo.systemUptime
-    private var gatheringStartedAt = ProcessInfo.processInfo.systemUptime
-    private var mediaClaimed = false
     private var stopped = false
     private var connecting = false
     private var reportedActive = false
+    private var mediaClaimed = false
+    private var connectCompletion: ConnectionCompletion?
+    private var connectDeadline = Date.distantPast
+    private var connectTimeout: DispatchWorkItem?
+    private var reconnectDeadline = Date.distantPast
+    private var reconnectAttempts = 0
+    private var reconnectTimeout: DispatchWorkItem?
+    private var recoveryHealth = ModemDeckMediaRecoveryHealth()
+    private var connectionStartedAt = ProcessInfo.processInfo.systemUptime
+    private var connectionStage = "idle"
+    private var stageStartedAt = ProcessInfo.processInfo.systemUptime
+    private var activePollAttempt = 0
     private var leaseTimer: DispatchSourceTimer?
     private var leaseRequestInFlight = false
     private var testPhaseTimer: DispatchSourceTimer?
     private var testPhaseRequestInFlight = false
-    private var connectTimeout: DispatchWorkItem?
-    private var disconnectTimeout: DispatchWorkItem?
-    private var statisticsTimer: DispatchSourceTimer?
-    private var statisticsInFlight = false
-    private var previousAudioEnergy: (energy: Double, duration: Double)?
+    private var telemetryTimer: DispatchSourceTimer?
+    private var pingInFlight = false
+    private var pingStarted = 0.0
     private var lastStatisticsLog = 0.0
+    private var latestTestAudio: ModemDeckTestAudioStatus?
+    private var testAudioAt = 0.0
+    private var engine: AVAudioEngine?
+    private var player: AVAudioPlayerNode?
+    private var encoder: OpaquePointer?
+    private var decoder: OpaquePointer?
+    private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+    private var captureSamples: [Float] = []
+    private var sendQueue: [(Data, Double)] = []
+    private var sending = false
+    private var sendStarted = 0.0
+    private var sequence: UInt32 = 0
+    private var timestamp: UInt32 = 0
+    private var receiveClock = ModemDeckAudioClock()
+    private var serverReceivedPackets = 0
+    private var playbackPending = 0
+    private var playbackGeneration = 0
+    private var capturedFrames = 0
+    private var sentPackets = 0
+    private var receivedPackets = 0
+    private var renderedPackets = 0
+    private var lastSentAudioAt = -Double.infinity
+    private var lastRenderedAudioAt = -Double.infinity
+    private var droppedFrames = 0
+    private var microphoneLevel: Double = -96
+    private let captureLock = NSLock()
+    private var capturePendingSamples = 0
+    private var omittedCaptureSamples = 0
 
     init(callID: String, credential: ModemDeckCredential, testCall: Bool = false) {
-        self.callID = callID
-        self.credential = credential
-        self.testCall = testCall
+        self.callID = callID; self.credential = credential; self.testCall = testCall
         queue = DispatchQueue(label: "modemdeck.call-audio.\(callID)")
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 12
-        configuration.timeoutIntervalForResource = 18
-        urlSession = ModemDeckDiagnostics.urlSession(configuration: configuration)
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 12
+        // A WebSocket is a long-lived stream; a short resource timeout closes healthy calls.
+        config.timeoutIntervalForResource = 24 * 60 * 60
+        urlSession = ModemDeckDiagnostics.urlSession(configuration: config)
         super.init()
-        RTCAudioSession.sharedInstance().add(self)
-    }
-
-    deinit { RTCAudioSession.sharedInstance().remove(self) }
-
-    static func prepareAudioSession() {
-        let session = RTCAudioSession.sharedInstance()
-        session.useManualAudio = true
-        session.isAudioEnabled = false
-        let configuration = RTCAudioSessionConfiguration.webRTC()
-        configuration.category = AVAudioSession.Category.playAndRecord.rawValue
-        configuration.mode = AVAudioSession.Mode.voiceChat.rawValue
-        configuration.categoryOptions = [.allowBluetoothHFP]
-        RTCAudioSessionConfiguration.setWebRTC(configuration)
-        session.lockForConfiguration()
-        defer { session.unlockForConfiguration() }
-        do {
-            try session.setConfiguration(configuration)
-        } catch {
-            ModemDeckDiagnostics.shared.record(.audio, "session_prepare_failed", error: error)
+        activated = Self.audioActivated
+        activationObserver = NotificationCenter.default.addObserver(forName: Self.activationChanged, object: nil, queue: .main) { [weak self] event in
+            let active = event.userInfo?["active"] as? Bool ?? false
+            self?.queue.async { [weak self] in
+                guard let self, !self.stopped else { return }
+                self.activated = active
+                if active { self.startAudioIfReady() } else { self.stopAudio() }
+            }
         }
-    }
-
-    func applyRuntimeState(phase: String) {
-        queue.async { [weak self] in
-            guard let self, !self.stopped,
-                  phase == "active", !self.reportedActive else { return }
-            self.reportedActive = true
-            DispatchQueue.main.async { [weak self] in
-                self?.onBecameActive?()
+        configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil) { [weak self] event in
+            self?.queue.async { [weak self] in
+                guard let self, !self.stopped, let engine = self.engine, event.object as? AVAudioEngine === engine else { return }
+                self.stopAudio(); self.startAudioIfReady()
             }
         }
     }
-
+    deinit {
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        if let encoder { opus_encoder_destroy(encoder) }
+        if let decoder { opus_decoder_destroy(decoder) }
+    }
+    static func prepareAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+            try session.setPreferredSampleRate(48_000)
+            try session.setPreferredIOBufferDuration(0.02)
+        } catch { ModemDeckDiagnostics.shared.record(.audio, "session_prepare_failed", error: error) }
+    }
+    static func didActivate(_ audioSession: AVAudioSession) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        audioActivated = true
+        ModemDeckAudioRoute.shared.setActive(true)
+        NotificationCenter.default.post(name: activationChanged, object: nil, userInfo: ["active": true])
+        ModemDeckDiagnostics.shared.record(.audio, "session_activated")
+    }
+    static func didDeactivate(_ audioSession: AVAudioSession) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        audioActivated = false
+        ModemDeckAudioRoute.shared.setActive(false)
+        NotificationCenter.default.post(name: activationChanged, object: nil, userInfo: ["active": false])
+        ModemDeckDiagnostics.shared.record(.audio, "session_deactivated")
+    }
+    func applyRuntimeState(phase: String) {
+        queue.async { [weak self] in
+            guard let self, !self.stopped, phase == "active", !self.reportedActive else { return }
+            self.reportedActive = true
+            DispatchQueue.main.async { [weak self] in self?.onBecameActive?() }
+        }
+    }
     func connect(completion: @escaping ConnectionCompletion) {
         queue.async { [weak self] in
             guard let self, !self.stopped else {
-                DispatchQueue.main.async {
-                    completion(.failure(ModemDeckCallAudioError.callEnded))
-                }
-                return
+                DispatchQueue.main.async { completion(.failure(ModemDeckCallAudioError.callEnded)) }; return
             }
             guard !self.connecting else {
-                DispatchQueue.main.async {
-                    completion(.failure(ModemDeckCallAudioError.negotiationFailed))
-                }
-                return
+                DispatchQueue.main.async { completion(.failure(ModemDeckCallAudioError.negotiationFailed)) }; return
             }
-            self.connecting = true
-            self.connectCompletion = completion
+            self.connecting = true; self.connectCompletion = completion
+            self.connectDeadline = Date().addingTimeInterval(20)
             self.connectionStartedAt = ProcessInfo.processInfo.systemUptime
             self.setConnectionStage("waiting_for_active_call")
-            self.connectDeadline = Date().addingTimeInterval(20)
-            self.activePollAttempt = 0
-            let timeout = DispatchWorkItem { [weak self] in
-                guard let self, self.connectCompletion != nil else { return }
-                self.recordConnectionEvent("connection_deadline")
-                self.finishConnection(.failure(ModemDeckCallAudioError.timedOut))
-            }
+            let timeout = DispatchWorkItem { [weak self] in self?.finishConnection(.failure(ModemDeckCallAudioError.timedOut)) }
             self.connectTimeout = timeout
             self.queue.asyncAfter(deadline: .now() + 20, execute: timeout)
-            self.waitForActiveCall()
+            self.startTelemetry(); self.waitForActiveCall()
         }
     }
-
-    static func didActivate(_ audioSession: AVAudioSession) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        ModemDeckDiagnostics.shared.record(.audio, "session_activated")
-        let rtcSession = RTCAudioSession.sharedInstance()
-        rtcSession.audioSessionDidActivate(audioSession)
-        rtcSession.isAudioEnabled = true
-        ModemDeckAudioRoute.shared.setActive(true)
-    }
-
-    static func didDeactivate(_ audioSession: AVAudioSession) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        ModemDeckDiagnostics.shared.record(.audio, "session_deactivated")
-        let rtcSession = RTCAudioSession.sharedInstance()
-        rtcSession.isAudioEnabled = false
-        rtcSession.audioSessionDidDeactivate(audioSession)
-        ModemDeckAudioRoute.shared.setActive(false)
-    }
-
     func setMuted(_ muted: Bool) {
         queue.async { [weak self] in
             guard let self, !self.stopped else { return }
             self.muted = muted
-            self.localAudioTrack?.isEnabled = !muted
         }
     }
-
     func stop() {
-        // cleanupCall removes the last owner before this work can execute.
-        queue.async {
-            self.stopLocked(notifyRemoteEnd: false)
-        }
+        // Retain the session until queued cleanup, even after its CallKit owner is removed.
+        queue.async { self.stopLocked(notifyRemoteEnd: false) }
     }
-
     func startControlHeartbeat() {
         queue.async { [weak self] in
             guard let self, !self.stopped else { return }
             self.startLeaseHeartbeat()
         }
+    }
+    private func openSocket() {
+        guard !stopped else { return }
+        setConnectionStage(reconnectAttempts == 0 ? "connecting_wss" : "reconnecting_wss")
+        do {
+            var request = try authorizedRequest(credential: credential, path: callPath("media/ws"), method: "GET", timeout: 12)
+            guard let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false), components.scheme == "https" else {
+                throw ModemDeckCallAudioError.invalidResponse
+            }
+            components.scheme = "wss"
+            guard let wsURL = components.url else { throw ModemDeckCallAudioError.invalidResponse }
+            request.url = wsURL
+            let task = urlSession.webSocketTask(with: request)
+            socket = task; ready = false; mediaClaimed = true; task.resume()
+            let start: [String: Any] = ["type": "start", "version": 1, "codec": "opus", "sample_rate": 16_000,
+                                        "channels": 1, "frame_ms": 20, "owner_token": ownerToken]
+            let data = try JSONSerialization.data(withJSONObject: start)
+            task.send(.string(String(decoding: data, as: UTF8.self))) { [weak self, weak task] error in
+                if let error { self?.queue.async { [weak self] in self?.transportFailed(task: task, error: error) } }
+            }
+            receive(task)
+            let opening = DispatchWorkItem { [weak self, weak task] in
+                guard let self, self.socket === task, !self.ready else { return }
+                self.transportFailed(task: task, error: ModemDeckCallAudioError.timedOut)
+            }
+            queue.asyncAfter(deadline: .now() + 6, execute: opening)
+        } catch { failMedia(error) }
+    }
+    private func receive(_ task: URLSessionWebSocketTask) {
+        task.receive { [weak self, weak task] result in
+            self?.queue.async { [weak self] in
+                guard let self, let task, !self.stopped, self.socket === task else { return }
+                switch result {
+                case .failure(let error): self.transportFailed(task: task, error: error)
+                case .success(let message):
+                    switch message {
+                    case .string(let text): self.receiveControl(text, task: task)
+                    case .data(let data): if self.ready { self.receiveAudio(data) }
+                    @unknown default: break
+                    }
+                    if self.socket === task { self.receive(task) }
+                }
+            }
+        }
+    }
+    private func receiveControl(_ text: String, task: URLSessionWebSocketTask) {
+        guard let data = text.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            transportFailed(task: task, error: ModemDeckCallAudioError.invalidResponse); return
+        }
+        switch json["type"] as? String {
+        case "ready":
+            guard json["version"] as? Int == 1, json["codec"] as? String == "opus", json["sample_rate"] as? Int == 16_000,
+                  json["channels"] as? Int == 1, json["frame_ms"] as? Int == 20 else {
+                failMedia(ModemDeckCallAudioError.invalidResponse); return
+            }
+            markSocketReady(now: ProcessInfo.processInfo.systemUptime)
+            sendQueue.removeAll(); captureSamples.removeAll(); receiveClock = ModemDeckAudioClock()
+            sequence = 0; timestamp = 0
+            if let encoder { opus_encoder_destroy(encoder) }; encoder = nil
+            if let decoder { opus_decoder_destroy(decoder) }; decoder = nil
+            var codecError: Int32 = 0
+            encoder = opus_encoder_create(16_000, 1, OPUS_APPLICATION_VOIP, &codecError)
+            decoder = opus_decoder_create(16_000, 1, &codecError)
+            guard encoder != nil, decoder != nil, codecError == OPUS_OK else {
+                failMedia(ModemDeckCallAudioError.negotiationFailed); return
+            }
+            setConnectionStage("connected"); publishMediaState(activated && engine?.isRunning == true ? "active" : "waiting_for_audio")
+            startLeaseHeartbeat(); startTestPhaseUpdates()
+            finishConnection(.success(())); startAudioIfReady()
+        case "stats":
+            if let audio = json["audio"] as? [String: Any], let received = audio["received_packets"] as? Int {
+                serverReceivedPackets = max(0, received)
+                recordConnectionEvent("server_audio_statistics", fields: ["server_received_packets": String(serverReceivedPackets)])
+            }
+        case "ended": stopLocked(notifyRemoteEnd: true)
+        case "error":
+            handleServerError(code: json["code"] as? String ?? "", task: task)
+        default: break
+        }
+    }
+    private func markSocketReady(now: Double) {
+        ready = true
+        recoveryHealth.markReady(now: now, sent: sentPackets, rendered: renderedPackets)
+    }
+    private func clearRecoveryAfterStableMedia(now: Double) {
+        guard reconnectDeadline != .distantPast, ready,
+              recoveryHealth.isStable(now: now, sent: sentPackets, rendered: renderedPackets,
+                                      lastSent: lastSentAudioAt, lastRendered: lastRenderedAudioAt) else { return }
+        reconnectAttempts = 0; reconnectDeadline = .distantPast
+        reconnectTimeout?.cancel(); reconnectTimeout = nil
+        recordConnectionEvent("wss_recovered")
+    }
+    private func handleServerError(code: String, task: URLSessionWebSocketTask) {
+        recordConnectionEvent("server_media_error")
+        if ["transport_timeout", "transport_closed", "backpressure"].contains(code) {
+            transportFailed(task: task, error: ModemDeckCallAudioError.timedOut)
+        } else { failMedia(ModemDeckCallAudioError.mediaUnavailable) }
+    }
+    private func transportFailed(task: URLSessionWebSocketTask?, error: Error) {
+        guard !stopped, let task, socket === task else { return }
+        recordConnectionEvent("wss_disconnected", error: error)
+        socket = nil; ready = false; sending = false; pingInFlight = false
+        task.cancel(with: .goingAway, reason: nil)
+        sendQueue.removeAll(); captureSamples.removeAll(); flushPlayback()
+        publishMediaState("reconnecting")
+        if reconnectDeadline == .distantPast {
+            reconnectDeadline = Date().addingTimeInterval(8)
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let self, !self.stopped, self.reconnectDeadline != .distantPast else { return }
+                self.failMedia(ModemDeckCallAudioError.timedOut)
+            }
+            reconnectTimeout = timeout
+            queue.asyncAfter(deadline: .now() + 8, execute: timeout)
+        }
+        let deadline = connectCompletion == nil ? reconnectDeadline : min(connectDeadline, reconnectDeadline)
+        let delay = min(2.0, 0.3 * pow(2, Double(reconnectAttempts)))
+        guard reconnectAttempts < 4, Date().addingTimeInterval(delay + 1) < deadline else {
+            if connectCompletion != nil { finishConnection(.failure(error)) }
+            else { stopLocked(notifyRemoteEnd: true) }
+            return
+        }
+        reconnectAttempts += 1
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !self.stopped else { return }
+            self.releaseForReconnect(deadline: deadline)
+        }
+    }
+    private func releaseForReconnect(deadline: Date) {
+        guard !stopped else { return }
+        guard Date().addingTimeInterval(0.5) < deadline else { failMedia(ModemDeckCallAudioError.timedOut); return }
+        // The server's successful DELETE waits for the exact old owner to close.
+        // Failed cleanup must not race a fresh upgrade or become a call hangup.
+        releaseMedia { [weak self] released in
+            self?.queue.async { [weak self] in
+                guard let self, !self.stopped else { return }
+                if released { self.probeForReconnect(deadline: deadline) }
+                else {
+                    self.queue.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.releaseForReconnect(deadline: deadline) }
+                }
+            }
+        }
+    }
+    private func probeForReconnect(deadline: Date) {
+        guard !stopped else { return }
+        guard Date().addingTimeInterval(0.5) < deadline else { failMedia(ModemDeckCallAudioError.timedOut); return }
+        request(path: activeCallsPath, method: "GET") { [weak self] result in
+            guard let self, !self.stopped else { return }
+            switch result {
+            case .success(let data):
+                guard let state = try? JSONDecoder().decode(ModemDeckActiveCallsResponse.self, from: data),
+                      let call = state.calls.first(where: { $0.id == self.callID }),
+                      call.phase == "active", call.controlState == "owned", call.mediaAvailable else {
+                    self.failMedia(ModemDeckCallAudioError.callEnded); return
+                }
+                guard Date() < deadline else { self.failMedia(ModemDeckCallAudioError.timedOut); return }
+                self.openSocket()
+            case .failure:
+                self.queue.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.probeForReconnect(deadline: deadline) }
+            }
+        }
+    }
+    private func startAudioIfReady() {
+        guard !stopped, activated, ready, engine == nil else { return }
+        do {
+            var status: Int32 = 0
+            if encoder == nil { encoder = opus_encoder_create(16_000, 1, OPUS_APPLICATION_VOIP, &status) }
+            guard encoder != nil, status == OPUS_OK else { throw ModemDeckCallAudioError.negotiationFailed }
+            if decoder == nil { decoder = opus_decoder_create(16_000, 1, &status) }
+            guard decoder != nil, status == OPUS_OK else { throw ModemDeckCallAudioError.negotiationFailed }
+            let engine = AVAudioEngine(), player = AVAudioPlayerNode()
+            try engine.inputNode.setVoiceProcessingEnabled(true)
+            engine.inputNode.isVoiceProcessingAGCEnabled = true
+            let inputFormat = engine.inputNode.outputFormat(forBus: 0)
+            guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
+                  let converter = AVAudioConverter(from: inputFormat, to: format) else { throw ModemDeckCallAudioError.mediaUnavailable }
+            engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: format)
+            self.engine = engine; self.player = player
+            engine.inputNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(inputFormat.sampleRate * 0.02), format: inputFormat) { [weak self, weak engine] buffer, _ in
+                guard let self else { return }
+                let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 16_000 / inputFormat.sampleRate) + 32)
+                guard let converted = AVAudioPCMBuffer(pcmFormat: self.format, frameCapacity: capacity) else { return }
+                var supplied = false
+                var conversionError: NSError?
+                converter.convert(to: converted, error: &conversionError) { _, state in
+                    if supplied { state.pointee = .noDataNow; return nil }
+                    supplied = true; state.pointee = .haveData; return buffer
+                }
+                guard conversionError == nil, let samples = converted.floatChannelData?[0], converted.frameLength > 0 else { return }
+                let capturedAt = ProcessInfo.processInfo.systemUptime
+                let sampleCount = min(1600, Int(converted.frameLength))
+                let trimmed = Int(converted.frameLength) - sampleCount
+                self.captureLock.lock()
+                self.omittedCaptureSamples += trimmed
+                guard self.capturePendingSamples + sampleCount <= 1600 else {
+                    self.omittedCaptureSamples += sampleCount
+                    self.captureLock.unlock(); return
+                }
+                self.capturePendingSamples += sampleCount; self.captureLock.unlock()
+                let values = Array(UnsafeBufferPointer(start: samples.advanced(by: trimmed), count: sampleCount))
+                self.queue.async { [weak self, weak engine] in
+                    guard let self else { return }
+                    defer { self.captureLock.lock(); self.capturePendingSamples -= sampleCount; self.captureLock.unlock() }
+                    guard !self.stopped, self.engine === engine else { return }
+                    if ProcessInfo.processInfo.systemUptime - capturedAt > 0.1 {
+                        self.captureLock.lock(); self.omittedCaptureSamples += sampleCount; self.captureLock.unlock()
+                        return
+                    }
+                    self.captureLock.lock()
+                    let omitted = self.omittedCaptureSamples
+                    self.omittedCaptureSamples = 0
+                    self.captureLock.unlock()
+                    if omitted > 0 {
+                        let frames = UInt32((omitted + 319) / 320)
+                        self.sequence &+= frames; self.timestamp &+= frames &* 320
+                        self.droppedFrames += Int(frames)
+                        self.captureSamples.removeAll()
+                    }
+                    self.capture(values)
+                }
+            }
+            engine.prepare(); try engine.start(); player.play()
+            publishMediaState("active"); recordConnectionEvent("voice_processing_started")
+        } catch {
+            recordConnectionEvent("audio_engine_failed", error: error)
+            stopLocked(notifyRemoteEnd: true)
+        }
+    }
+    private func capture(_ values: [Float]) {
+        captureSamples.append(contentsOf: values)
+        while captureSamples.count >= 320 {
+            var frame = Array(captureSamples.prefix(320)); captureSamples.removeFirst(320)
+            capturedFrames += 1
+            let rms = sqrt(frame.reduce(0.0) { $0 + Double($1 * $1) } / 320)
+            let db = muted ? -96 : max(-96, min(0, 20 * log10(max(rms, 0.00001585))))
+            microphoneLevel += (db - microphoneLevel) * (db > microphoneLevel ? 0.55 : 0.12)
+            if muted { frame = Array(repeating: 0, count: 320) }
+            guard ready, let encoder else { continue }
+            var payload = [UInt8](repeating: 0, count: 1275)
+            let count = opus_encode_float(encoder, &frame, 320, &payload, 1275)
+            guard count > 0 else { continue }
+            let packet = ModemDeckAudioPacket.encode(sequence: sequence, timestamp: timestamp, payload: Data(payload.prefix(Int(count))))
+            sequence &+= 1; timestamp &+= 320
+            if sendQueue.count >= 4 { sendQueue.removeFirst(); droppedFrames += 1 }
+            sendQueue.append((packet, ProcessInfo.processInfo.systemUptime)); sendNext()
+        }
+    }
+    private func sendNext() {
+        guard !sending, ready, let task = socket else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        while let first = sendQueue.first, now - first.1 > 0.1 { sendQueue.removeFirst(); droppedFrames += 1 }
+        guard !sendQueue.isEmpty else { return }
+        let packet = sendQueue.removeFirst().0; sending = true; sendStarted = now
+        task.send(.data(packet)) { [weak self, weak task] error in
+            self?.queue.async { [weak self] in
+                guard let self, !self.stopped, self.socket === task else { return }
+                self.sending = false
+                if let error { self.transportFailed(task: task, error: error) }
+                else { self.sentPackets += 1; self.lastSentAudioAt = ProcessInfo.processInfo.systemUptime; self.sendNext() }
+            }
+        }
+    }
+    private func receiveAudio(_ data: Data) {
+        guard let packet = ModemDeckAudioPacket.decode(data), let decoder else { return }
+        guard let current = receiveClock.accept(sequence: packet.sequence, timestamp: packet.timestamp,
+                                                 now: ProcessInfo.processInfo.systemUptime) else {
+            recordConnectionEvent("invalid_audio_packet"); return
+        }
+        receivedPackets += 1
+        var output = [Float](repeating: 0, count: 320)
+        let count = packet.payload.withUnsafeBytes { bytes in
+            opus_decode_float(decoder, bytes.bindMemory(to: UInt8.self).baseAddress, Int32(bytes.count), &output, 320, 0)
+        }
+        // Decode valid stale packets to retain codec continuity, but never render them.
+        guard current, activated, let player, engine?.isRunning == true else { droppedFrames += 1; return }
+        if playbackPending >= 5 { flushPlayback(); droppedFrames += 1 }
+        guard count == 320, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 320), let samples = buffer.floatChannelData?[0] else { return }
+        buffer.frameLength = 320
+        output.withUnsafeBufferPointer { source in samples.update(from: source.baseAddress!, count: 320) }
+        playbackPending += 1; renderedPackets += 1
+        lastRenderedAudioAt = ProcessInfo.processInfo.systemUptime
+        let generation = playbackGeneration
+        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            self?.queue.async { [weak self] in
+                guard let self, self.playbackGeneration == generation else { return }
+                self.playbackPending = max(0, self.playbackPending - 1)
+            }
+        }
+        if !player.isPlaying { player.play() }
+    }
+    private func flushPlayback() {
+        playbackGeneration += 1; playbackPending = 0; player?.stop()
+    }
+    private func stopAudio() {
+        guard let engine else { return }
+        flushPlayback(); engine.inputNode.removeTap(onBus: 0); engine.stop()
+        self.engine = nil; player = nil; captureSamples.removeAll()
+        publishMediaState(ready ? "waiting_for_audio" : "reconnecting")
+    }
+    private func startTelemetry() {
+        guard telemetryTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: 0.1, leeway: .milliseconds(20))
+        timer.setEventHandler { [weak self] in
+            guard let self, !self.stopped else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            self.clearRecoveryAfterStableMedia(now: now)
+            let level: Int? = self.engine?.isRunning == true ? Int(self.microphoneLevel) : nil
+            let captured = self.capturedFrames, sent = self.sentPackets
+            let audio = self.interpolatedTestAudio(now: now)
+            DispatchQueue.main.async { [weak self] in
+                self?.onMicrophoneLevelChanged?(level); self?.onLocalAudioCountsChanged?(captured, sent)
+                if let audio { self?.onTestAudioChanged?(audio) }
+            }
+            if now - self.lastStatisticsLog >= 5 {
+                self.lastStatisticsLog = now
+                self.recordConnectionEvent("audio_statistics", fields: ModemDeckAudioRoute.fields().merging([
+                    "microphone_dbfs": String(Int(self.microphoneLevel)), "captured_frames": String(captured),
+                    "sent_packets": String(sent), "server_received_packets": String(self.serverReceivedPackets), "received_packets": String(self.receivedPackets), "dropped_frames": String(self.droppedFrames),
+                    "audio_enabled": String(self.activated), "microphone_track_enabled": String(!self.muted)]) { _, new in new })
+                if let task = self.socket, self.ready, !self.pingInFlight {
+                    self.pingInFlight = true; self.pingStarted = now
+                    task.sendPing { [weak self, weak task] error in
+                        self?.queue.async { [weak self] in
+                            guard let self, self.socket === task else { return }
+                            self.pingInFlight = false
+                            if let error { self.transportFailed(task: task, error: error) }
+                        }
+                    }
+                }
+            }
+            if self.sending, now - self.sendStarted > 1 { self.transportFailed(task: self.socket, error: ModemDeckCallAudioError.timedOut) }
+            if self.pingInFlight, now - self.pingStarted > 10 { self.transportFailed(task: self.socket, error: ModemDeckCallAudioError.timedOut) }
+        }
+        telemetryTimer = timer; timer.resume()
+    }
+    private func interpolatedTestAudio(now: Double) -> ModemDeckTestAudioStatus? {
+        guard let audio = latestTestAudio else { return nil }
+        let remaining = max(0, audio.remainingMS - Int((now - testAudioAt) * 1000))
+        return ModemDeckTestAudioStatus(phase: audio.phase, remainingMS: remaining,
+            capturedFrames: audio.capturedFrames, capturedDBFS: audio.capturedDBFS, capturedPeakDBFS: audio.capturedPeakDBFS,
+            receivedPackets: audio.receivedPackets, inputDBFS: audio.inputDBFS, outputDBFS: audio.outputDBFS)
+    }
+    private func publishMediaState(_ state: String) {
+        DispatchQueue.main.async { [weak self] in self?.onMediaStateChanged?(state) }
+    }
+    private func failMedia(_ error: Error) {
+        if connectCompletion != nil { finishConnection(.failure(error)) }
+        else { recordConnectionEvent("media_failed", error: error); stopLocked(notifyRemoteEnd: true) }
+    }
+    private func finishConnection(_ result: Result<Void, Error>) {
+        guard let completion = connectCompletion else { return }
+        connectCompletion = nil; connecting = false; connectTimeout?.cancel(); connectTimeout = nil
+        DispatchQueue.main.async { completion(result) }
+        if case .failure(let error) = result {
+            recordConnectionEvent("connection_failed", error: error); stopLocked(notifyRemoteEnd: false)
+        }
+    }
+    private func stopLocked(notifyRemoteEnd: Bool) {
+        guard !stopped else { return }
+        recordConnectionEvent("stopped"); stopped = true
+        socket?.cancel(with: .normalClosure, reason: nil); socket = nil; ready = false
+        stopAudio(); sendQueue.removeAll()
+        leaseTimer?.cancel(); leaseTimer = nil
+        testPhaseTimer?.cancel(); testPhaseTimer = nil
+        telemetryTimer?.cancel(); telemetryTimer = nil
+        connectTimeout?.cancel(); connectTimeout = nil
+        reconnectTimeout?.cancel(); reconnectTimeout = nil
+        urlSession.invalidateAndCancel()
+        if mediaClaimed { releaseMedia() }
+        publishMediaState("ended")
+        if let completion = connectCompletion {
+            connectCompletion = nil
+            DispatchQueue.main.async { completion(.failure(ModemDeckCallAudioError.callEnded)) }
+        }
+        if notifyRemoteEnd { DispatchQueue.main.async { [weak self] in self?.onRemoteEnded?() } }
+    }
+    private func setConnectionStage(_ stage: String) {
+        connectionStage = stage; stageStartedAt = ProcessInfo.processInfo.systemUptime
+        recordConnectionEvent("stage_changed")
+    }
+    private func recordConnectionEvent(_ event: String, fields: [String: String] = [:], error: Error? = nil) {
+        ModemDeckDiagnostics.shared.record(.audio, event, callID: callID, fields: [
+            "elapsed_ms": String(Int((ProcessInfo.processInfo.systemUptime - connectionStartedAt) * 1000)),
+            "stage_elapsed_ms": String(Int((ProcessInfo.processInfo.systemUptime - stageStartedAt) * 1000)),
+            "stage": connectionStage, "test_call": String(testCall)].merging(fields) { _, new in new },
+            error: error, scope: credential.callControlScope)
     }
 
     private func waitForActiveCall() {
@@ -313,7 +740,7 @@ final class ModemDeckCallAudioSession: NSObject {
                         self.finishConnection(.failure(ModemDeckCallAudioError.mediaUnavailable))
                         return
                     }
-                    self.fetchICEConfiguration()
+                    self.openSocket()
                 case "ended", "failed":
                     self.finishConnection(.failure(ModemDeckCallAudioError.callEnded))
                 default:
@@ -341,241 +768,6 @@ final class ModemDeckCallAudioSession: NSObject {
         }
     }
 
-    private func fetchICEConfiguration() {
-        setConnectionStage("fetching_turn_configuration")
-        request(
-            path: callPath("media/ice"),
-            method: "POST",
-            json: [:]
-        ) { [weak self] result in
-            guard let self, !self.stopped else { return }
-            switch result {
-            case .failure(let error):
-                self.finishConnection(.failure(error))
-            case .success(let data):
-                guard let configuration = try? JSONDecoder().decode(
-                    ModemDeckICEConfiguration.self,
-                    from: data
-                ) else {
-                    self.finishConnection(.failure(ModemDeckCallAudioError.invalidResponse))
-                    return
-                }
-                self.createOffer(configuration: configuration)
-            }
-        }
-    }
-
-    private func createOffer(configuration: ModemDeckICEConfiguration) {
-        setConnectionStage("creating_offer")
-        for (index, url) in configuration.iceServers.flatMap(\.urls).enumerated() {
-            recordConnectionEvent("turn_endpoint", fields: ModemDeckDiagnostics.turnFields(url).merging(
-                ["turn_index": String(index)]) { _, new in new })
-        }
-        relayRequired = configuration.transportPolicy == "relay"
-        let rtcConfiguration = RTCConfiguration()
-        rtcConfiguration.sdpSemantics = .unifiedPlan
-        rtcConfiguration.continualGatheringPolicy = .gatherOnce
-        rtcConfiguration.iceTransportPolicy = relayRequired
-            ? .relay
-            : .all
-        rtcConfiguration.iceServers = configuration.iceServers.map { server in
-            RTCIceServer(
-                urlStrings: server.urls,
-                username: server.username,
-                credential: server.credential
-            )
-        }
-        let peerConstraints = RTCMediaConstraints(
-            mandatoryConstraints: nil,
-            optionalConstraints: ["DtlsSrtpKeyAgreement": "true"]
-        )
-        guard let peer = Self.factory.peerConnection(
-            with: rtcConfiguration,
-            constraints: peerConstraints,
-            delegate: self
-        ) else {
-            finishConnection(.failure(ModemDeckCallAudioError.negotiationFailed))
-            return
-        }
-        peerConnection = peer
-        let source = Self.factory.audioSource(
-            with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        )
-        let track = Self.factory.audioTrack(with: source, trackId: "modemdeck-audio")
-        installLocalAudioTrack(track)
-        peer.add(track, streamIds: ["modemdeck-call"])
-
-        let offerConstraints = RTCMediaConstraints(
-            mandatoryConstraints: [
-                kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueTrue,
-                kRTCMediaConstraintsOfferToReceiveVideo: kRTCMediaConstraintsValueFalse
-            ],
-            optionalConstraints: nil
-        )
-        peer.offer(for: offerConstraints) { [weak self] description, error in
-            self?.queue.async {
-                guard let self, !self.stopped else { return }
-                guard let description, error == nil else {
-                    self.finishConnection(
-                        .failure(error ?? ModemDeckCallAudioError.negotiationFailed)
-                    )
-                    return
-                }
-                self.waitingForICE = true
-                self.setConnectionStage("setting_local_description")
-                peer.setLocalDescription(description) { [weak self] error in
-                    self?.queue.async {
-                        guard let self, !self.stopped else { return }
-                        if let error {
-                            self.finishConnection(.failure(error))
-                        } else {
-                            self.localDescriptionReady = true
-                            self.setConnectionStage("gathering_candidates")
-                            self.startGatheringDeadline()
-                            self.scheduleGatheredOffer()
-                            if peer.iceGatheringState == .complete {
-                                self.finishGathering()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func startGatheringDeadline() {
-        gatheringStartedAt = ProcessInfo.processInfo.systemUptime
-        let timeout = DispatchWorkItem { [weak self] in
-            guard let self, !self.stopped, self.waitingForICE else { return }
-            self.recordConnectionEvent("gathering_deadline")
-            self.finishGathering()
-        }
-        gatheringTimeout = timeout
-        queue.asyncAfter(deadline: .now() + 8, execute: timeout)
-    }
-
-    private func hasUsableCandidate(in sdp: String) -> Bool {
-        sdp.components(separatedBy: .newlines).contains { line in
-            guard line.hasPrefix("a=candidate:") else { return false }
-            return !relayRequired || line.contains(" typ relay")
-        }
-    }
-
-    private func scheduleGatheredOffer() {
-        guard !stopped, waitingForICE, localDescriptionReady,
-              offerSubmission == nil,
-              let sdp = peerConnection?.localDescription?.sdp,
-              hasUsableCandidate(in: sdp) else { return }
-        // The API accepts one SDP snapshot. Briefly collect adjacent candidates,
-        // then negotiate without waiting for every interface/TURN URL to finish.
-        let submission = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.offerSubmission = nil
-            self.exchangeGatheredOffer()
-        }
-        offerSubmission = submission
-        queue.asyncAfter(deadline: .now() + .milliseconds(200), execute: submission)
-    }
-
-    private func finishGathering() {
-        guard !stopped, waitingForICE, localDescriptionReady else { return }
-        guard let sdp = peerConnection?.localDescription?.sdp,
-              hasUsableCandidate(in: sdp) else {
-            finishConnection(.failure(relayRequired
-                ? ModemDeckCallAudioError.relayUnavailable
-                : ModemDeckCallAudioError.negotiationFailed))
-            return
-        }
-        exchangeGatheredOffer()
-    }
-
-    private func exchangeGatheredOffer() {
-        guard !stopped, waitingForICE, localDescriptionReady,
-              let offer = peerConnection?.localDescription?.sdp,
-              hasUsableCandidate(in: offer) else { return }
-        waitingForICE = false
-        gatheringTimeout?.cancel()
-        gatheringTimeout = nil
-        offerSubmission?.cancel()
-        offerSubmission = nil
-        setConnectionStage("exchanging_offer")
-        mediaClaimed = true
-        exchangeMedia(offer: offer) { [weak self] result in
-            guard let self, !self.stopped else { return }
-            switch result {
-            case .failure(let error):
-                self.finishConnection(.failure(error))
-            case .success(let data):
-                guard let answer = try? JSONDecoder().decode(
-                    ModemDeckMediaAnswer.self,
-                    from: data
-                ), !answer.answerSDP.isEmpty,
-                      let peer = self.peerConnection else {
-                    self.finishConnection(.failure(ModemDeckCallAudioError.invalidResponse))
-                    return
-                }
-                self.setConnectionStage("applying_answer")
-                peer.setRemoteDescription(
-                    RTCSessionDescription(type: .answer, sdp: answer.answerSDP)
-                ) { [weak self] error in
-                    self?.queue.async {
-                        guard let self, !self.stopped else { return }
-                        if let error {
-                            self.finishConnection(.failure(error))
-                            return
-                        }
-                        self.setConnectionStage("connecting_ice")
-                        self.startLeaseHeartbeat()
-                        self.startTestPhaseUpdates()
-                        self.startAudioStatistics()
-                        if peer.iceConnectionState == .connected ||
-                            peer.iceConnectionState == .completed {
-                            self.finishConnection(.success(()))
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func installLocalAudioTrack(_ track: RTCAudioTrack) {
-        track.isEnabled = !muted
-        localAudioTrack = track
-    }
-
-    private func exchangeMedia(offer: String, completion: @escaping (Result<Data, Error>) -> Void) {
-        do {
-            let body = try JSONSerialization.data(withJSONObject: ["owner_token": ownerToken, "offer_sdp": offer])
-            let request = try authorizedRequest(credential: credential, path: callPath("media"), method: "POST",
-                headers: ["Accept": "application/json", "Content-Type": "application/json"], body: body, timeout: 10)
-            let operation = ModemDeckMediaRequest(queue: queue)
-            operation.onRetry = { [weak self] attempt, error in
-                self?.recordConnectionEvent("media_request_retry", fields: ["attempt": String(attempt)], error: error)
-            }
-            mediaRequest = operation
-            operation.start(request, deadline: connectDeadline) { [weak self] data, response, error in
-                guard let self, !self.stopped else { return }
-                self.mediaRequest = nil
-                if let error { completion(.failure(error)); return }
-                guard let response = response as? HTTPURLResponse else {
-                    completion(.failure(ModemDeckCallAudioError.invalidResponse)); return
-                }
-                guard (200..<300).contains(response.statusCode) else {
-                    if let data,
-                       let error = try? JSONDecoder().decode(ModemDeckServerError.self, from: data),
-                       let message = error.message, !message.isEmpty {
-                        completion(.failure(ModemDeckAPIError.server(
-                            status: response.statusCode, code: error.code ?? "", message: message
-                        )))
-                        return
-                    }
-                    completion(.failure(ModemDeckHTTPError(status: response.statusCode))); return
-                }
-                completion(.success(data ?? Data()))
-            }
-        } catch { completion(.failure(error)) }
-    }
-
     private func startLeaseHeartbeat() {
         guard leaseTimer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -599,8 +791,6 @@ final class ModemDeckCallAudioSession: NSObject {
         timer.resume()
     }
 
-    // Presentation polling is separate from ownership: both call types use the
-    // same five-second PUT lease heartbeat and server-side media liveness.
     private func startTestPhaseUpdates() {
         guard testCall, testPhaseTimer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -621,7 +811,16 @@ final class ModemDeckCallAudioSession: NSObject {
                     DispatchQueue.main.async { [weak self] in self?.onTestPhaseChanged?(phase) }
                 }
                 if let audio = state.testAudio {
-                    DispatchQueue.main.async { [weak self] in self?.onTestAudioChanged?(audio) }
+                    let now = ProcessInfo.processInfo.systemUptime
+                    var snapshot = audio
+                    if self.latestTestAudio?.phase == audio.phase, let previous = self.interpolatedTestAudio(now: now) {
+                        snapshot = ModemDeckTestAudioStatus(phase: audio.phase, remainingMS: min(audio.remainingMS, previous.remainingMS),
+                            capturedFrames: audio.capturedFrames, capturedDBFS: audio.capturedDBFS, capturedPeakDBFS: audio.capturedPeakDBFS,
+                            receivedPackets: audio.receivedPackets, inputDBFS: audio.inputDBFS, outputDBFS: audio.outputDBFS)
+                    }
+                    self.latestTestAudio = snapshot; self.testAudioAt = now
+                    let published = snapshot
+                    DispatchQueue.main.async { [weak self] in self?.onTestAudioChanged?(published) }
                 }
             }
         }
@@ -629,142 +828,7 @@ final class ModemDeckCallAudioSession: NSObject {
         timer.resume()
     }
 
-    private func finishConnection(_ result: Result<Void, Error>) {
-        guard let completion = connectCompletion else { return }
-        switch result {
-        case .success:
-            setConnectionStage("connected")
-        case .failure(let error):
-            recordConnectionEvent("connection_failed", error: error)
-            ModemDeckDiagnostics.shared.flush()
-        }
-        connectCompletion = nil
-        connecting = false
-        connectTimeout?.cancel()
-        connectTimeout = nil
-        // Let CallKit/UI finish even if WebRTC teardown takes time.
-        DispatchQueue.main.async {
-            completion(result)
-        }
-        if case .failure = result {
-            stopLocked(notifyRemoteEnd: false)
-        }
-    }
-
-    private func stopLocked(notifyRemoteEnd: Bool) {
-        guard !stopped else { return }
-        recordConnectionEvent("stopped")
-        stopped = true
-        mediaRequest?.cancel()
-        mediaRequest = nil
-        waitingForICE = false
-        gatheringTimeout?.cancel()
-        gatheringTimeout = nil
-        offerSubmission?.cancel()
-        offerSubmission = nil
-        leaseTimer?.cancel()
-        leaseTimer = nil
-        testPhaseTimer?.cancel()
-        testPhaseTimer = nil
-        statisticsTimer?.cancel()
-        statisticsTimer = nil
-        connectTimeout?.cancel()
-        connectTimeout = nil
-        disconnectTimeout?.cancel()
-        disconnectTimeout = nil
-        localAudioTrack?.isEnabled = false
-        peerConnection?.close()
-        peerConnection = nil
-        localAudioTrack = nil
-        // CallKit's activation callbacks exclusively own the shared audio unit.
-        // An older session's queued stop must never disable a newer call.
-        urlSession.invalidateAndCancel()
-        if mediaClaimed {
-            releaseMedia()
-        }
-        if let completion = connectCompletion {
-            connectCompletion = nil
-            DispatchQueue.main.async {
-                completion(.failure(ModemDeckCallAudioError.callEnded))
-            }
-        }
-        if notifyRemoteEnd {
-            DispatchQueue.main.async { [weak self] in
-                self?.onRemoteEnded?()
-            }
-        }
-    }
-
-    private func setConnectionStage(_ stage: String) {
-        connectionStage = stage
-        stageStartedAt = ProcessInfo.processInfo.systemUptime
-        recordConnectionEvent("stage_changed")
-    }
-
-    private func startAudioStatistics() {
-        guard statisticsTimer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now(), repeating: testCall ? 1 : 5)
-        timer.setEventHandler { [weak self] in
-            guard let self, !self.stopped, !self.statisticsInFlight, let peer = self.peerConnection else { return }
-            self.statisticsInFlight = true
-            peer.statistics { [weak self] report in
-                self?.queue.async { [weak self] in
-                    guard let self, !self.stopped, self.peerConnection === peer else { return }
-                    self.statisticsInFlight = false
-                    var fields = ModemDeckAudioRoute.fields()
-                    fields["audio_enabled"] = String(RTCAudioSession.sharedInstance().isAudioEnabled)
-                    fields["microphone_track_enabled"] = String(self.localAudioTrack?.isEnabled == true)
-                    var microphoneDBFS: Int?
-                    for stats in report.statistics.values {
-                        let values = stats.values
-                        guard (values["kind"] as? String ?? values["mediaType"] as? String) == "audio" else { continue }
-                        if stats.type == "media-source" {
-                            var level = (values["audioLevel"] as? NSNumber)?.doubleValue
-                            if let energy = (values["totalAudioEnergy"] as? NSNumber)?.doubleValue,
-                               let duration = (values["totalSamplesDuration"] as? NSNumber)?.doubleValue {
-                                if let previous = self.previousAudioEnergy, duration > previous.duration, energy >= previous.energy {
-                                    level = sqrt((energy - previous.energy) / (duration - previous.duration))
-                                }
-                                self.previousAudioEnergy = (energy, duration)
-                            }
-                            if let level, level.isFinite {
-                                microphoneDBFS = level > 0 ? Int(max(-96, min(0, 20 * log10(level)))) : -96
-                                fields["microphone_dbfs"] = String(microphoneDBFS!)
-                            }
-                        }
-                        let counters = stats.type == "outbound-rtp" ? ["packetsSent": "sent_packets", "bytesSent": "sent_bytes"] :
-                            (stats.type == "inbound-rtp" ? ["packetsReceived": "received_packets", "bytesReceived": "received_bytes", "packetsLost": "lost_packets"] : [:])
-                        for (key, field) in counters {
-                            if let value = values[key] as? NSNumber { fields[field] = String(max(-1_000_000_000, min(1_000_000_000, value.int64Value))) }
-                        }
-                    }
-                    if self.testCall {
-                        DispatchQueue.main.async { [weak self] in self?.onMicrophoneLevelChanged?(microphoneDBFS) }
-                    }
-                    let now = ProcessInfo.processInfo.systemUptime
-                    if now - self.lastStatisticsLog >= 5 {
-                        self.lastStatisticsLog = now
-                        self.recordConnectionEvent("audio_statistics", fields: fields)
-                    }
-                }
-            }
-        }
-        statisticsTimer = timer
-        timer.resume()
-    }
-
-    private func recordConnectionEvent(_ event: String, fields: [String: String] = [:], error: Error? = nil) {
-        let elapsed = Int((ProcessInfo.processInfo.systemUptime - connectionStartedAt) * 1_000)
-        let values = ["elapsed_ms": String(elapsed), "stage": connectionStage,
-                      "stage_elapsed_ms": String(Int((ProcessInfo.processInfo.systemUptime - stageStartedAt) * 1_000)),
-                      "candidates": String(gatheredCandidateCount), "relay_candidates": String(relayCandidateCount),
-                      "test_call": String(testCall)].merging(fields) { _, new in new }
-        ModemDeckDiagnostics.shared.record(.audio, event, callID: callID, fields: values,
-                                           error: error, scope: credential.callControlScope)
-    }
-
-    private func releaseMedia() {
+    private func releaseMedia(completion: @escaping (Bool) -> Void = { _ in }) {
         guard let body = try? JSONSerialization.data(
             withJSONObject: ["owner_token": ownerToken]
         ), let request = try? authorizedRequest(
@@ -778,14 +842,16 @@ final class ModemDeckCallAudioSession: NSObject {
             body: body,
             timeout: 8
         ) else {
-            return
+            completion(false); return
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 8
         configuration.timeoutIntervalForResource = 10
         let releaseSession = ModemDeckDiagnostics.urlSession(configuration: configuration)
-        releaseSession.diagnosticDataTask(with: request) { _, _, _ in
+        releaseSession.diagnosticDataTask(with: request) { _, response, error in
             releaseSession.finishTasksAndInvalidate()
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            completion(error == nil && (200..<300).contains(status))
         }.resume()
     }
 
@@ -860,130 +926,6 @@ final class ModemDeckCallAudioSession: NSObject {
         let prefix = testCall ? "/api/v1/mobile/call-tests" : "/api/v1/calls"
         return "\(prefix)/\(encoded)/\(suffix)"
     }
-}
-
-extension ModemDeckCallAudioSession: RTCAudioSessionDelegate {
-    func audioSessionDidStartPlayOrRecord(_ session: RTCAudioSession) {
-        queue.async { [weak self] in self?.recordConnectionEvent("audio_unit_started") }
-    }
-    func audioSessionDidStopPlayOrRecord(_ session: RTCAudioSession) {
-        queue.async { [weak self] in self?.recordConnectionEvent("audio_unit_stopped") }
-    }
-    func audioSession(_ audioSession: RTCAudioSession, audioUnitStartFailedWithError error: Error) {
-        queue.async { [weak self] in self?.recordConnectionEvent("audio_unit_failed", error: error) }
-    }
-}
-
-extension ModemDeckCallAudioSession: RTCPeerConnectionDelegate {
-    func peerConnection(
-        _ peerConnection: RTCPeerConnection,
-        didChange stateChanged: RTCSignalingState
-    ) {}
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
-
-    func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
-
-    func peerConnection(
-        _ peerConnection: RTCPeerConnection,
-        didChange newState: RTCIceConnectionState
-    ) {
-        queue.async { [weak self] in
-            guard let self, !self.stopped,
-                  self.peerConnection === peerConnection else { return }
-            self.recordConnectionEvent("ice_state_changed", fields: ["ice_state": String(newState.rawValue)])
-            switch newState {
-            case .connected, .completed:
-                self.disconnectTimeout?.cancel()
-                self.disconnectTimeout = nil
-                if self.connectCompletion != nil {
-                    self.finishConnection(.success(()))
-                }
-            case .disconnected:
-                guard self.disconnectTimeout == nil else { return }
-                let timeout = DispatchWorkItem {
-                    [weak self, weak peerConnection = peerConnection] in
-                    guard let self, !self.stopped, let peerConnection else { return }
-                    guard peerConnection.iceConnectionState == .disconnected ||
-                            peerConnection.iceConnectionState == .failed ||
-                            peerConnection.iceConnectionState == .closed else {
-                        return
-                    }
-                    if self.connectCompletion != nil {
-                        self.finishConnection(
-                            .failure(ModemDeckCallAudioError.negotiationFailed)
-                        )
-                    } else {
-                        self.stopLocked(notifyRemoteEnd: true)
-                    }
-                }
-                self.disconnectTimeout = timeout
-                self.queue.asyncAfter(deadline: .now() + 10, execute: timeout)
-            case .failed, .closed:
-                if self.connectCompletion != nil {
-                    self.finishConnection(.failure(ModemDeckCallAudioError.negotiationFailed))
-                } else {
-                    self.stopLocked(notifyRemoteEnd: true)
-                }
-            default:
-                break
-            }
-        }
-    }
-
-    func peerConnection(
-        _ peerConnection: RTCPeerConnection,
-        didChange newState: RTCIceGatheringState
-    ) {
-        queue.async { [weak self] in
-            guard let self, !self.stopped,
-                  self.peerConnection === peerConnection else { return }
-            self.recordConnectionEvent("gathering_state_changed", fields: ["gathering_state": String(newState.rawValue)])
-            if newState == .complete { self.finishGathering() }
-        }
-    }
-
-    func peerConnection(
-        _ peerConnection: RTCPeerConnection,
-        didFailToGatherIceCandidate event: RTCIceCandidateErrorEvent
-    ) {
-        // The raw error can contain local addresses; retain only its code and a
-        // fixed reason category. The TURN URL is reduced to provider/port/transport.
-        var fields = ModemDeckDiagnostics.turnFields(event.url)
-        fields["error_code"] = String(event.errorCode)
-        fields["reason"] = ModemDeckDiagnostics.turnFailureReason(event.errorText)
-        queue.async { [weak self] in
-            guard let self, !self.stopped, self.peerConnection === peerConnection else { return }
-            fields["stage_elapsed_ms"] = String(max(0, Int((ProcessInfo.processInfo.systemUptime - self.gatheringStartedAt) * 1_000)))
-            self.recordConnectionEvent("turn_gather_failed", fields: fields)
-        }
-    }
-
-    func peerConnection(
-        _ peerConnection: RTCPeerConnection,
-        didGenerate candidate: RTCIceCandidate
-    ) {
-        queue.async { [weak self] in
-            guard let self, !self.stopped,
-                  self.peerConnection === peerConnection else { return }
-            self.gatheredCandidateCount += 1
-            if candidate.sdp.contains(" typ relay") { self.relayCandidateCount += 1 }
-            self.recordConnectionEvent("candidate_gathered", fields: ModemDeckDiagnostics.turnFields(candidate.serverUrl ?? ""))
-            self.scheduleGatheredOffer()
-        }
-    }
-
-    func peerConnection(
-        _ peerConnection: RTCPeerConnection,
-        didRemove candidates: [RTCIceCandidate]
-    ) {}
-
-    func peerConnection(
-        _ peerConnection: RTCPeerConnection,
-        didOpen dataChannel: RTCDataChannel
-    ) {}
 }
 
 final class ModemDeckTestCallTone {

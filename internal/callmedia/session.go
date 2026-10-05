@@ -150,7 +150,9 @@ type Session struct {
 	playout      *rtpPlayout
 	recoveryTime time.Duration
 	stats        audioCounters
+	baseStats    AudioStatistics
 	reportStats  func(string, AudioStatistics)
+	socket       *socketAudio
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -204,6 +206,14 @@ func (s *Session) start() {
 		s.stats.inputDBFS.Store(-96)
 		s.stats.inputPeakDBFS.Store(-96)
 		s.stats.outputDBFS.Store(-96)
+		if s.socket != nil {
+			s.workers.Add(3)
+			go s.runWorker(s.socketCaptureLoop)
+			go s.runWorker(s.socketReceiveLoop)
+			go s.runWorker(s.socketPlaybackLoop)
+			go s.cleanup()
+			return
+		}
 		s.workers.Add(5)
 		go s.runWorker(s.captureLoop)
 		go s.runWorker(s.receiveLoop)
@@ -233,13 +243,22 @@ func (s *Session) stop(reason error) {
 func (s *Session) cleanup() {
 	<-s.ctx.Done()
 	var cleanupError error
-	if err := s.peer.Close(); err != nil {
+	if s.socket != nil {
+		s.socket.transport.InterruptRead()
+	} else if err := s.peer.Close(); err != nil {
 		cleanupError = errors.Join(cleanupError, fmt.Errorf("close WebRTC peer: %w", err))
 	}
 	if err := s.subscription.Close(); err != nil {
 		cleanupError = errors.Join(cleanupError, fmt.Errorf("close PCM subscription: %w", err))
 	}
 	s.workers.Wait()
+	if s.socket != nil {
+		s.socket.transport.Finish(s.Err(), s.Statistics())
+		_ = s.socket.transport.Close()
+	}
+	if s.socket != nil && s.reportStats != nil {
+		s.reportStats(s.callID, s.Statistics())
+	}
 	if err := s.codec.Close(); err != nil {
 		cleanupError = errors.Join(cleanupError, fmt.Errorf("close Opus codec: %w", err))
 	}
@@ -483,7 +502,7 @@ func (s *Session) connectionLoop() error {
 				}
 			}
 		case <-recovery:
-			return ErrTransportClosed
+			return errors.Join(ErrTransportTimeout, ErrTransportClosed)
 		case err := <-s.events.failure:
 			return err
 		case <-s.ctx.Done():

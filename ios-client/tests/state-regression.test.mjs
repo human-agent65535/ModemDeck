@@ -65,10 +65,10 @@ test('call stream decodes server fields, ownership-only updates and rejects malf
   ].map(marker => declaration(source, marker)))
 })
 
-test('audio teardown survives owner release and mute survives track creation', { skip: process.platform !== 'darwin' }, async () => {
+test('audio teardown survives owner release and mute persists before capture starts', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
   await verify('call-audio-lifetime-stubs.swift', [
-    'func setMuted(_ muted: Bool)', 'func stop()', 'private func installLocalAudioTrack('
+    'func setMuted(_ muted: Bool)', 'func stop()'
   ].map(marker => declaration(source, marker).replace('private func', 'func')))
 })
 
@@ -123,7 +123,7 @@ test('runtime reconciliation accepts ownership-only changes and rejects obsolete
   await verify('call-state-cursor-stubs.swift', [declaration(source, 'private func acceptRuntimeCallState(').replace('private func', 'func')])
 })
 
-test('real and test call ownership heartbeats renew before a WebRTC track exists', { skip: process.platform !== 'darwin' }, async () => {
+test('real and test call ownership heartbeats renew before capture exists', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
   await verify('call-heartbeat-stubs.swift', ['func startControlHeartbeat()', 'private func startLeaseHeartbeat()', 'private func callPath(']
     .map(marker => declaration(source, marker)))
@@ -163,4 +163,34 @@ test('CallKit repeated answers share permission and connection outcomes without 
     'func provider(_ provider: CXProvider, perform action: CXAnswerCallAction)',
     'private func finishProviderCallAction(', 'private func isLocalTestCall('
   ].map(marker => declaration(source, marker)))
+})
+
+
+test('WSS audio framing validates header, limits, byte order and wrapping counters', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  await verify('audio-packet-stubs.swift', [declaration(source, 'struct ModemDeckAudioPacket {')])
+})
+
+
+test('WSS playout rejects stale bursts, malformed clocks and duplicate frames, then recovers', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  await verify('audio-clock-stubs.swift', [declaration(source, 'struct ModemDeckAudioClock {')])
+})
+
+
+test('transient server media errors recover transport without ending the call', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  await verify('media-error-stubs.swift', [declaration(source, 'private func handleServerError(')])
+})
+
+test('WSS reconnect waits for successful owner cleanup and stops at its deadline', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  await verify('media-release-stubs.swift', [declaration(source, 'private func releaseForReconnect(')])
+})
+
+
+test('repeated early ready/errors preserve the retry budget until duplex media stabilizes', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  await verify('media-health-stubs.swift', ['struct ModemDeckMediaRecoveryHealth {',
+    'private func markSocketReady(', 'private func clearRecoveryAfterStableMedia('].map(marker => declaration(source, marker)))
 })
