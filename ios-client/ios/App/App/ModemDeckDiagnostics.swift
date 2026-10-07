@@ -321,7 +321,7 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
 
     static func sanitize(_ fields: [String: String]) -> [String: String] {
         let numbers: Set<String> = ["elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "candidates", "relay_candidates",
-            "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets"]
+            "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets", "playback_pending", "playback_underruns", "playback_resets"]
         let flags: Set<String> = ["expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "microphone_track_enabled", "reused_connection"]
         let enums: [String: Set<String>] = [
             "input_route": ["none", "microphone", "receiver", "speaker", "bluetooth", "headphones", "external"],

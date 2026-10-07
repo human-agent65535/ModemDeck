@@ -253,10 +253,13 @@ physical-device radio changes, background push delivery, or call audio.
 Native call audio uses source-built `Copus` from BSD-3-Clause `alta/swift-opus`,
 pinned to revision `6f3cb6bd3ffed1fe5f06d00a962d5c191a50daf8`. No codec runtime
 service is required. AVAudioEngine voice processing provides capture/render AEC
-and AGC after CallKit activation, then converts hardware input to mono 16 kHz
-20 ms Opus packets. The authenticated WSS stream uses the protocol in
+and AGC after CallKit activation, using an explicit mono 16 kHz client graph
+and 20 ms Opus packets. The authenticated WSS stream uses the protocol in
 [`docs/call-audio-websocket.md`](../docs/call-audio-websocket.md). Capture and
-playback queues discard stale audio and are limited to 100 ms. The meter is
+transport queues retain 100 ms limits. Playback starts with a fixed 40 ms
+prebuffer and holds at most seven unrendered frames (a 100 ms batch plus that
+prebuffer); device output latency does not count toward this queue. Source
+freshness remains limited to 100 ms, including after playback restarts. The meter is
 measured from processed local capture and displayed at 10 Hz; server reports remain separate from sent counters.
 
 For visual-only audio feedback checks, existing DEBUG UAT call fixtures accept

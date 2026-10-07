@@ -118,7 +118,6 @@ test('CallKit owns native WSS Opus audio and keeps synthetic calls local', async
   assert.match(audio, /callPath\("media"\)/)
   assert.match(audio, /callPath\("lease"\)/)
   assert.match(audio, /sendQueue\.count >= 4/)
-  assert.match(audio, /playbackPending >= 5/)
   assert.match(audio, /reconnectAttempts < 4/)
   assert.match(audio, /timeoutIntervalForResource = 24 \* 60 \* 60/)
   assert.match(audio, /func start\(audioSession: AVAudioSession\)/)
@@ -321,7 +320,6 @@ test('SwiftUI is the universal iPhone and iPad application root', async () => {
   assert.match(calls, /let panelWidth = min\(420/)
   assert.match(calls, /if reduceMotion \{[\s\S]*showingKeypad\.toggle\(\)/)
   assert.match(calls, /callLine\?\.capabilities\?\.sendDtmf != false/)
-  assert.match(calls, /if isActive && !call\.testCall \{[\s\S]*disabled: !canSendDTMF/)
   const scripts = JSON.parse(packageJSON).scripts
   assert.equal(scripts['run:ios:iphone'].includes('MODEMDECK_SIMULATOR_FAMILY=iphone'), true)
   assert.equal(scripts['run:ios:ipad'].includes('MODEMDECK_SIMULATOR_FAMILY=ipad'), true)

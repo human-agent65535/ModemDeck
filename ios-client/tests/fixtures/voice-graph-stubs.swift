@@ -15,6 +15,7 @@ final class DispatchQueue {
 enum StubError: Error { case enable, start }
 enum AVAudioCommonFormat { case pcmFormatFloat32, pcmFormatInt16 }
 typealias AVAudioFrameCount = UInt32
+typealias AVAudioFramePosition = Int64
 final class AVAudioFormat {
     let commonFormat: AVAudioCommonFormat
     let sampleRate: Double
@@ -120,6 +121,10 @@ final class Owner {
     let format = monoFormat(), queue = DispatchQueue(), captureLock = NSLock()
     var captureTapInstalled = false, captureGeneration = 0, playbackGeneration = 0, playbackPending = 0
     var captureSamples: [Float] = [], captured: [[Float]] = []
+    var playbackEpochTimestamp: UInt32?
+    var playbackFrameEnds: [AVAudioFramePosition] = []
+    var playbackLastSampleEnd: AVAudioFramePosition = 0
+    var playbackEpochStartedAt = 0.0, playbackQueuedUntil = -Double.infinity
     var capturePendingSamples = 0, omittedCaptureSamples = 0, droppedFrames = 0
     var sequence: UInt32 = 0, timestamp: UInt32 = 0
     var connectCompletion: ((Result<Void, Error>) -> Void)?
@@ -157,6 +162,7 @@ func requireMono(_ format: AVAudioFormat) {
         stoppedAndChangedGraphs()
         obsoleteCaptureCallbacks()
         oldLargeCaptureDoesNotChangeTheNewClock()
+        oversizedCurrentCaptureSkipsDiscardedSampleTicks()
         oldCaptureCannotOccupyTheNewQueue()
         oldQueuedDeferCannotSubtractNewPendingSamples()
         failuresAreNotRemoteHangups()
@@ -172,7 +178,7 @@ func requireMono(_ format: AVAudioFormat) {
         precondition(engine.connections[0].0 === player && engine.connections[0].1 === engine.mainMixerNode)
         precondition(engine.connections[1].0 === engine.mainMixerNode && engine.connections[1].1 === engine.outputNode)
         engine.connections.forEach { requireMono($0.2) }
-        precondition(engine.inputNode.lastBufferSize == 1600 && engine.starts == 1 && player.plays == 1)
+        precondition(engine.inputNode.lastBufferSize == 1600 && engine.starts == 1 && player.plays == 0)
         for _ in 0..<5 { owner.configurationChanged(engine); owner.start() }
         precondition(owner.engine === engine && AVAudioEngine.instances == before + 1)
         precondition(engine.starts == 1 && engine.stops == 0 && engine.inputNode.installedTaps == 1)
@@ -252,6 +258,19 @@ func requireMono(_ format: AVAudioFormat) {
         precondition(owner.sequence == 0 && owner.timestamp == 0 && owner.droppedFrames == 0,
                      "A removed tap's trimmed samples must not advance the replacement capture clock")
         precondition(owner.omittedCaptureSamples == 0 && owner.capturePendingSamples == 0)
+    }
+    static func oversizedCurrentCaptureSkipsDiscardedSampleTicks() {
+        let owner = Owner(); owner.start()
+        owner.engine!.inputNode.tap!(AVAudioPCMBuffer(frames: 3200, value: 0.5), 0)
+        owner.queue.drain()
+        precondition(owner.captured.count == 1 && owner.captured[0].count == 1600)
+        precondition(owner.sequence == 5 && owner.timestamp == 1600 && owner.droppedFrames == 5,
+                     "Discarded capture must advance its source ticks instead of fabricating continuous audio")
+        precondition(owner.capturePendingSamples == 0 && owner.omittedCaptureSamples == 0)
+        owner.engine!.inputNode.tap!(AVAudioPCMBuffer(frames: 320), 0)
+        owner.queue.drain()
+        precondition(owner.captured.count == 2 && owner.captured[1].count == 320)
+        precondition(owner.sequence == 5 && owner.timestamp == 1600 && owner.droppedFrames == 5)
     }
     static func oldCaptureCannotOccupyTheNewQueue() {
         let owner = Owner(); owner.start()

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v4"
@@ -12,7 +13,13 @@ import (
 
 const SocketHeaderBytes = 12
 const SocketSampleRate = 16000
-const socketQueueFrames = 5
+const socketBatchFrames = 5
+const socketPrebuffer = 40 * time.Millisecond
+const socketQueueFrames = socketBatchFrames + int(socketPrebuffer/defaultFramePeriod)
+const socketLateBudget = 100 * time.Millisecond
+const socketClockWindow = 100 * time.Millisecond
+const socketClockWindowTolerance = 20 * time.Millisecond
+const socketClockDriftLimit = 100 * time.Microsecond
 
 // SocketTransport is supplied by HTTP, keeping authentication and WebSocket
 // framing outside the PCM core. Close must unblock a pending Read or Write.
@@ -25,13 +32,98 @@ type SocketTransport interface {
 }
 
 type socketPacket struct {
-	payload  []byte
-	received time.Time
+	payload    []byte
+	sequence   uint32
+	playAt     time.Time
+	generation uint64
 }
+
+// Future packets stay in this queue until their media slot, so peeking cannot
+// exceed the five-frame batch plus two-frame prebuffer capacity. A re-anchor
+// invalidates the old timeline atomically.
+type socketPacketQueue struct {
+	mu         sync.Mutex
+	packets    []socketPacket
+	generation uint64
+}
+
+func (q *socketPacketQueue) push(packet socketPacket) (dropped uint64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if packet.generation != q.generation {
+		dropped += uint64(len(q.packets))
+		clear(q.packets)
+		q.packets = q.packets[:0]
+		q.generation = packet.generation
+	}
+	if len(q.packets) == socketQueueFrames {
+		copy(q.packets, q.packets[1:])
+		q.packets = q.packets[:len(q.packets)-1]
+		dropped++
+	}
+	q.packets = append(q.packets, packet)
+	return dropped
+}
+
+func (q *socketPacketQueue) head(now time.Time, prebuffer time.Duration) (packet socketPacket, queued bool, dropped uint64, generation uint64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	generation = q.generation
+	for len(q.packets) > 0 {
+		packet = q.packets[0]
+		// Rebuffer cannot extend a packet's original late deadline.
+		if now.Add(prebuffer).Sub(packet.playAt) <= socketLateBudget {
+			return packet, true, dropped, generation
+		}
+		q.removeHead()
+		dropped++
+	}
+	return socketPacket{}, false, dropped, generation
+}
+
+func (q *socketPacketQueue) removeHead() {
+	copy(q.packets, q.packets[1:])
+	q.packets[len(q.packets)-1] = socketPacket{}
+	q.packets = q.packets[:len(q.packets)-1]
+}
+
+// socketHardwareClock projects source slots onto the nearest fixed hardware
+// tick. This makes the10/20ms quantization explicit rather than adding an
+// arrival-time epsilon that varies with scheduler latency.
+type socketHardwareClock struct {
+	anchor time.Time
+	period time.Duration
+}
+
+func (c socketHardwareClock) slot(source time.Time) time.Time {
+	return c.anchor.Add(source.Sub(c.anchor).Round(c.period))
+}
+
+func (q *socketPacketQueue) take(now time.Time, generation uint64, offset time.Duration, hardware socketHardwareClock) (packet socketPacket, ready bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.generation != generation || len(q.packets) == 0 {
+		return socketPacket{}, false
+	}
+	packet = q.packets[0]
+	if now.Before(hardware.slot(packet.playAt.Add(offset))) {
+		return socketPacket{}, false
+	}
+	q.removeHead()
+	return packet, true
+}
+
+func (q *socketPacketQueue) current(generation uint64) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.generation == generation
+}
+
 type socketAudio struct {
-	transport   SocketTransport
-	incoming    chan socketPacket
-	firstPacket chan struct{}
+	transport    SocketTransport
+	incoming     socketPacketQueue
+	firstPacket  chan struct{}
+	codecFactory OpusCodecFactory
 }
 
 func SocketFrame(sequence, timestamp uint32, opus []byte) []byte {
@@ -117,7 +209,7 @@ func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, 
 	}()
 	events := newPeerEvents()
 	session := newSession(owner.ctx, call.ID, format, hub, subscription, codec, nil, nil, nil, events, c.jitter, c.recoveryTime)
-	session.socket = &socketAudio{transport: transport, incoming: make(chan socketPacket, socketQueueFrames), firstPacket: make(chan struct{})}
+	session.socket = &socketAudio{transport: transport, firstPacket: make(chan struct{}), codecFactory: c.codecs}
 	session.reportStats = c.onAudioStats
 	if err := prepare.Err(); err != nil {
 		return nil, ErrCanceled
@@ -165,26 +257,127 @@ func (s *Session) socketReceiveLoop() error {
 			s.stats.droppedPackets.Add(1)
 			continue
 		}
+		packet := socketPacket{payload: append([]byte(nil), payload...), sequence: sequence, playAt: clock.playAt, generation: clock.generation}
+		s.stats.droppedPackets.Add(s.socket.incoming.push(packet))
 		if !initialized {
 			initialized = true
 			s.events.updateState(webrtc.PeerConnectionStateConnected)
 			close(s.socket.firstPacket)
 		}
-		packet := socketPacket{payload: append([]byte(nil), payload...), received: now}
-		select {
-		case s.socket.incoming <- packet:
-		default:
-			select {
-			case <-s.socket.incoming:
-				s.stats.droppedPackets.Add(1)
-			default:
+	}
+}
+
+// socketPlayout owns the uplink decoder and the unplayed part of a 20ms packet.
+// A new timeline must not retain either old decoded samples or predictive state.
+type socketPlayout struct {
+	session              *Session
+	decoder              OpusCodec
+	ownedDecoder         bool
+	generation           uint64
+	previousSequence     uint32
+	decoded              bool
+	pending              []byte
+	pendingAt            time.Time
+	epochGeneration      uint64
+	offset               time.Duration
+	starving             bool
+	decoderDiscontinuous bool
+	hardware             socketHardwareClock
+}
+
+func (p *socketPlayout) close() {
+	if p.ownedDecoder {
+		_ = p.decoder.Close()
+	}
+}
+
+func (p *socketPlayout) resetDecoder() error {
+	decoder, err := p.session.socket.codecFactory.New(p.session.format)
+	if err != nil || decoder == nil {
+		if decoder != nil {
+			_ = decoder.Close()
+		}
+		return fmt.Errorf("reset socket decoder: %w", errors.Join(ErrCodec, err))
+	}
+	if decoder.Format() != p.session.format {
+		_ = decoder.Close()
+		return ErrCodec
+	}
+	p.close()
+	p.decoder, p.ownedDecoder = decoder, true
+	return nil
+}
+
+func (p *socketPlayout) next(now time.Time) ([]byte, error) {
+	s := p.session
+	frameBytes := s.hub.format.FrameBytes()
+	if p.hardware.period == 0 {
+		p.hardware = socketHardwareClock{anchor: now, period: s.hub.format.FrameDuration}
+	}
+	if len(p.pending) > 0 && (!s.socket.incoming.current(p.generation) || now.Sub(p.pendingAt) > socketLateBudget) {
+		p.pending = nil
+		s.stats.droppedPackets.Add(1)
+	}
+	if len(p.pending) == 0 {
+		prebuffer := time.Duration(0)
+		if p.starving {
+			prebuffer = socketPrebuffer
+		}
+		head, queued, dropped, generation := s.socket.incoming.head(now, prebuffer)
+		s.stats.droppedPackets.Add(dropped)
+		if generation != p.epochGeneration {
+			p.epochGeneration, p.offset, p.starving = generation, 0, false
+		}
+		if p.starving && queued {
+			// Replace the playback mapping once per genuine underrun; never add
+			// another 40ms to a previous offset or re-anchor the source-age gate.
+			p.offset = max(0, now.Add(socketPrebuffer).Sub(head.playAt))
+			p.starving = false
+		}
+		// Expiry above uses actual now, independent of hardware quantization.
+		packet, ready := s.socket.incoming.take(now, generation, p.offset, p.hardware)
+		if !queued && p.decoded {
+			p.starving, p.decoderDiscontinuous = true, true
+		}
+		if ready {
+			if p.decoded && (packet.generation != p.generation || packet.sequence != p.previousSequence+1 || p.decoderDiscontinuous) {
+				if err := p.resetDecoder(); err != nil {
+					return nil, err
+				}
 			}
-			select {
-			case s.socket.incoming <- packet:
-			default:
+			decoded, err := p.decoder.Decode(packet.payload)
+			if err != nil {
+				return nil, err
+			}
+			if decoded.Duration != defaultFramePeriod || len(decoded.PCM) != s.format.FrameBytes() {
+				return nil, ErrCodec
+			}
+			p.generation, p.previousSequence, p.decoded = packet.generation, packet.sequence, true
+			p.decoderDiscontinuous = false
+			p.pendingAt = packet.playAt
+			p.pending = socketResample(decoded.PCM, SocketSampleRate, s.hub.format.SampleRate)
+			// Receipt may have re-anchored while Decode was running.
+			if !s.socket.incoming.current(p.generation) {
+				p.pending = nil
+				s.stats.droppedPackets.Add(1)
 			}
 		}
 	}
+	if len(p.pending) == 0 {
+		s.stats.inputDBFS.Store(-96)
+		s.stats.inputPeakDBFS.Store(-96)
+		return make([]byte, frameBytes), nil
+	}
+	if len(p.pending) < frameBytes {
+		return nil, ErrCodec
+	}
+	frame := p.pending[:frameBytes]
+	p.pending = p.pending[frameBytes:]
+	p.pendingAt = p.pendingAt.Add(s.hub.format.FrameDuration)
+	level, peak := PCMLevels(frame)
+	s.stats.inputDBFS.Store(int64(level))
+	s.stats.inputPeakDBFS.Store(int64(peak))
+	return frame, nil
 }
 
 func (s *Session) socketPlaybackLoop() error {
@@ -196,62 +389,26 @@ func (s *Session) socketPlaybackLoop() error {
 	}
 	ticker := time.NewTicker(s.hub.format.FrameDuration)
 	defer ticker.Stop()
-	var pending []byte
+	playout := socketPlayout{session: s, decoder: s.codec}
+	defer playout.close()
 	for {
+		// Start the hardware cadence immediately. Source slots provide the fixed
+		// 40ms prebuffer; startup and every re-anchor apply it exactly once.
+		if s.ctx.Err() != nil {
+			return nil
+		}
+		frame, err := playout.next(time.Now())
+		if err != nil {
+			return err
+		}
+		if err := s.hub.WritePCM(s.ctx, frame); err != nil {
+			return err
+		}
 		select {
 		case <-s.ctx.Done():
 			return nil
 		case <-ticker.C:
 		}
-		if len(pending) == 0 {
-			var packet socketPacket
-			fresh := false
-			for {
-				select {
-				case packet = <-s.socket.incoming:
-					if time.Since(packet.received) <= 100*time.Millisecond {
-						fresh = true
-					} else {
-						s.stats.droppedPackets.Add(1)
-					}
-				default:
-					goto selected
-				}
-				if fresh {
-					break
-				}
-			}
-		selected:
-			if fresh {
-				duration, err := s.codec.PacketDuration(packet.payload)
-				if err != nil || duration != defaultFramePeriod {
-					return ErrInvalidRTP
-				}
-				decoded, err := s.codec.Decode(packet.payload)
-				if err != nil {
-					return err
-				}
-				if decoded.Duration != defaultFramePeriod || len(decoded.PCM) != s.format.FrameBytes() {
-					return ErrCodec
-				}
-				level, peak := PCMLevels(decoded.PCM)
-				s.stats.inputDBFS.Store(int64(level))
-				s.stats.inputPeakDBFS.Store(int64(peak))
-				pending = socketResample(decoded.PCM, SocketSampleRate, s.hub.format.SampleRate)
-			} else {
-				pending = make([]byte, s.hub.format.FrameBytes())
-				s.stats.inputDBFS.Store(-96)
-				s.stats.inputPeakDBFS.Store(-96)
-			}
-		}
-		frameBytes := s.hub.format.FrameBytes()
-		if len(pending) < frameBytes {
-			return ErrCodec
-		}
-		if err := s.hub.WritePCM(s.ctx, pending[:frameBytes]); err != nil {
-			return err
-		}
-		pending = pending[frameBytes:]
 	}
 }
 
@@ -335,59 +492,86 @@ func (s *Session) waitSocketAudio() error {
 	}
 }
 
-// socketReceiveClock measures capture age from the sender's sample ticks, not
-// just time in our local queue: TCP backlog does not become fresh on receipt.
-// Re-anchor a changed route only after three arrivals regain real-time cadence.
+// socketReceiveClock maps unwrapped source progress onto monotonic playback
+// slots plus a fixed 40ms prebuffer. Five packets received together still
+// occupy five distinct 20ms slots.
+// Arrival age rejects TCP backlog; queue expiry is relative to each source slot.
 type socketReceiveClock struct {
 	initialized       bool
 	previousSequence  uint32
 	previousTimestamp uint32
-	previousArrival   time.Time
-	anchorTimestamp   uint32
+	mediaTime         time.Duration
+	anchorMedia       time.Duration
 	anchorArrival     time.Time
-	recoveryCadence   int
+	playAt            time.Time
+	generation        uint64
+	windowMedia       time.Duration
+	windowArrival     time.Time
+	recovering        bool
+	recoveryWindows   int
 }
 
 func (c *socketReceiveClock) accept(sequence, timestamp uint32, now time.Time) (bool, error) {
-	stable := false
 	if c.initialized {
 		advance := sequence - c.previousSequence
 		if int32(advance) <= 0 || timestamp-c.previousTimestamp != advance*320 {
 			return false, ErrInvalidRTP
 		}
-		gap := now.Sub(c.previousArrival)
-		stable = advance == 1 && gap >= 12*time.Millisecond && gap <= 28*time.Millisecond
+		// Accumulation handles both timestamp and sequence wrap, including calls
+		// longer than a complete 32-bit sample clock period.
+		c.mediaTime += time.Duration(advance) * defaultFramePeriod
 	} else {
 		c.initialized = true
-		c.anchorTimestamp = timestamp
-		c.anchorArrival = now
+		c.anchorArrival, c.windowArrival = now, now
+		c.generation = 1
 	}
-	c.previousSequence = sequence
-	c.previousTimestamp = timestamp
-	c.previousArrival = now
-	elapsed := time.Duration(timestamp-c.anchorTimestamp) * time.Second / SocketSampleRate
-	age := now.Sub(c.anchorArrival) - elapsed
-	if age > 100*time.Millisecond || age < -100*time.Millisecond {
-		if stable {
-			c.recoveryCadence++
-		} else {
-			c.recoveryCadence = 0
+	c.previousSequence, c.previousTimestamp = sequence, timestamp
+	predicted := c.anchorArrival.Add(c.mediaTime - c.anchorMedia)
+	age := now.Sub(predicted)
+	outside := age > socketLateBudget || age < -socketLateBudget
+	if outside && !c.recovering {
+		c.recovering = true
+		c.recoveryWindows = 0
+		c.windowMedia, c.windowArrival = c.mediaTime, now
+	}
+	if !outside && c.recovering {
+		// Backlog can catch up into the original freshness envelope without a
+		// re-anchor. Start a new observation window: the catch-up interval must
+		// not be misclassified as negative clock drift on the next packet.
+		c.recovering, c.recoveryWindows = false, 0
+		c.windowMedia, c.windowArrival = c.mediaTime, now
+	}
+	span := c.mediaTime - c.windowMedia
+	if span >= socketClockWindow {
+		difference := now.Sub(c.windowArrival) - span
+		stable := difference >= -socketClockWindowTolerance && difference <= socketClockWindowTolerance
+		c.windowMedia, c.windowArrival = c.mediaTime, now
+		if c.recovering {
+			if stable {
+				c.recoveryWindows++
+			} else {
+				c.recoveryWindows = 0
+			}
+		} else if stable {
+			// Correct slow hardware clock drift only across media windows. Per-packet
+			// correction would mistake a normal batch for a clock running fast.
+			correction := max(-socketClockDriftLimit, min(socketClockDriftLimit, difference))
+			c.anchorArrival = c.anchorArrival.Add(correction)
+			predicted = predicted.Add(correction)
 		}
-		if c.recoveryCadence < 3 {
+	}
+	if outside {
+		if c.recoveryWindows < 3 {
 			return false, nil
 		}
-		c.anchorTimestamp = timestamp
-		c.anchorArrival = now
-		c.recoveryCadence = 0
-		return true, nil
+		c.anchorMedia, c.anchorArrival = c.mediaTime, now
+		c.windowMedia, c.windowArrival = c.mediaTime, now
+		c.generation++
+		predicted = now
 	}
-	c.recoveryCadence = 0
-	predicted := c.anchorArrival.Add(elapsed + 200*time.Microsecond)
-	c.anchorTimestamp = timestamp
-	if now.Before(predicted) {
-		c.anchorArrival = now
-	} else {
-		c.anchorArrival = predicted
-	}
+	c.recovering, c.recoveryWindows = false, 0
+	// Slow drift never changes packet spacing into a batch. Re-anchors create
+	// a new generation, whose old scheduled packets have been invalidated.
+	c.playAt = predicted.Add(socketPrebuffer)
 	return true, nil
 }

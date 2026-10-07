@@ -135,7 +135,9 @@ func TestMobileDiagnosticsAcceptsSwiftWSSContract(t *testing.T) {
 	if len(batch.Events) != 4 || batch.Events[0].Fields["stage"] != "connecting_wss" ||
 		batch.Events[2].Fields["stage"] != "reconnecting_wss" ||
 		batch.Events[1].Fields["captured_frames"] != "250" || batch.Events[1].Fields["dropped_frames"] != "7" ||
-		batch.Events[1].Fields["server_received_packets"] != "240" {
+		batch.Events[1].Fields["server_received_packets"] != "240" ||
+		batch.Events[1].Fields["playback_pending"] != "3" || batch.Events[1].Fields["playback_underruns"] != "2" ||
+		batch.Events[1].Fields["playback_resets"] != "1" {
 		t.Fatal("Swift fixture lost WSS stages or audio counters")
 	}
 	if bytes.Contains(body, []byte("synthetic-private-value")) {
@@ -190,7 +192,7 @@ func TestMobileDiagnosticsAcceptsSwiftWSSContract(t *testing.T) {
 	}
 	// These new fields retain the existing bounded integer policy. A malformed
 	// event must reject the whole batch, including earlier otherwise valid events.
-	for _, field := range []string{"captured_frames", "dropped_frames", "server_received_packets"} {
+	for _, field := range []string{"captured_frames", "dropped_frames", "server_received_packets", "playback_pending", "playback_underruns", "playback_resets"} {
 		for _, value := range []string{"1000000001", "-1000000001", "9223372036854775808", "1.5", "private value"} {
 			t.Run(field+"/"+value, func(t *testing.T) {
 				var invalid mobileDiagnosticBatch

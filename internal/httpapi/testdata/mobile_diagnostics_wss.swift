@@ -19,6 +19,7 @@ import CryptoKit
             ("audio_statistics", ["stage": "connected", "captured_frames": "250", "dropped_frames": "7",
                 "server_received_packets": "240", "sent_packets": "240", "received_packets": "239",
                 "microphone_dbfs": "-37", "input_route": "microphone", "output_route": "speaker",
+                "playback_pending": "3", "playback_underruns": "2", "playback_resets": "1",
                 "sample_rate": "16000", "channels": "1", "test_call": "true",
                 "authorization": "synthetic-private-value", "audio_samples": "synthetic-private-value"]),
             ("wss_disconnected", ["stage": "reconnecting_wss", "stage_elapsed_ms": "25", "attempt": "2",
@@ -36,9 +37,10 @@ import CryptoKit
         precondition(events[0].fields["stage"] == "connecting_wss")
         precondition(events[1].fields["captured_frames"] == "250" && events[1].fields["dropped_frames"] == "7")
         precondition(events[1].fields["server_received_packets"] == "240")
+        precondition(events[1].fields["playback_pending"] == "3" && events[1].fields["playback_underruns"] == "2" && events[1].fields["playback_resets"] == "1")
         precondition(events[1].fields["authorization"] == nil && events[1].fields["audio_samples"] == nil)
         precondition(events[2].fields["stage"] == "reconnecting_wss")
-        let batch = ModemDeckDiagnostics.Batch(appVersion: "0.1.0", appBuild: "26", osVersion: "18.0", dropped: 2, events: events)
+        let batch = ModemDeckDiagnostics.Batch(appVersion: "0.1.0", appBuild: "28", osVersion: "18.0", dropped: 2, events: events)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let output = URL(fileURLWithPath: CommandLine.arguments[2])

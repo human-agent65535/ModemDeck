@@ -1,0 +1,3485 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "uniform_20ms",
+      "frames": [
+        {
+          "sequence": 0,
+          "timestamp": 0,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 40000
+        },
+        {
+          "sequence": 1,
+          "timestamp": 320,
+          "arrival_us": 20000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 60000
+        },
+        {
+          "sequence": 2,
+          "timestamp": 640,
+          "arrival_us": 40000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 80000
+        },
+        {
+          "sequence": 3,
+          "timestamp": 960,
+          "arrival_us": 60000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 100000
+        },
+        {
+          "sequence": 4,
+          "timestamp": 1280,
+          "arrival_us": 80000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 120000
+        },
+        {
+          "sequence": 5,
+          "timestamp": 1600,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 140000
+        },
+        {
+          "sequence": 6,
+          "timestamp": 1920,
+          "arrival_us": 120000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 160000
+        },
+        {
+          "sequence": 7,
+          "timestamp": 2240,
+          "arrival_us": 140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 180000
+        },
+        {
+          "sequence": 8,
+          "timestamp": 2560,
+          "arrival_us": 160000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 200000
+        },
+        {
+          "sequence": 9,
+          "timestamp": 2880,
+          "arrival_us": 180000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 220000
+        },
+        {
+          "sequence": 10,
+          "timestamp": 3200,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 240000
+        },
+        {
+          "sequence": 11,
+          "timestamp": 3520,
+          "arrival_us": 220000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 260000
+        },
+        {
+          "sequence": 12,
+          "timestamp": 3840,
+          "arrival_us": 240000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 280000
+        },
+        {
+          "sequence": 13,
+          "timestamp": 4160,
+          "arrival_us": 260000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 300000
+        },
+        {
+          "sequence": 14,
+          "timestamp": 4480,
+          "arrival_us": 280000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 320000
+        },
+        {
+          "sequence": 15,
+          "timestamp": 4800,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 340000
+        },
+        {
+          "sequence": 16,
+          "timestamp": 5120,
+          "arrival_us": 320000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 360000
+        },
+        {
+          "sequence": 17,
+          "timestamp": 5440,
+          "arrival_us": 340000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 380000
+        },
+        {
+          "sequence": 18,
+          "timestamp": 5760,
+          "arrival_us": 360000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 400000
+        },
+        {
+          "sequence": 19,
+          "timestamp": 6080,
+          "arrival_us": 380000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 420000
+        },
+        {
+          "sequence": 20,
+          "timestamp": 6400,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 440000
+        },
+        {
+          "sequence": 21,
+          "timestamp": 6720,
+          "arrival_us": 420000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 460000
+        },
+        {
+          "sequence": 22,
+          "timestamp": 7040,
+          "arrival_us": 440000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 480000
+        },
+        {
+          "sequence": 23,
+          "timestamp": 7360,
+          "arrival_us": 460000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 500000
+        },
+        {
+          "sequence": 24,
+          "timestamp": 7680,
+          "arrival_us": 480000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 520000
+        },
+        {
+          "sequence": 25,
+          "timestamp": 8000,
+          "arrival_us": 500000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 540000
+        },
+        {
+          "sequence": 26,
+          "timestamp": 8320,
+          "arrival_us": 520000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 560000
+        },
+        {
+          "sequence": 27,
+          "timestamp": 8640,
+          "arrival_us": 540000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 580000
+        },
+        {
+          "sequence": 28,
+          "timestamp": 8960,
+          "arrival_us": 560000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 600000
+        },
+        {
+          "sequence": 29,
+          "timestamp": 9280,
+          "arrival_us": 580000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 620000
+        },
+        {
+          "sequence": 30,
+          "timestamp": 9600,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 640000
+        },
+        {
+          "sequence": 31,
+          "timestamp": 9920,
+          "arrival_us": 620000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 660000
+        },
+        {
+          "sequence": 32,
+          "timestamp": 10240,
+          "arrival_us": 640000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 680000
+        },
+        {
+          "sequence": 33,
+          "timestamp": 10560,
+          "arrival_us": 660000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 700000
+        },
+        {
+          "sequence": 34,
+          "timestamp": 10880,
+          "arrival_us": 680000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 720000
+        },
+        {
+          "sequence": 35,
+          "timestamp": 11200,
+          "arrival_us": 700000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 740000
+        },
+        {
+          "sequence": 36,
+          "timestamp": 11520,
+          "arrival_us": 720000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 760000
+        },
+        {
+          "sequence": 37,
+          "timestamp": 11840,
+          "arrival_us": 740000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 780000
+        },
+        {
+          "sequence": 38,
+          "timestamp": 12160,
+          "arrival_us": 760000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 800000
+        },
+        {
+          "sequence": 39,
+          "timestamp": 12480,
+          "arrival_us": 780000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 820000
+        }
+      ]
+    },
+    {
+      "name": "five_frames_every_100ms",
+      "frames": [
+        {
+          "sequence": 0,
+          "timestamp": 0,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 40000
+        },
+        {
+          "sequence": 1,
+          "timestamp": 320,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 60000
+        },
+        {
+          "sequence": 2,
+          "timestamp": 640,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 80000
+        },
+        {
+          "sequence": 3,
+          "timestamp": 960,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 100000
+        },
+        {
+          "sequence": 4,
+          "timestamp": 1280,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 120000
+        },
+        {
+          "sequence": 5,
+          "timestamp": 1600,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 140000
+        },
+        {
+          "sequence": 6,
+          "timestamp": 1920,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 160000
+        },
+        {
+          "sequence": 7,
+          "timestamp": 2240,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 180000
+        },
+        {
+          "sequence": 8,
+          "timestamp": 2560,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 200000
+        },
+        {
+          "sequence": 9,
+          "timestamp": 2880,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 220000
+        },
+        {
+          "sequence": 10,
+          "timestamp": 3200,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 240000
+        },
+        {
+          "sequence": 11,
+          "timestamp": 3520,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 260000
+        },
+        {
+          "sequence": 12,
+          "timestamp": 3840,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 280000
+        },
+        {
+          "sequence": 13,
+          "timestamp": 4160,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 300000
+        },
+        {
+          "sequence": 14,
+          "timestamp": 4480,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 320000
+        },
+        {
+          "sequence": 15,
+          "timestamp": 4800,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 340000
+        },
+        {
+          "sequence": 16,
+          "timestamp": 5120,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 360000
+        },
+        {
+          "sequence": 17,
+          "timestamp": 5440,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 380000
+        },
+        {
+          "sequence": 18,
+          "timestamp": 5760,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 400000
+        },
+        {
+          "sequence": 19,
+          "timestamp": 6080,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 420000
+        },
+        {
+          "sequence": 20,
+          "timestamp": 6400,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 440000
+        },
+        {
+          "sequence": 21,
+          "timestamp": 6720,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 460000
+        },
+        {
+          "sequence": 22,
+          "timestamp": 7040,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 480000
+        },
+        {
+          "sequence": 23,
+          "timestamp": 7360,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 500000
+        },
+        {
+          "sequence": 24,
+          "timestamp": 7680,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 520000
+        },
+        {
+          "sequence": 25,
+          "timestamp": 8000,
+          "arrival_us": 500000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 540000
+        },
+        {
+          "sequence": 26,
+          "timestamp": 8320,
+          "arrival_us": 500000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 560000
+        },
+        {
+          "sequence": 27,
+          "timestamp": 8640,
+          "arrival_us": 500000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 580000
+        },
+        {
+          "sequence": 28,
+          "timestamp": 8960,
+          "arrival_us": 500000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 600000
+        },
+        {
+          "sequence": 29,
+          "timestamp": 9280,
+          "arrival_us": 500000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 620000
+        },
+        {
+          "sequence": 30,
+          "timestamp": 9600,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 640000
+        },
+        {
+          "sequence": 31,
+          "timestamp": 9920,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 660000
+        },
+        {
+          "sequence": 32,
+          "timestamp": 10240,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 680000
+        },
+        {
+          "sequence": 33,
+          "timestamp": 10560,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 700000
+        },
+        {
+          "sequence": 34,
+          "timestamp": 10880,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 720000
+        },
+        {
+          "sequence": 35,
+          "timestamp": 11200,
+          "arrival_us": 700000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 740000
+        },
+        {
+          "sequence": 36,
+          "timestamp": 11520,
+          "arrival_us": 700000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 760000
+        },
+        {
+          "sequence": 37,
+          "timestamp": 11840,
+          "arrival_us": 700000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 780000
+        },
+        {
+          "sequence": 38,
+          "timestamp": 12160,
+          "arrival_us": 700000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 800000
+        },
+        {
+          "sequence": 39,
+          "timestamp": 12480,
+          "arrival_us": 700000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 820000
+        },
+        {
+          "sequence": 40,
+          "timestamp": 12800,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 840000
+        },
+        {
+          "sequence": 41,
+          "timestamp": 13120,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 860000
+        },
+        {
+          "sequence": 42,
+          "timestamp": 13440,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 880000
+        },
+        {
+          "sequence": 43,
+          "timestamp": 13760,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 900000
+        },
+        {
+          "sequence": 44,
+          "timestamp": 14080,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 920000
+        },
+        {
+          "sequence": 45,
+          "timestamp": 14400,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 940000
+        },
+        {
+          "sequence": 46,
+          "timestamp": 14720,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 960000
+        },
+        {
+          "sequence": 47,
+          "timestamp": 15040,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 980000
+        },
+        {
+          "sequence": 48,
+          "timestamp": 15360,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1000000
+        },
+        {
+          "sequence": 49,
+          "timestamp": 15680,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1020000
+        },
+        {
+          "sequence": 50,
+          "timestamp": 16000,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1040000
+        },
+        {
+          "sequence": 51,
+          "timestamp": 16320,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1060000
+        },
+        {
+          "sequence": 52,
+          "timestamp": 16640,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1080000
+        },
+        {
+          "sequence": 53,
+          "timestamp": 16960,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1100000
+        },
+        {
+          "sequence": 54,
+          "timestamp": 17280,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1120000
+        },
+        {
+          "sequence": 55,
+          "timestamp": 17600,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1140000
+        },
+        {
+          "sequence": 56,
+          "timestamp": 17920,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1160000
+        },
+        {
+          "sequence": 57,
+          "timestamp": 18240,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1180000
+        },
+        {
+          "sequence": 58,
+          "timestamp": 18560,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1200000
+        },
+        {
+          "sequence": 59,
+          "timestamp": 18880,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1220000
+        }
+      ]
+    },
+    {
+      "name": "batch_200ms_latency_step",
+      "frames": [
+        {
+          "sequence": 0,
+          "timestamp": 0,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 40000
+        },
+        {
+          "sequence": 1,
+          "timestamp": 320,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 60000
+        },
+        {
+          "sequence": 2,
+          "timestamp": 640,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 80000
+        },
+        {
+          "sequence": 3,
+          "timestamp": 960,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 100000
+        },
+        {
+          "sequence": 4,
+          "timestamp": 1280,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 120000
+        },
+        {
+          "sequence": 5,
+          "timestamp": 1600,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 140000
+        },
+        {
+          "sequence": 6,
+          "timestamp": 1920,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 160000
+        },
+        {
+          "sequence": 7,
+          "timestamp": 2240,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 180000
+        },
+        {
+          "sequence": 8,
+          "timestamp": 2560,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 200000
+        },
+        {
+          "sequence": 9,
+          "timestamp": 2880,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 220000
+        },
+        {
+          "sequence": 10,
+          "timestamp": 3200,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 240000
+        },
+        {
+          "sequence": 11,
+          "timestamp": 3520,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 260000
+        },
+        {
+          "sequence": 12,
+          "timestamp": 3840,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 280000
+        },
+        {
+          "sequence": 13,
+          "timestamp": 4160,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 300000
+        },
+        {
+          "sequence": 14,
+          "timestamp": 4480,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 320000
+        },
+        {
+          "sequence": 15,
+          "timestamp": 4800,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 340000
+        },
+        {
+          "sequence": 16,
+          "timestamp": 5120,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 360000
+        },
+        {
+          "sequence": 17,
+          "timestamp": 5440,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 380000
+        },
+        {
+          "sequence": 18,
+          "timestamp": 5760,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 400000
+        },
+        {
+          "sequence": 19,
+          "timestamp": 6080,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 420000
+        },
+        {
+          "sequence": 20,
+          "timestamp": 6400,
+          "arrival_us": 600000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 21,
+          "timestamp": 6720,
+          "arrival_us": 600000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 22,
+          "timestamp": 7040,
+          "arrival_us": 600000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 23,
+          "timestamp": 7360,
+          "arrival_us": 600000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 24,
+          "timestamp": 7680,
+          "arrival_us": 600000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 25,
+          "timestamp": 8000,
+          "arrival_us": 700000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 26,
+          "timestamp": 8320,
+          "arrival_us": 700000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 27,
+          "timestamp": 8640,
+          "arrival_us": 700000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 28,
+          "timestamp": 8960,
+          "arrival_us": 700000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 29,
+          "timestamp": 9280,
+          "arrival_us": 700000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 30,
+          "timestamp": 9600,
+          "arrival_us": 800000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 31,
+          "timestamp": 9920,
+          "arrival_us": 800000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 32,
+          "timestamp": 10240,
+          "arrival_us": 800000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 33,
+          "timestamp": 10560,
+          "arrival_us": 800000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 34,
+          "timestamp": 10880,
+          "arrival_us": 800000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 35,
+          "timestamp": 11200,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 940000
+        },
+        {
+          "sequence": 36,
+          "timestamp": 11520,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 960000
+        },
+        {
+          "sequence": 37,
+          "timestamp": 11840,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 980000
+        },
+        {
+          "sequence": 38,
+          "timestamp": 12160,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1000000
+        },
+        {
+          "sequence": 39,
+          "timestamp": 12480,
+          "arrival_us": 900000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1020000
+        },
+        {
+          "sequence": 40,
+          "timestamp": 12800,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1040000
+        },
+        {
+          "sequence": 41,
+          "timestamp": 13120,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1060000
+        },
+        {
+          "sequence": 42,
+          "timestamp": 13440,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1080000
+        },
+        {
+          "sequence": 43,
+          "timestamp": 13760,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1100000
+        },
+        {
+          "sequence": 44,
+          "timestamp": 14080,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1120000
+        },
+        {
+          "sequence": 45,
+          "timestamp": 14400,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1140000
+        },
+        {
+          "sequence": 46,
+          "timestamp": 14720,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1160000
+        },
+        {
+          "sequence": 47,
+          "timestamp": 15040,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1180000
+        },
+        {
+          "sequence": 48,
+          "timestamp": 15360,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1200000
+        },
+        {
+          "sequence": 49,
+          "timestamp": 15680,
+          "arrival_us": 1100000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1220000
+        },
+        {
+          "sequence": 50,
+          "timestamp": 16000,
+          "arrival_us": 1200000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1240000
+        },
+        {
+          "sequence": 51,
+          "timestamp": 16320,
+          "arrival_us": 1200000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1260000
+        },
+        {
+          "sequence": 52,
+          "timestamp": 16640,
+          "arrival_us": 1200000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1280000
+        },
+        {
+          "sequence": 53,
+          "timestamp": 16960,
+          "arrival_us": 1200000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1300000
+        },
+        {
+          "sequence": 54,
+          "timestamp": 17280,
+          "arrival_us": 1200000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1320000
+        },
+        {
+          "sequence": 55,
+          "timestamp": 17600,
+          "arrival_us": 1300000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1340000
+        },
+        {
+          "sequence": 56,
+          "timestamp": 17920,
+          "arrival_us": 1300000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1360000
+        },
+        {
+          "sequence": 57,
+          "timestamp": 18240,
+          "arrival_us": 1300000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1380000
+        },
+        {
+          "sequence": 58,
+          "timestamp": 18560,
+          "arrival_us": 1300000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1400000
+        },
+        {
+          "sequence": 59,
+          "timestamp": 18880,
+          "arrival_us": 1300000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1420000
+        }
+      ]
+    },
+    {
+      "name": "stale_tcp_burst_then_real_cadence",
+      "frames": [
+        {
+          "sequence": 0,
+          "timestamp": 0,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 40000
+        },
+        {
+          "sequence": 1,
+          "timestamp": 320,
+          "arrival_us": 20000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 60000
+        },
+        {
+          "sequence": 2,
+          "timestamp": 640,
+          "arrival_us": 40000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 80000
+        },
+        {
+          "sequence": 3,
+          "timestamp": 960,
+          "arrival_us": 60000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 100000
+        },
+        {
+          "sequence": 4,
+          "timestamp": 1280,
+          "arrival_us": 80000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 120000
+        },
+        {
+          "sequence": 5,
+          "timestamp": 1600,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 140000
+        },
+        {
+          "sequence": 6,
+          "timestamp": 1920,
+          "arrival_us": 120000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 160000
+        },
+        {
+          "sequence": 7,
+          "timestamp": 2240,
+          "arrival_us": 140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 180000
+        },
+        {
+          "sequence": 8,
+          "timestamp": 2560,
+          "arrival_us": 160000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 200000
+        },
+        {
+          "sequence": 9,
+          "timestamp": 2880,
+          "arrival_us": 180000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 220000
+        },
+        {
+          "sequence": 10,
+          "timestamp": 3200,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 240000
+        },
+        {
+          "sequence": 11,
+          "timestamp": 3520,
+          "arrival_us": 220000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 260000
+        },
+        {
+          "sequence": 12,
+          "timestamp": 3840,
+          "arrival_us": 240000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 280000
+        },
+        {
+          "sequence": 13,
+          "timestamp": 4160,
+          "arrival_us": 260000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 300000
+        },
+        {
+          "sequence": 14,
+          "timestamp": 4480,
+          "arrival_us": 280000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 320000
+        },
+        {
+          "sequence": 15,
+          "timestamp": 4800,
+          "arrival_us": 300000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 340000
+        },
+        {
+          "sequence": 16,
+          "timestamp": 5120,
+          "arrival_us": 320000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 360000
+        },
+        {
+          "sequence": 17,
+          "timestamp": 5440,
+          "arrival_us": 340000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 380000
+        },
+        {
+          "sequence": 18,
+          "timestamp": 5760,
+          "arrival_us": 360000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 400000
+        },
+        {
+          "sequence": 19,
+          "timestamp": 6080,
+          "arrival_us": 380000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 420000
+        },
+        {
+          "sequence": 20,
+          "timestamp": 6400,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 21,
+          "timestamp": 6720,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 22,
+          "timestamp": 7040,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 23,
+          "timestamp": 7360,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 24,
+          "timestamp": 7680,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 25,
+          "timestamp": 8000,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 26,
+          "timestamp": 8320,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 27,
+          "timestamp": 8640,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 28,
+          "timestamp": 8960,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 29,
+          "timestamp": 9280,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 30,
+          "timestamp": 9600,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 31,
+          "timestamp": 9920,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 32,
+          "timestamp": 10240,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 33,
+          "timestamp": 10560,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 34,
+          "timestamp": 10880,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 35,
+          "timestamp": 11200,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 36,
+          "timestamp": 11520,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 37,
+          "timestamp": 11840,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 38,
+          "timestamp": 12160,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 39,
+          "timestamp": 12480,
+          "arrival_us": 1000000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 40,
+          "timestamp": 12800,
+          "arrival_us": 1020000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 41,
+          "timestamp": 13120,
+          "arrival_us": 1040000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 42,
+          "timestamp": 13440,
+          "arrival_us": 1060000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 43,
+          "timestamp": 13760,
+          "arrival_us": 1080000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 44,
+          "timestamp": 14080,
+          "arrival_us": 1100000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 45,
+          "timestamp": 14400,
+          "arrival_us": 1120000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 46,
+          "timestamp": 14720,
+          "arrival_us": 1140000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 47,
+          "timestamp": 15040,
+          "arrival_us": 1160000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 48,
+          "timestamp": 15360,
+          "arrival_us": 1180000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 49,
+          "timestamp": 15680,
+          "arrival_us": 1200000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 50,
+          "timestamp": 16000,
+          "arrival_us": 1220000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 51,
+          "timestamp": 16320,
+          "arrival_us": 1240000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 52,
+          "timestamp": 16640,
+          "arrival_us": 1260000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 53,
+          "timestamp": 16960,
+          "arrival_us": 1280000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 54,
+          "timestamp": 17280,
+          "arrival_us": 1300000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 55,
+          "timestamp": 17600,
+          "arrival_us": 1320000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1360000
+        },
+        {
+          "sequence": 56,
+          "timestamp": 17920,
+          "arrival_us": 1340000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1380000
+        },
+        {
+          "sequence": 57,
+          "timestamp": 18240,
+          "arrival_us": 1360000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1400000
+        },
+        {
+          "sequence": 58,
+          "timestamp": 18560,
+          "arrival_us": 1380000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1420000
+        },
+        {
+          "sequence": 59,
+          "timestamp": 18880,
+          "arrival_us": 1400000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1440000
+        },
+        {
+          "sequence": 60,
+          "timestamp": 19200,
+          "arrival_us": 1420000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1460000
+        },
+        {
+          "sequence": 61,
+          "timestamp": 19520,
+          "arrival_us": 1440000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1480000
+        },
+        {
+          "sequence": 62,
+          "timestamp": 19840,
+          "arrival_us": 1460000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1500000
+        },
+        {
+          "sequence": 63,
+          "timestamp": 20160,
+          "arrival_us": 1480000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1520000
+        },
+        {
+          "sequence": 64,
+          "timestamp": 20480,
+          "arrival_us": 1500000,
+          "accepted": true,
+          "generation": 2,
+          "play_us": 1540000
+        }
+      ]
+    },
+    {
+      "name": "sequence_timestamp_wrap_and_source_gap",
+      "frames": [
+        {
+          "sequence": 4294967295,
+          "timestamp": 4294966976,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 40000
+        },
+        {
+          "sequence": 0,
+          "timestamp": 0,
+          "arrival_us": 20000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 60000
+        },
+        {
+          "sequence": 2,
+          "timestamp": 640,
+          "arrival_us": 60000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 100000
+        },
+        {
+          "sequence": 3,
+          "timestamp": 960,
+          "arrival_us": 80000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 120000
+        },
+        {
+          "sequence": 4,
+          "timestamp": 1280,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 140000
+        }
+      ]
+    },
+    {
+      "name": "slow_100ppm_clock_drift",
+      "frames": [
+        {
+          "sequence": 0,
+          "timestamp": 0,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 40000
+        },
+        {
+          "sequence": 1,
+          "timestamp": 320,
+          "arrival_us": 20002,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 60000
+        },
+        {
+          "sequence": 2,
+          "timestamp": 640,
+          "arrival_us": 40004,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 80000
+        },
+        {
+          "sequence": 3,
+          "timestamp": 960,
+          "arrival_us": 60006,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 100000
+        },
+        {
+          "sequence": 4,
+          "timestamp": 1280,
+          "arrival_us": 80008,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 120000
+        },
+        {
+          "sequence": 5,
+          "timestamp": 1600,
+          "arrival_us": 100010,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 140010
+        },
+        {
+          "sequence": 6,
+          "timestamp": 1920,
+          "arrival_us": 120012,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 160010
+        },
+        {
+          "sequence": 7,
+          "timestamp": 2240,
+          "arrival_us": 140014,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 180010
+        },
+        {
+          "sequence": 8,
+          "timestamp": 2560,
+          "arrival_us": 160016,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 200010
+        },
+        {
+          "sequence": 9,
+          "timestamp": 2880,
+          "arrival_us": 180018,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 220010
+        },
+        {
+          "sequence": 10,
+          "timestamp": 3200,
+          "arrival_us": 200020,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 240020
+        },
+        {
+          "sequence": 11,
+          "timestamp": 3520,
+          "arrival_us": 220022,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 260020
+        },
+        {
+          "sequence": 12,
+          "timestamp": 3840,
+          "arrival_us": 240024,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 280020
+        },
+        {
+          "sequence": 13,
+          "timestamp": 4160,
+          "arrival_us": 260026,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 300020
+        },
+        {
+          "sequence": 14,
+          "timestamp": 4480,
+          "arrival_us": 280028,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 320020
+        },
+        {
+          "sequence": 15,
+          "timestamp": 4800,
+          "arrival_us": 300030,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 340030
+        },
+        {
+          "sequence": 16,
+          "timestamp": 5120,
+          "arrival_us": 320032,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 360030
+        },
+        {
+          "sequence": 17,
+          "timestamp": 5440,
+          "arrival_us": 340034,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 380030
+        },
+        {
+          "sequence": 18,
+          "timestamp": 5760,
+          "arrival_us": 360036,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 400030
+        },
+        {
+          "sequence": 19,
+          "timestamp": 6080,
+          "arrival_us": 380038,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 420030
+        },
+        {
+          "sequence": 20,
+          "timestamp": 6400,
+          "arrival_us": 400040,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 440040
+        },
+        {
+          "sequence": 21,
+          "timestamp": 6720,
+          "arrival_us": 420042,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 460040
+        },
+        {
+          "sequence": 22,
+          "timestamp": 7040,
+          "arrival_us": 440044,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 480040
+        },
+        {
+          "sequence": 23,
+          "timestamp": 7360,
+          "arrival_us": 460046,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 500040
+        },
+        {
+          "sequence": 24,
+          "timestamp": 7680,
+          "arrival_us": 480048,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 520040
+        },
+        {
+          "sequence": 25,
+          "timestamp": 8000,
+          "arrival_us": 500050,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 540050
+        },
+        {
+          "sequence": 26,
+          "timestamp": 8320,
+          "arrival_us": 520052,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 560050
+        },
+        {
+          "sequence": 27,
+          "timestamp": 8640,
+          "arrival_us": 540054,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 580050
+        },
+        {
+          "sequence": 28,
+          "timestamp": 8960,
+          "arrival_us": 560056,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 600050
+        },
+        {
+          "sequence": 29,
+          "timestamp": 9280,
+          "arrival_us": 580058,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 620050
+        },
+        {
+          "sequence": 30,
+          "timestamp": 9600,
+          "arrival_us": 600060,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 640060
+        },
+        {
+          "sequence": 31,
+          "timestamp": 9920,
+          "arrival_us": 620062,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 660060
+        },
+        {
+          "sequence": 32,
+          "timestamp": 10240,
+          "arrival_us": 640064,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 680060
+        },
+        {
+          "sequence": 33,
+          "timestamp": 10560,
+          "arrival_us": 660066,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 700060
+        },
+        {
+          "sequence": 34,
+          "timestamp": 10880,
+          "arrival_us": 680068,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 720060
+        },
+        {
+          "sequence": 35,
+          "timestamp": 11200,
+          "arrival_us": 700070,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 740070
+        },
+        {
+          "sequence": 36,
+          "timestamp": 11520,
+          "arrival_us": 720072,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 760070
+        },
+        {
+          "sequence": 37,
+          "timestamp": 11840,
+          "arrival_us": 740074,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 780070
+        },
+        {
+          "sequence": 38,
+          "timestamp": 12160,
+          "arrival_us": 760076,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 800070
+        },
+        {
+          "sequence": 39,
+          "timestamp": 12480,
+          "arrival_us": 780078,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 820070
+        },
+        {
+          "sequence": 40,
+          "timestamp": 12800,
+          "arrival_us": 800080,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 840080
+        },
+        {
+          "sequence": 41,
+          "timestamp": 13120,
+          "arrival_us": 820082,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 860080
+        },
+        {
+          "sequence": 42,
+          "timestamp": 13440,
+          "arrival_us": 840084,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 880080
+        },
+        {
+          "sequence": 43,
+          "timestamp": 13760,
+          "arrival_us": 860086,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 900080
+        },
+        {
+          "sequence": 44,
+          "timestamp": 14080,
+          "arrival_us": 880088,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 920080
+        },
+        {
+          "sequence": 45,
+          "timestamp": 14400,
+          "arrival_us": 900090,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 940090
+        },
+        {
+          "sequence": 46,
+          "timestamp": 14720,
+          "arrival_us": 920092,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 960090
+        },
+        {
+          "sequence": 47,
+          "timestamp": 15040,
+          "arrival_us": 940094,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 980090
+        },
+        {
+          "sequence": 48,
+          "timestamp": 15360,
+          "arrival_us": 960096,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1000090
+        },
+        {
+          "sequence": 49,
+          "timestamp": 15680,
+          "arrival_us": 980098,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1020090
+        },
+        {
+          "sequence": 50,
+          "timestamp": 16000,
+          "arrival_us": 1000100,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1040100
+        },
+        {
+          "sequence": 51,
+          "timestamp": 16320,
+          "arrival_us": 1020102,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1060100
+        },
+        {
+          "sequence": 52,
+          "timestamp": 16640,
+          "arrival_us": 1040104,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1080100
+        },
+        {
+          "sequence": 53,
+          "timestamp": 16960,
+          "arrival_us": 1060106,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1100100
+        },
+        {
+          "sequence": 54,
+          "timestamp": 17280,
+          "arrival_us": 1080108,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1120100
+        },
+        {
+          "sequence": 55,
+          "timestamp": 17600,
+          "arrival_us": 1100110,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1140110
+        },
+        {
+          "sequence": 56,
+          "timestamp": 17920,
+          "arrival_us": 1120112,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1160110
+        },
+        {
+          "sequence": 57,
+          "timestamp": 18240,
+          "arrival_us": 1140114,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1180110
+        },
+        {
+          "sequence": 58,
+          "timestamp": 18560,
+          "arrival_us": 1160116,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1200110
+        },
+        {
+          "sequence": 59,
+          "timestamp": 18880,
+          "arrival_us": 1180118,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1220110
+        },
+        {
+          "sequence": 60,
+          "timestamp": 19200,
+          "arrival_us": 1200120,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1240120
+        },
+        {
+          "sequence": 61,
+          "timestamp": 19520,
+          "arrival_us": 1220122,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1260120
+        },
+        {
+          "sequence": 62,
+          "timestamp": 19840,
+          "arrival_us": 1240124,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1280120
+        },
+        {
+          "sequence": 63,
+          "timestamp": 20160,
+          "arrival_us": 1260126,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1300120
+        },
+        {
+          "sequence": 64,
+          "timestamp": 20480,
+          "arrival_us": 1280128,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1320120
+        },
+        {
+          "sequence": 65,
+          "timestamp": 20800,
+          "arrival_us": 1300130,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1340130
+        },
+        {
+          "sequence": 66,
+          "timestamp": 21120,
+          "arrival_us": 1320132,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1360130
+        },
+        {
+          "sequence": 67,
+          "timestamp": 21440,
+          "arrival_us": 1340134,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1380130
+        },
+        {
+          "sequence": 68,
+          "timestamp": 21760,
+          "arrival_us": 1360136,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1400130
+        },
+        {
+          "sequence": 69,
+          "timestamp": 22080,
+          "arrival_us": 1380138,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1420130
+        },
+        {
+          "sequence": 70,
+          "timestamp": 22400,
+          "arrival_us": 1400140,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1440140
+        },
+        {
+          "sequence": 71,
+          "timestamp": 22720,
+          "arrival_us": 1420142,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1460140
+        },
+        {
+          "sequence": 72,
+          "timestamp": 23040,
+          "arrival_us": 1440144,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1480140
+        },
+        {
+          "sequence": 73,
+          "timestamp": 23360,
+          "arrival_us": 1460146,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1500140
+        },
+        {
+          "sequence": 74,
+          "timestamp": 23680,
+          "arrival_us": 1480148,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1520140
+        },
+        {
+          "sequence": 75,
+          "timestamp": 24000,
+          "arrival_us": 1500150,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1540150
+        },
+        {
+          "sequence": 76,
+          "timestamp": 24320,
+          "arrival_us": 1520152,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1560150
+        },
+        {
+          "sequence": 77,
+          "timestamp": 24640,
+          "arrival_us": 1540154,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1580150
+        },
+        {
+          "sequence": 78,
+          "timestamp": 24960,
+          "arrival_us": 1560156,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1600150
+        },
+        {
+          "sequence": 79,
+          "timestamp": 25280,
+          "arrival_us": 1580158,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1620150
+        },
+        {
+          "sequence": 80,
+          "timestamp": 25600,
+          "arrival_us": 1600160,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1640160
+        },
+        {
+          "sequence": 81,
+          "timestamp": 25920,
+          "arrival_us": 1620162,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1660160
+        },
+        {
+          "sequence": 82,
+          "timestamp": 26240,
+          "arrival_us": 1640164,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1680160
+        },
+        {
+          "sequence": 83,
+          "timestamp": 26560,
+          "arrival_us": 1660166,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1700160
+        },
+        {
+          "sequence": 84,
+          "timestamp": 26880,
+          "arrival_us": 1680168,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1720160
+        },
+        {
+          "sequence": 85,
+          "timestamp": 27200,
+          "arrival_us": 1700170,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1740170
+        },
+        {
+          "sequence": 86,
+          "timestamp": 27520,
+          "arrival_us": 1720172,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1760170
+        },
+        {
+          "sequence": 87,
+          "timestamp": 27840,
+          "arrival_us": 1740174,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1780170
+        },
+        {
+          "sequence": 88,
+          "timestamp": 28160,
+          "arrival_us": 1760176,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1800170
+        },
+        {
+          "sequence": 89,
+          "timestamp": 28480,
+          "arrival_us": 1780178,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1820170
+        },
+        {
+          "sequence": 90,
+          "timestamp": 28800,
+          "arrival_us": 1800180,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1840180
+        },
+        {
+          "sequence": 91,
+          "timestamp": 29120,
+          "arrival_us": 1820182,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1860180
+        },
+        {
+          "sequence": 92,
+          "timestamp": 29440,
+          "arrival_us": 1840184,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1880180
+        },
+        {
+          "sequence": 93,
+          "timestamp": 29760,
+          "arrival_us": 1860186,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1900180
+        },
+        {
+          "sequence": 94,
+          "timestamp": 30080,
+          "arrival_us": 1880188,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1920180
+        },
+        {
+          "sequence": 95,
+          "timestamp": 30400,
+          "arrival_us": 1900190,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1940190
+        },
+        {
+          "sequence": 96,
+          "timestamp": 30720,
+          "arrival_us": 1920192,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1960190
+        },
+        {
+          "sequence": 97,
+          "timestamp": 31040,
+          "arrival_us": 1940194,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1980190
+        },
+        {
+          "sequence": 98,
+          "timestamp": 31360,
+          "arrival_us": 1960196,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 2000190
+        },
+        {
+          "sequence": 99,
+          "timestamp": 31680,
+          "arrival_us": 1980198,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 2020190
+        }
+      ]
+    },
+    {
+      "name": "short_40ms_batch_jitter",
+      "frames": [
+        {
+          "sequence": 0,
+          "timestamp": 0,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 40000
+        },
+        {
+          "sequence": 1,
+          "timestamp": 320,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 60000
+        },
+        {
+          "sequence": 2,
+          "timestamp": 640,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 80000
+        },
+        {
+          "sequence": 3,
+          "timestamp": 960,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 100000
+        },
+        {
+          "sequence": 4,
+          "timestamp": 1280,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 120000
+        },
+        {
+          "sequence": 5,
+          "timestamp": 1600,
+          "arrival_us": 140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 140000
+        },
+        {
+          "sequence": 6,
+          "timestamp": 1920,
+          "arrival_us": 140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 160000
+        },
+        {
+          "sequence": 7,
+          "timestamp": 2240,
+          "arrival_us": 140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 180000
+        },
+        {
+          "sequence": 8,
+          "timestamp": 2560,
+          "arrival_us": 140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 200000
+        },
+        {
+          "sequence": 9,
+          "timestamp": 2880,
+          "arrival_us": 140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 220000
+        },
+        {
+          "sequence": 10,
+          "timestamp": 3200,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 240000
+        },
+        {
+          "sequence": 11,
+          "timestamp": 3520,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 260000
+        },
+        {
+          "sequence": 12,
+          "timestamp": 3840,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 280000
+        },
+        {
+          "sequence": 13,
+          "timestamp": 4160,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 300000
+        },
+        {
+          "sequence": 14,
+          "timestamp": 4480,
+          "arrival_us": 200000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 320000
+        },
+        {
+          "sequence": 15,
+          "timestamp": 4800,
+          "arrival_us": 340000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 340000
+        },
+        {
+          "sequence": 16,
+          "timestamp": 5120,
+          "arrival_us": 340000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 360000
+        },
+        {
+          "sequence": 17,
+          "timestamp": 5440,
+          "arrival_us": 340000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 380000
+        },
+        {
+          "sequence": 18,
+          "timestamp": 5760,
+          "arrival_us": 340000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 400000
+        },
+        {
+          "sequence": 19,
+          "timestamp": 6080,
+          "arrival_us": 340000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 420000
+        },
+        {
+          "sequence": 20,
+          "timestamp": 6400,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 440000
+        },
+        {
+          "sequence": 21,
+          "timestamp": 6720,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 460000
+        },
+        {
+          "sequence": 22,
+          "timestamp": 7040,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 480000
+        },
+        {
+          "sequence": 23,
+          "timestamp": 7360,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 500000
+        },
+        {
+          "sequence": 24,
+          "timestamp": 7680,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 520000
+        },
+        {
+          "sequence": 25,
+          "timestamp": 8000,
+          "arrival_us": 540000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 540000
+        },
+        {
+          "sequence": 26,
+          "timestamp": 8320,
+          "arrival_us": 540000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 560000
+        },
+        {
+          "sequence": 27,
+          "timestamp": 8640,
+          "arrival_us": 540000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 580000
+        },
+        {
+          "sequence": 28,
+          "timestamp": 8960,
+          "arrival_us": 540000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 600000
+        },
+        {
+          "sequence": 29,
+          "timestamp": 9280,
+          "arrival_us": 540000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 620000
+        },
+        {
+          "sequence": 30,
+          "timestamp": 9600,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 640000
+        },
+        {
+          "sequence": 31,
+          "timestamp": 9920,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 660000
+        },
+        {
+          "sequence": 32,
+          "timestamp": 10240,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 680000
+        },
+        {
+          "sequence": 33,
+          "timestamp": 10560,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 700000
+        },
+        {
+          "sequence": 34,
+          "timestamp": 10880,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 720000
+        },
+        {
+          "sequence": 35,
+          "timestamp": 11200,
+          "arrival_us": 740000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 740000
+        },
+        {
+          "sequence": 36,
+          "timestamp": 11520,
+          "arrival_us": 740000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 760000
+        },
+        {
+          "sequence": 37,
+          "timestamp": 11840,
+          "arrival_us": 740000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 780000
+        },
+        {
+          "sequence": 38,
+          "timestamp": 12160,
+          "arrival_us": 740000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 800000
+        },
+        {
+          "sequence": 39,
+          "timestamp": 12480,
+          "arrival_us": 740000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 820000
+        },
+        {
+          "sequence": 40,
+          "timestamp": 12800,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 840000
+        },
+        {
+          "sequence": 41,
+          "timestamp": 13120,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 860000
+        },
+        {
+          "sequence": 42,
+          "timestamp": 13440,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 880000
+        },
+        {
+          "sequence": 43,
+          "timestamp": 13760,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 900000
+        },
+        {
+          "sequence": 44,
+          "timestamp": 14080,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 920000
+        },
+        {
+          "sequence": 45,
+          "timestamp": 14400,
+          "arrival_us": 940000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 940000
+        },
+        {
+          "sequence": 46,
+          "timestamp": 14720,
+          "arrival_us": 940000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 960000
+        },
+        {
+          "sequence": 47,
+          "timestamp": 15040,
+          "arrival_us": 940000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 980000
+        },
+        {
+          "sequence": 48,
+          "timestamp": 15360,
+          "arrival_us": 940000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1000000
+        },
+        {
+          "sequence": 49,
+          "timestamp": 15680,
+          "arrival_us": 940000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1020000
+        },
+        {
+          "sequence": 50,
+          "timestamp": 16000,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1040000
+        },
+        {
+          "sequence": 51,
+          "timestamp": 16320,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1060000
+        },
+        {
+          "sequence": 52,
+          "timestamp": 16640,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1080000
+        },
+        {
+          "sequence": 53,
+          "timestamp": 16960,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1100000
+        },
+        {
+          "sequence": 54,
+          "timestamp": 17280,
+          "arrival_us": 1000000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1120000
+        },
+        {
+          "sequence": 55,
+          "timestamp": 17600,
+          "arrival_us": 1140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1140000
+        },
+        {
+          "sequence": 56,
+          "timestamp": 17920,
+          "arrival_us": 1140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1160000
+        },
+        {
+          "sequence": 57,
+          "timestamp": 18240,
+          "arrival_us": 1140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1180000
+        },
+        {
+          "sequence": 58,
+          "timestamp": 18560,
+          "arrival_us": 1140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1200000
+        },
+        {
+          "sequence": 59,
+          "timestamp": 18880,
+          "arrival_us": 1140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 1220000
+        }
+      ]
+    },
+    {
+      "name": "natural_recovery_at_100ms_boundary",
+      "frames": [
+        {
+          "sequence": 0,
+          "timestamp": 0,
+          "arrival_us": 0,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 40000
+        },
+        {
+          "sequence": 1,
+          "timestamp": 320,
+          "arrival_us": 20000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 60000
+        },
+        {
+          "sequence": 2,
+          "timestamp": 640,
+          "arrival_us": 40000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 80000
+        },
+        {
+          "sequence": 3,
+          "timestamp": 960,
+          "arrival_us": 60000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 100000
+        },
+        {
+          "sequence": 4,
+          "timestamp": 1280,
+          "arrival_us": 80000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 120000
+        },
+        {
+          "sequence": 5,
+          "timestamp": 1600,
+          "arrival_us": 100000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 140000
+        },
+        {
+          "sequence": 6,
+          "timestamp": 1920,
+          "arrival_us": 120000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 160000
+        },
+        {
+          "sequence": 7,
+          "timestamp": 2240,
+          "arrival_us": 140000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 180000
+        },
+        {
+          "sequence": 8,
+          "timestamp": 2560,
+          "arrival_us": 160000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 200000
+        },
+        {
+          "sequence": 9,
+          "timestamp": 2880,
+          "arrival_us": 180000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 220000
+        },
+        {
+          "sequence": 10,
+          "timestamp": 3200,
+          "arrival_us": 320000,
+          "accepted": false,
+          "generation": 1,
+          "play_us": null
+        },
+        {
+          "sequence": 11,
+          "timestamp": 3520,
+          "arrival_us": 320000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 260000
+        },
+        {
+          "sequence": 12,
+          "timestamp": 3840,
+          "arrival_us": 340000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 280000
+        },
+        {
+          "sequence": 13,
+          "timestamp": 4160,
+          "arrival_us": 360000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 300000
+        },
+        {
+          "sequence": 14,
+          "timestamp": 4480,
+          "arrival_us": 380000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 320000
+        },
+        {
+          "sequence": 15,
+          "timestamp": 4800,
+          "arrival_us": 400000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 340000
+        },
+        {
+          "sequence": 16,
+          "timestamp": 5120,
+          "arrival_us": 420000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 360000
+        },
+        {
+          "sequence": 17,
+          "timestamp": 5440,
+          "arrival_us": 440000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 380000
+        },
+        {
+          "sequence": 18,
+          "timestamp": 5760,
+          "arrival_us": 460000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 400000
+        },
+        {
+          "sequence": 19,
+          "timestamp": 6080,
+          "arrival_us": 480000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 420000
+        },
+        {
+          "sequence": 20,
+          "timestamp": 6400,
+          "arrival_us": 500000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 440000
+        },
+        {
+          "sequence": 21,
+          "timestamp": 6720,
+          "arrival_us": 520000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 460000
+        },
+        {
+          "sequence": 22,
+          "timestamp": 7040,
+          "arrival_us": 540000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 480000
+        },
+        {
+          "sequence": 23,
+          "timestamp": 7360,
+          "arrival_us": 560000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 500000
+        },
+        {
+          "sequence": 24,
+          "timestamp": 7680,
+          "arrival_us": 580000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 520000
+        },
+        {
+          "sequence": 25,
+          "timestamp": 8000,
+          "arrival_us": 600000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 540000
+        },
+        {
+          "sequence": 26,
+          "timestamp": 8320,
+          "arrival_us": 620000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 560000
+        },
+        {
+          "sequence": 27,
+          "timestamp": 8640,
+          "arrival_us": 640000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 580000
+        },
+        {
+          "sequence": 28,
+          "timestamp": 8960,
+          "arrival_us": 660000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 600000
+        },
+        {
+          "sequence": 29,
+          "timestamp": 9280,
+          "arrival_us": 680000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 620000
+        },
+        {
+          "sequence": 30,
+          "timestamp": 9600,
+          "arrival_us": 700000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 640000
+        },
+        {
+          "sequence": 31,
+          "timestamp": 9920,
+          "arrival_us": 720000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 660000
+        },
+        {
+          "sequence": 32,
+          "timestamp": 10240,
+          "arrival_us": 740000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 680000
+        },
+        {
+          "sequence": 33,
+          "timestamp": 10560,
+          "arrival_us": 760000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 700000
+        },
+        {
+          "sequence": 34,
+          "timestamp": 10880,
+          "arrival_us": 780000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 720000
+        },
+        {
+          "sequence": 35,
+          "timestamp": 11200,
+          "arrival_us": 800000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 740000
+        },
+        {
+          "sequence": 36,
+          "timestamp": 11520,
+          "arrival_us": 820000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 760000
+        },
+        {
+          "sequence": 37,
+          "timestamp": 11840,
+          "arrival_us": 840000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 780000
+        },
+        {
+          "sequence": 38,
+          "timestamp": 12160,
+          "arrival_us": 860000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 800000
+        },
+        {
+          "sequence": 39,
+          "timestamp": 12480,
+          "arrival_us": 880000,
+          "accepted": true,
+          "generation": 1,
+          "play_us": 820000
+        }
+      ]
+    }
+  ]
+}

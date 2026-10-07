@@ -1,5 +1,5 @@
 {
-  "app_build" : "26",
+  "app_build" : "28",
   "app_version" : "0.1.0",
   "dropped" : 2,
   "events" : [
@@ -26,6 +26,9 @@
         "input_route" : "microphone",
         "microphone_dbfs" : "-37",
         "output_route" : "speaker",
+        "playback_pending" : "3",
+        "playback_resets" : "1",
+        "playback_underruns" : "2",
         "received_packets" : "239",
         "sample_rate" : "16000",
         "sent_packets" : "240",

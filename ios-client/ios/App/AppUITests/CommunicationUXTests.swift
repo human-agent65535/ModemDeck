@@ -361,6 +361,65 @@ final class CommunicationUXTests: XCTestCase {
         capture("call-test-guidance-landscape", app: app)
     }
 
+    func testCallPrimaryActionsStaySymmetricAndAvoidAnswerToEndOverlap() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        XCUIDevice.shared.orientation = .portrait
+        for largeText in [false, true] {
+            var realCallEndFrame: CGRect?
+            for testCall in [false, true] {
+                func launchVisualCall(_ state: String) {
+                    app.terminate()
+                    app.launchEnvironment = [
+                        "MODEMDECK_UAT_MODE": "1",
+                        "MODEMDECK_UAT_SERVER_URL": "https://127.0.0.1:1",
+                        "MODEMDECK_UAT_TOKEN": token,
+                        "MODEMDECK_UAT_CALL_STATE": state,
+                        "MODEMDECK_UAT_TEST_AUDIO_DYNAMIC": "1",
+                        "MODEMDECK_UAT_TEST_AUDIO": testCall ? "1" : "0"
+                    ]
+                    app.launchArguments = largeText
+                        ? ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] : []
+                    app.launch()
+                }
+                launchVisualCall("ringing")
+                let answer = app.buttons["call-answer"], decline = app.buttons["call-decline"]
+                XCTAssertTrue(answer.waitForExistence(timeout: 12))
+                XCTAssertTrue(answer.isHittable && decline.isHittable)
+                XCTAssertFalse(app.buttons["call-recording"].exists)
+                XCTAssertEqual((answer.frame.midX + decline.frame.midX) / 2, app.frame.midX, accuracy: 2)
+                XCTAssertEqual(answer.frame.minY, decline.frame.minY, accuracy: 2)
+                XCTAssertGreaterThanOrEqual(answer.frame.width, 44)
+                XCTAssertGreaterThanOrEqual(answer.frame.height, 44)
+                XCTAssertLessThan(decline.frame.maxX, answer.frame.minX)
+                let answerFrame = answer.frame
+                capture("call-incoming-\(testCall ? "test" : "real")-\(largeText ? "accessibility" : "default")", app: app)
+
+                launchVisualCall("active")
+                let end = app.buttons["call-end"]
+                XCTAssertTrue(end.waitForExistence(timeout: 12))
+                XCTAssertTrue(end.isHittable)
+                XCTAssertEqual(end.frame.midX, app.frame.midX, accuracy: 2)
+                XCTAssertFalse(end.frame.intersects(answerFrame), "A second tap at Answer must not hit End")
+                XCTAssertTrue(app.frame.contains(end.frame), "Primary actions must remain inside the screen")
+                if let realCallEndFrame {
+                    XCTAssertEqual(end.frame.minY, realCallEndFrame.minY, accuracy: 2, "Test calls share the real-call primary action region")
+                    XCTAssertEqual(end.frame.width, realCallEndFrame.width, accuracy: 2)
+                } else { realCallEndFrame = end.frame }
+                if !testCall {
+                    let keypad = app.buttons["call-keypad"]
+                    for _ in 0..<3 where !keypad.isHittable { app.scrollViews.firstMatch.swipeUp() }
+                    XCTAssertTrue(keypad.isHittable, "Auxiliary controls must remain reachable at larger text sizes")
+                    XCTAssertTrue(app.buttons["call-recording"].exists)
+                    XCTAssertLessThan(keypad.frame.maxY, end.frame.minY)
+                    XCTAssertLessThan(app.buttons["call-recording"].frame.maxY, end.frame.minY)
+                }
+                capture("call-active-\(testCall ? "test" : "real")-\(largeText ? "accessibility" : "default")", app: app)
+            }
+        }
+        app.terminate()
+    }
+
     func testRotationPreservesConversationAndDraft() async throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
         let app = try await launch()

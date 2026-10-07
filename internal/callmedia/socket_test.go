@@ -154,7 +154,7 @@ func TestSocketDropsStaleAndBoundedBurstFrames(t *testing.T) {
 	}
 	// Exercise the playback queue directly without transport receipt races.
 	close(session.socket.firstPacket)
-	session.socket.incoming <- socketPacket{payload: []byte{20, 0x77}, received: time.Now().Add(-time.Second)}
+	session.socket.incoming.push(socketPacket{payload: []byte{20, 0x77}, playAt: time.Now().Add(-time.Second), generation: 1})
 	receive(t, opener.endpoint.started)
 	for i := 0; i < 3; i++ {
 		pcm := receive(t, opener.endpoint.writes)
@@ -162,8 +162,8 @@ func TestSocketDropsStaleAndBoundedBurstFrames(t *testing.T) {
 			t.Fatal("stale microphone audio replayed")
 		}
 	}
-	if cap(session.socket.incoming) != 5 {
-		t.Fatal("uplink queue exceeds 100ms")
+	if socketQueueFrames != 7 {
+		t.Fatal("uplink capacity must be a 100ms batch plus 40ms prebuffer")
 	}
 }
 
@@ -176,40 +176,6 @@ func TestSocketResamplePreservesMonoLevels(t *testing.T) {
 	down := socketResample(up, 16000, 8000)
 	if len(up) != 640 || string(down) != string(pcm) {
 		t.Fatal("8k/16k PCM boundary changed constant input")
-	}
-}
-
-func TestSocketSourceClockDropsTCPBacklogAndRecoversLatencyPlateau(t *testing.T) {
-	base := time.Unix(1000, 0)
-	var clock socketReceiveClock
-	for i := uint32(0); i <= 100; i++ {
-		accepted, err := clock.accept(i, i*320, base.Add(time.Duration(i)*20*time.Millisecond))
-		if err != nil || !accepted {
-			t.Fatalf("healthy frame%d rejected: %v", i, err)
-		}
-	}
-	// Source101 was captured at2020ms; arriving500ms later must not be played.
-	for i := uint32(101); i <= 110; i++ {
-		accepted, err := clock.accept(i, i*320, base.Add(2520*time.Millisecond))
-		if err != nil || accepted {
-			t.Fatalf("TCP backlog%d became fresh on arrival: %v", i, err)
-		}
-	}
-	for i := uint32(111); i <= 113; i++ {
-		accepted, err := clock.accept(i, i*320, base.Add((2520+time.Duration(i-110)*20)*time.Millisecond))
-		if err != nil || accepted != (i == 113) {
-			t.Fatalf("cadence recovery%d accepted=%v err=%v", i, accepted, err)
-		}
-	}
-	var plateau socketReceiveClock
-	if accepted, err := plateau.accept(0, 0, base); err != nil || !accepted {
-		t.Fatal(err)
-	}
-	for i := uint32(1); i <= 100; i++ {
-		accepted, err := plateau.accept(i, i*320, base.Add((time.Duration(i)*20+200)*time.Millisecond))
-		if err != nil || accepted != (i >= 4) {
-			t.Fatalf("persistent200ms latency frame%d accepted=%v err=%v", i, accepted, err)
-		}
 	}
 }
 

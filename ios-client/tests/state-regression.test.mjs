@@ -83,6 +83,13 @@ test('native voice graph fixes both directions to mono, preserves the engine acr
   ].map(marker => declaration(source, marker)))
 })
 
+test('native playback bounds unrendered audio without counting device latency and capture keeps 20 ms frames', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  await verify('audio-cadence-stubs.swift', ['struct ModemDeckAudioPacket {', 'struct ModemDeckAudioClock {',
+    'private func receiveAudio(', 'private func retireRenderedPlayback(', 'private func resetPlaybackForMedia(', 'private func flushPlayback()', 'private func capture('
+  ].map(marker => declaration(source, marker)))
+})
+
 test('native conversation refresh removes deleted cache entries and send completion preserves newer drafts', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckSession.swift', import.meta.url), 'utf8')
   await verify('conversation-stubs.swift', ['final class ModemDeckConversationStore:', 'final class ModemDeckMessageDraft:']
@@ -185,7 +192,9 @@ test('WSS audio framing validates header, limits, byte order and wrapping counte
 
 test('WSS playout rejects stale bursts, malformed clocks and duplicate frames, then recovers', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
-  await verify('audio-clock-stubs.swift', [declaration(source, 'struct ModemDeckAudioClock {')])
+  const vectors = await readFile(new URL('../../internal/callmedia/testdata/socket_clock_vectors.json', import.meta.url), 'utf8')
+  await verify('audio-clock-stubs.swift', [declaration(source, 'struct ModemDeckAudioClock {'),
+    'let clockVectorsJSON = #"""\n' + vectors + '\n"""#'])
 })
 
 
