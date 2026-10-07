@@ -117,7 +117,7 @@ test('recovery releases only media immediately, backs off within one deadline an
   const source = readFileSync(new URL('../src/state/callMedia.ts', import.meta.url), 'utf8')
   const ast = ts.createSourceFile('media.ts', source, ts.ScriptTarget.Latest, true)
   const code = ast.statements.filter(statement => ts.isFunctionDeclaration(statement) &&
-    ['isCurrent', 'beginRecoveryWindow', 'recoverConnection'].includes(statement.name?.text)).map(statement => statement.getText(ast)).join('\n')
+    ['isCurrent', 'beginRecoveryWindow', 'releaseOwnedMedia', 'recoverConnection'].includes(statement.name?.text)).map(statement => statement.getText(ast)).join('\n')
   const timers = [], releases = [], opened = []
   const owner = { ownerToken: 'owner-a' }
   const context = vm.createContext({ generation: 1, currentCallID: 'call-a', audioRuntime: { recoveryAttempts: 0 },
@@ -152,7 +152,7 @@ test('recovery releases only media immediately, backs off within one deadline an
 test('repeated ready then early transport failures cannot restart the recovery deadline', async () => {
   const source = readFileSync(new URL('../src/state/callMedia.ts', import.meta.url), 'utf8')
   const ast = ts.createSourceFile('media.ts', source, ts.ScriptTarget.Latest, true)
-  const selected = ['isCurrent', 'clearRecoveryWindow', 'beginRecoveryWindow', 'settleMediaRecovery', 'recoverConnection', 'openAudioSocket']
+  const selected = ['isCurrent', 'clearRecoveryWindow', 'beginRecoveryWindow', 'settleMediaRecovery', 'releaseOwnedMedia', 'recoverConnection', 'openAudioSocket']
   const code = ast.statements.filter(statement => ts.isFunctionDeclaration(statement) && selected.includes(statement.name?.text))
     .map(statement => statement.getText(ast)).join('\n').replaceAll('import.meta.url', '"https://calls.example.test/assets/app.js"')
   let worker, connection, now = 0, nextID = 0, failed = 0

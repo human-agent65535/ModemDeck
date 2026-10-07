@@ -14,6 +14,7 @@ import type {
   CallRecordingState,
   CallRecordingStatus,
   CallSession,
+  CallTestStatus,
   CallPolicyEnforcement,
   CreateMemberInput,
   CreateProxyInput,
@@ -172,6 +173,46 @@ function objectValue(value: unknown, path: string): JsonRecord {
     throw new Error(`${path} 必须是对象`)
   }
   return value as JsonRecord
+}
+
+export function callTestPath(id = '', action: 'status' | 'hangup' | 'media' = 'status'): string {
+  return id ? `/api/v1/call-tests/${encodeURIComponent(id)}/${action}` : '/api/v1/call-tests'
+}
+
+export function parseCallTestStatus(value: unknown): CallTestStatus {
+  const source = objectValue(value, 'call_test')
+  const phase = requiredString(source, 'call_test', 'phase')
+  if (phase !== 'active' && phase !== 'ended' && phase !== 'failed') {
+    throw new Error('Invalid call test phase')
+  }
+  const result: CallTestStatus = {
+    id: requiredString(source, 'call_test', 'id'),
+    phase,
+    accepted_at: requiredTimestamp(source, 'call_test', 'accepted_at'),
+    expires_at: requiredTimestamp(source, 'call_test', 'expires_at'),
+    test_phase: requiredString(source, 'call_test', 'test_phase'),
+    failure_code: optionalString(source, 'failure_code')
+  }
+  if (source.test_audio !== undefined) {
+    const audio = objectValue(source.test_audio, 'call_test.test_audio')
+    const level = (key: string): number => {
+      const value = audio[key]
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < -96 || value > 0) {
+        throw new Error(`Invalid call test audio level: ${key}`)
+      }
+      return value
+    }
+    result.test_audio = {
+      phase: requiredString(audio, 'test_audio', 'phase'),
+      remaining_ms: requiredNonNegativeInteger(audio, 'test_audio', 'remaining_ms'),
+      captured_frames: requiredNonNegativeInteger(audio, 'test_audio', 'captured_frames'),
+      captured_dbfs: level('captured_dbfs'),
+      captured_peak_dbfs: level('captured_peak_dbfs'),
+      received_packets: requiredNonNegativeInteger(audio, 'test_audio', 'received_packets'),
+      sent_packets: requiredNonNegativeInteger(audio, 'test_audio', 'sent_packets')
+    }
+  }
+  return result
 }
 
 function requiredString(source: JsonRecord, path: string, key: string, allowEmpty = false): string {

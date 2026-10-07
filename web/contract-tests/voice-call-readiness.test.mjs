@@ -73,7 +73,11 @@ test('control-only incoming calls keep reject available and disable answer in pa
   )
   assert.match(
     surface,
-    /class="call-button call-button--answer"[\s\S]*?:disabled="callState\.busy \|\| Boolean\(answerUnavailable\)"/
+    /const busy = computed\(\(\) => !isTestCall\.value && callState\.busy\)/
+  )
+  assert.match(
+    surface,
+    /class="call-button call-button--answer"[\s\S]*?:disabled="busy \|\| Boolean\(answerUnavailable\)"/
   )
   assert.match(
     surface,
@@ -81,7 +85,7 @@ test('control-only incoming calls keep reject available and disable answer in pa
   )
   assert.match(
     surface,
-    /:disabled="callState\.busy \|\| Boolean\(rejectUnavailable\)"[\s\S]*?@click="rejectCall"/
+    /:disabled="busy \|\| Boolean\(rejectUnavailable\)"[\s\S]*?@click="rejectCall"/
   )
 })
 

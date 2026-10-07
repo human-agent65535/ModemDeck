@@ -9,6 +9,7 @@ import type {
   CallRecordingState,
   CallRecord,
   CallSession,
+  CallTestStatus,
   CommandReceipt,
   ConnectionProfile,
   Contact,
@@ -783,6 +784,7 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
 }
 
 export function createFixtureGateway(options: FixtureGatewayOptions = {}): ModemDeckGateway {
+  let callTest: CallTestStatus | undefined
   const diagnosticLogs = clone(diagnosticLogFixtures)
   const diagnosticLogSubscribers = new Map<
     number,
@@ -1989,6 +1991,39 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       )
       syncFixtureAdminIOSPairing()
     },
+
+    async startCallTest() {
+      if (callTest?.phase === 'active' && Date.now() < Date.parse(callTest.expires_at)) {
+        throw new ApiError('A call test is already running', 429, 'test_call_busy')
+      }
+      const now = Date.now()
+      callTest = {
+        id: `test-fixture-${now}`, phase: 'active', test_phase: 'connecting',
+        accepted_at: new Date(now).toISOString(), expires_at: new Date(now + 60_000).toISOString()
+      }
+      return clone(callTest)
+    },
+
+    async getCallTestStatus(id: string) {
+      if (!callTest || callTest.id !== id) throw new ApiError('Test call not found', 404, 'test_call_not_found')
+      const elapsed = Date.now() - Date.parse(callTest.accepted_at)
+      if (elapsed >= 60_000) callTest.phase = 'ended'
+      const phases = ['guide', 'tone', 'speak', 'playback_prompt', 'playback', 'pause']
+      const phase = callTest.phase === 'ended' ? 'completed' : phases[Math.floor(elapsed / 4000) % phases.length]!
+      callTest.test_phase = phase
+      callTest.test_audio = {
+        phase, remaining_ms: 4000 - elapsed % 4000, captured_frames: 180,
+        captured_dbfs: -24, captured_peak_dbfs: -12,
+        received_packets: Math.floor(elapsed / 20), sent_packets: Math.floor(elapsed / 20)
+      }
+      return clone(callTest)
+    },
+
+    async endCallTest(id: string) {
+      if (callTest?.id === id) callTest.phase = 'ended'
+    },
+
+    async releaseCallTestMedia() {},
 
     async sendIOSTestCall(credentialID?: string) {
       if (!credentialID && iosPairingDevices.length !== 1) {

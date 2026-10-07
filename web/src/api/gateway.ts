@@ -13,6 +13,7 @@ import type {
   CallRecordingState,
   CallRecord,
   CallSession,
+  CallTestStatus,
   ChangePasswordInput,
   CommandReceipt,
   ConnectionProfile,
@@ -116,6 +117,10 @@ export interface SessionGateway {
 }
 
 export interface ModemDeckGateway {
+  startCallTest(language: string): Promise<CallTestStatus>
+  getCallTestStatus(id: string): Promise<CallTestStatus>
+  endCallTest(id: string): Promise<void>
+  releaseCallTestMedia(id: string, ownerToken: string): Promise<void>
   readonly interactions?: GatewayInteractions
   getAbout(): Promise<AboutInfo>
   checkForUpdates(refresh?: boolean): Promise<UpdateCheck>

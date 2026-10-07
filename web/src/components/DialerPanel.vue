@@ -45,6 +45,7 @@ import { phoneKeypad } from '../utils/phoneKeypad'
 import BaseAvatar from './BaseAvatar.vue'
 import ContactSuggestInput from './ContactSuggestInput.vue'
 import CallSurface from './CallSurface.vue'
+import { callTestInProgress, callTestSession, presentedCallSession } from '../state/callTestRuntime'
 import LineSelector from './LineSelector.vue'
 
 const { t } = useI18n()
@@ -106,7 +107,7 @@ const unavailableDialLineIDs = computed(() =>
     )
     .map(lineKey)
 )
-const activeCallPresent = computed(() => Boolean(callState.session))
+const activeCallPresent = computed(() => Boolean(presentedCallSession.value))
 const showingCall = computed(
   () => activeCallPresent.value && !uiState.callMinimized
 )
@@ -144,7 +145,7 @@ const selectedLineBusy = computed(() =>
 )
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const activeCallUnavailable = computed(() => {
-  return callState.owned ? t('dialer.activeCall') : ''
+  return callState.owned || callTestInProgress.value ? t('dialer.activeCall') : ''
 })
 const dialTarget = computed(() => normalizeDialTarget(number.value))
 const validationError = computed(() => {
@@ -536,11 +537,11 @@ onBeforeUnmount(() => {
                   class="dialer-active-calls dialer-active-calls--busy"
                   type="button"
                   :title="t('shell.returnToCall')"
-                  :aria-label="`${t('shell.returnToCall')} · ${occupiedLineCount}`"
+                  :aria-label="callTestSession ? t('shell.returnToCall') : `${t('shell.returnToCall')} · ${occupiedLineCount}`"
                   @click="showCallSurface"
                 >
                   <Phone :size="15" />
-                  <span>{{ occupiedLineCount }}</span>
+                  <span>{{ callTestSession ? 1 : occupiedLineCount }}</span>
                 </button>
                 <span
                   v-else-if="occupiedLineCount > 0"

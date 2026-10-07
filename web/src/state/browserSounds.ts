@@ -244,6 +244,7 @@ let effectAudio: HTMLAudioElement | undefined
 let effectBaseVolume = 0
 let previewAudio: HTMLAudioElement | undefined
 let currentSession: CallSession | null = null
+let testCallSession: CallSession | null = null
 let activeCallPlaybackKey = ''
 let callPlaybackGeneration = 0
 let previewGeneration = 0
@@ -451,6 +452,7 @@ function callPlaybackSource(mode: CallSoundMode): {
 
 export function syncCallSounds(session: CallSession | null): void {
   currentSession = session
+  session ||= testCallSession
   const mode = callSoundMode(session)
   const source = callPlaybackSource(mode)
   const key = source && session ? `${mode}:${session.id}:${source.source}` : ''
@@ -483,6 +485,11 @@ export function syncCallSounds(session: CallSession | null): void {
       browserSoundState.error = playbackError(error)
     }
   )
+}
+
+export function syncCallTestSounds(session: CallSession | null): void {
+  testCallSession = session
+  syncCallSounds(currentSession)
 }
 
 export function claimIncomingMessageSound(
@@ -654,7 +661,7 @@ async function reroutePlayingAudio(): Promise<void> {
 
 function applyActiveAudioLevels(): void {
   if (callAudio) {
-    const source = callPlaybackSource(callSoundMode(currentSession))
+    const source = callPlaybackSource(callSoundMode(currentSession || testCallSession))
     if (source) callAudio.volume = source.volume
   }
   if (effectAudio && effectBaseVolume > 0) {
@@ -689,6 +696,7 @@ export function initializeBrowserSounds(): void {
 export function shutdownBrowserSounds(): void {
   initialized = false
   currentSession = null
+  testCallSession = null
   activeCallPlaybackKey = ''
   callPlaybackGeneration += 1
   stopSoundPreview()

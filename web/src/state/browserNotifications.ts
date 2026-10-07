@@ -116,7 +116,9 @@ export function showBrowserNotification(input: {
   body: string
   tag: string
   onClick: () => void
+  signal?: AbortSignal
 }): boolean {
+  if (input.signal?.aborted) return false
   syncBrowserNotificationState()
   if (!shouldDisplayBrowserNotification(true, state.active)) {
     return false
@@ -133,9 +135,12 @@ export function showBrowserNotification(input: {
     return false
   }
   notification.onclick = () => {
-    input.onClick()
+    if (!input.signal?.aborted) input.onClick()
     notification.close()
   }
+  const close = () => notification.close()
+  input.signal?.addEventListener('abort', close, { once: true })
+  notification.onclose = () => input.signal?.removeEventListener('abort', close)
   return true
 }
 

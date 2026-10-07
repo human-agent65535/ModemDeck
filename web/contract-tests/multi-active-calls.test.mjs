@@ -230,7 +230,7 @@ test('dialer keeps reservations as line status without making them call surfaces
     dialer,
     /if \(lineHasActiveCall\(lineID\)\) \{[\s\S]*showActiveCallForLine\(lineID\)/
   )
-  assert.match(dialer, /callState\.owned \? t\('dialer\.activeCall'\)/)
+  assert.match(dialer, /callState\.owned \|\| callTestInProgress\.value \? t\('dialer\.activeCall'\)/)
   assert.match(dialer, /v-else-if="occupiedLineCount > 0"/)
   assert.match(
     dialer,

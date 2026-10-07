@@ -15,6 +15,7 @@ import {
 import { useI18n } from 'vue-i18n'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import AudioDeviceControls from './AudioDeviceControls.vue'
+import CallTestPanel from './CallTestPanel.vue'
 import RecordingSettingsForm from './RecordingSettingsForm.vue'
 import SelectControl from './SelectControl.vue'
 import {
@@ -245,6 +246,8 @@ onBeforeUnmount(() => {
         </span>
       </SettingsControlRow>
     </SettingsSection>
+
+    <CallTestPanel />
 
     <RecordingSettingsForm />
 

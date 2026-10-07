@@ -5,6 +5,8 @@ import type {
   ModemDeckGateway
 } from './gateway'
 import {
+  callTestPath,
+  parseCallTestStatus,
   callActionContract,
   callLeaseContract,
   callMediaContract,
@@ -1480,6 +1482,27 @@ const realGateway: ConfiguredModemDeckGateway = {
         contract.successStatus
       )
     )
+  },
+
+  async startCallTest(language: string) {
+    return parseCallTestStatus(await writeJSON(callTestPath(), 'POST', { language }, 202,
+      undefined, CALL_LEASE_REQUEST_TIMEOUT_MS))
+  },
+
+  async getCallTestStatus(id: string) {
+    return parseCallTestStatus(await request(callTestPath(id), {
+      method: 'GET', headers: { Accept: 'application/json' }
+    }, 200, CALL_LEASE_REQUEST_TIMEOUT_MS))
+  },
+
+  async endCallTest(id: string) {
+    await writeJSON(callTestPath(id, 'hangup'), 'POST', {}, 204,
+      undefined, CALL_LEASE_REQUEST_TIMEOUT_MS)
+  },
+
+  async releaseCallTestMedia(id: string, ownerToken: string) {
+    await writeJSON(callTestPath(id, 'media'), 'DELETE', createCallMediaReleasePayload(ownerToken), 204,
+      undefined, CALL_LEASE_REQUEST_TIMEOUT_MS)
   },
 
   async getTLSSettings(): Promise<TLSSettings> {

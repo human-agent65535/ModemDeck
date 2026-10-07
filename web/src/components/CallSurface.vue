@@ -16,11 +16,11 @@ import {
   X
 } from '@lucide/vue'
 import {
-  answerCall,
+  answerCall as answerRealCall,
   callState,
-  dismissCall,
-  hangupCall,
-  rejectCall,
+  dismissCall as dismissRealCall,
+  hangupCall as hangupRealCall,
+  rejectCall as rejectRealCall,
   retryActiveCallMedia,
   sendDTMF
 } from '../state/call'
@@ -48,6 +48,8 @@ import { formatDuration } from '../utils/format'
 import { phoneKeypad } from '../utils/phoneKeypad'
 import CommunicationAvatar from './CommunicationAvatar.vue'
 import LineTag from './LineTag.vue'
+import CallTestFeedback from './CallTestFeedback.vue'
+import { answerCallTest, callTestSession, callTestState, callTestStatusLabel, dismissCallTest, presentedCallSession, stopCallTest } from '../state/callTestRuntime'
 
 const { t } = useI18n()
 const now = ref(Date.now())
@@ -55,7 +57,14 @@ const dtmfOpen = ref(false)
 const dtmfDisplay = ref<HTMLOutputElement>()
 let timer: number | undefined
 
-const session = computed(() => callState.session)
+const session = presentedCallSession
+const isTestCall = computed(() => Boolean(callTestSession.value))
+const owned = computed(() => isTestCall.value ? session.value?.control_state === 'owned' : callState.owned)
+const busy = computed(() => !isTestCall.value && callState.busy)
+const answerCall = () => isTestCall.value ? answerCallTest() : answerRealCall()
+const rejectCall = () => isTestCall.value ? stopCallTest() : rejectRealCall()
+const hangupCall = () => isTestCall.value ? stopCallTest() : hangupRealCall()
+const dismissCall = () => isTestCall.value ? dismissCallTest() : dismissRealCall()
 const dtmfDigits = computed(() => callState.dtmfDigits)
 const line = computed(() => (session.value ? lineForKey(session.value.line_id) : undefined))
 const contact = computed(() =>
@@ -78,6 +87,7 @@ const contactNumber = computed(() => {
   return number && number !== contactName.value ? number : ''
 })
 const phaseLabel = computed(() => {
+  if (isTestCall.value && session.value?.phase === 'active') return callTestStatusLabel.value
   const labels = {
     unknown: t('calls.phaseUnknown'),
     dialing: t('calls.dialing'),
@@ -127,8 +137,9 @@ const active = computed(() => session.value?.phase === 'active')
 const recordingAdjustable = computed(() => {
   const phase = session.value?.phase
   return (
+    !isTestCall.value &&
     !occupied.value &&
-    (incoming.value || callState.owned) &&
+    (incoming.value || owned.value) &&
     (phase === 'dialing' ||
       phase === 'ringing' ||
       phase === 'connecting' ||
@@ -179,6 +190,7 @@ const bearerLabel = computed(() => {
   return t('calls.otherBearer')
 })
 const answerUnavailable = computed(() => {
+  if (isTestCall.value) return ''
   if (lineSupports(line.value, 'answer') === false) return t('calls.answerUnsupported')
   if (
     bootstrapResource.data?.capabilities.webrtc_audio !== true ||
@@ -189,16 +201,17 @@ const answerUnavailable = computed(() => {
   return ''
 })
 const rejectUnavailable = computed(() =>
-  lineSupports(line.value, 'reject') === false ? t('calls.rejectUnsupported') : ''
+  !isTestCall.value && lineSupports(line.value, 'reject') === false ? t('calls.rejectUnsupported') : ''
 )
 const hangupUnavailable = computed(() =>
-  lineSupports(line.value, 'hangup') === false ? t('calls.hangupUnsupported') : ''
+  !isTestCall.value && lineSupports(line.value, 'hangup') === false ? t('calls.hangupUnsupported') : ''
 )
 const dtmfUnavailable = computed(() =>
   lineSupports(line.value, 'dtmf') === false ? t('calls.dtmfUnsupported') : ''
 )
 const mediaLabel = computed(() => {
-  if (!active.value || !callState.owned) return ''
+  if (!active.value || !owned.value) return ''
+  if (isTestCall.value) return ''
   if (callMediaState.status === 'unavailable') return t('calls.serverAudioUnavailable')
   if (callMediaState.status === 'requesting') return t('calls.requestingMicrophone')
   if (callMediaState.status === 'connecting') return t('calls.connectingBrowserAudio')
@@ -215,14 +228,15 @@ const mediaControllable = computed(
 const showMediaControls = computed(
   () =>
     active.value &&
-    callState.owned &&
+    owned.value &&
     !dtmfOpen.value &&
     (mediaControllable.value ||
       callMediaState.playbackBlocked ||
       callMediaState.status === 'error')
 )
 const recordingLabel = computed(() => {
-  if (!active.value || !callState.owned) return ''
+  if (isTestCall.value) return ''
+  if (!active.value || !owned.value) return ''
   if (recordingActive.value) return t('calls.recordingActive')
   if (callRecordingState.busy || callRecordingState.status === 'initializing') {
     return t('calls.applyingRecording')
@@ -232,7 +246,7 @@ const recordingLabel = computed(() => {
   return ''
 })
 const statusError = computed(
-  () =>
+  () => isTestCall.value ? callTestState.error :
     callState.error ||
     callState.syncError ||
     callRecordingState.error ||
@@ -297,7 +311,7 @@ function tone(digit: string): void {
 function toggleRecording(): void {
   if (
     !session.value ||
-    callState.busy ||
+    busy.value ||
     callRecordingState.busy ||
     !recordingControlReady.value
   ) {
@@ -309,7 +323,7 @@ function toggleRecording(): void {
       session.value.id,
       enabled
     )
-    if (callState.owned) void setCallRecordingEnabled(enabled)
+    if (owned.value) void setCallRecordingEnabled(enabled)
     return
   }
   void setCallRecordingEnabled(!callRecordingState.enabled)
@@ -346,6 +360,7 @@ onBeforeUnmount(() => {
               :line="line"
               :fallback="session.line_id"
             />
+            <small v-else-if="isTestCall">{{ t('callTest.testOnly') }}</small>
             <small v-else>{{ session.line_id }}</small>
             <small v-if="bearerLabel" class="call-surface__bearer">{{ bearerLabel }}</small>
           </div>
@@ -396,7 +411,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="active && callState.owned && recordingSegments.length"
+          v-if="active && owned && recordingSegments.length"
           class="call-surface__recording-segments"
         >
           <header>
@@ -421,6 +436,8 @@ onBeforeUnmount(() => {
             </li>
           </ol>
         </div>
+
+        <CallTestFeedback v-if="isTestCall && active" />
 
         <div
           v-if="showMediaControls"
@@ -474,7 +491,7 @@ onBeforeUnmount(() => {
 
         <Transition name="dtmf">
           <div
-            v-if="active && dtmfOpen"
+            v-if="active && !isTestCall && dtmfOpen"
             class="call-surface__dtmf"
             role="group"
             :aria-label="t('calls.keypad')"
@@ -494,7 +511,7 @@ onBeforeUnmount(() => {
               :class="{ 'keypad__key--zero': key.digit === '0' }"
               type="button"
               :aria-label="t('calls.sendDigit', { digit: key.digit })"
-              :disabled="callState.busy"
+              :disabled="busy"
               @click="tone(key.digit)"
             >
               <strong>{{ key.digit }}</strong>
@@ -522,7 +539,7 @@ onBeforeUnmount(() => {
           "
           :aria-pressed="callRecordingState.enabled"
           :disabled="
-            callState.busy ||
+            busy ||
             callRecordingState.busy ||
             !recordingControlReady
           "
@@ -542,7 +559,7 @@ onBeforeUnmount(() => {
               :title="rejectUnavailable || t('calls.reject')"
               :aria-label="t('calls.reject')"
               :aria-describedby="rejectUnavailable ? 'call-capability-notice' : undefined"
-              :disabled="callState.busy || Boolean(rejectUnavailable)"
+              :disabled="busy || Boolean(rejectUnavailable)"
               @click="rejectCall"
             >
               <LoaderCircle v-if="callState.pendingAction === 'reject'" class="spin" :size="25" />
@@ -557,7 +574,7 @@ onBeforeUnmount(() => {
               :title="answerUnavailable || t('calls.answer')"
               :aria-label="t('calls.answer')"
               :aria-describedby="answerUnavailable ? 'call-capability-notice' : undefined"
-              :disabled="callState.busy || Boolean(answerUnavailable)"
+              :disabled="busy || Boolean(answerUnavailable)"
               @click="answerCall"
             >
               <LoaderCircle v-if="callState.pendingAction === 'answer'" class="spin" :size="25" />
@@ -566,7 +583,7 @@ onBeforeUnmount(() => {
             <small>{{ t('calls.answer') }}</small>
           </span>
         </template>
-        <template v-else-if="canHangup && callState.owned">
+        <template v-else-if="canHangup && owned">
           <span class="call-primary-action call-primary-action--center keypad-action-item">
             <button
               class="call-button call-button--hangup"
@@ -574,7 +591,7 @@ onBeforeUnmount(() => {
               :title="hangupUnavailable || t('calls.hangup')"
               :aria-label="t('calls.hangup')"
               :aria-describedby="hangupUnavailable ? 'call-capability-notice' : undefined"
-              :disabled="callState.busy || Boolean(hangupUnavailable)"
+              :disabled="busy || Boolean(hangupUnavailable)"
               @click="hangupCall"
             >
               <LoaderCircle v-if="callState.pendingAction === 'hangup'" class="spin" :size="25" />
@@ -583,7 +600,7 @@ onBeforeUnmount(() => {
             <small>{{ t('calls.hangup') }}</small>
           </span>
           <button
-            v-if="active"
+            v-if="active && !isTestCall"
             class="call-footer-action call-footer-action--keypad keypad-action-item"
             :class="{ 'is-active': dtmfOpen }"
             type="button"

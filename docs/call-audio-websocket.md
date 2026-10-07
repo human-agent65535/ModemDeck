@@ -1,7 +1,8 @@
 # Call audio over WebSocket (version 1)
 
 Real calls use `GET /api/v1/calls/{id}/media/ws`. iOS audio tests use
-`GET /api/v1/mobile/call-tests/{id}/media/ws`. Both enter the same media runtime,
+`GET /api/v1/mobile/call-tests/{id}/media/ws`, and browser audio tests use
+`GET /api/v1/call-tests/{id}/media/ws`. All enter the same media runtime,
 call lease, single media owner, and shared PCM hub. Hardware access remains
 behind the Agent Unix socket. Existing WebRTC endpoints remain during rollout.
 
@@ -11,6 +12,18 @@ must never be put in a URL. Browser upgrades require an Origin matching the
 request host; native authenticated upgrades may omit Origin. A call lease must
 already be held by this authenticated session/device. Renew it through the
 existing HTTP lease endpoint.
+
+Browser diagnostics are started from Audio settings. After a five-second delay,
+the open page presents a simulated incoming call through the usual call window,
+ringtone, and browser notification preference. It requests microphone access only
+after the user answers. Answering posts `{ "language": "en-US" }` (or the selected
+locale) to `/api/v1/call-tests`, which creates and claims a test bound to that
+authenticated browser session. `GET /api/v1/call-tests/{id}/status` supplies the
+guide/capture/playback phase and audio counters and renews the control lease.
+`POST /api/v1/call-tests/{id}/hangup` ends it. Tests expire after 60 seconds, keep
+captured audio only in memory, and never use a SIM or create call/recording history.
+A real call interrupts the diagnostic. Page navigation or minimizing the call
+window does not end the test; notifications still require the page to stay open.
 
 After upgrade the client sends one JSON text message within five seconds:
 

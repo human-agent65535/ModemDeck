@@ -5,10 +5,12 @@ export const CALL_AUDIO_FRAME_SAMPLES = 320
 export const CALL_AUDIO_MAX_AGE_MS = 100
 export const CALL_AUDIO_MAX_PACKET_BYTES = 1275
 
-export function callAudioWebSocketURL(callID: string, location: Pick<Location, 'href'>): string {
+export type CallMediaTarget = 'calls' | 'call-tests'
+
+export function callAudioWebSocketURL(callID: string, location: Pick<Location, 'href'>, target: CallMediaTarget = 'calls'): string {
   const id = callID.trim()
   if (!id) throw new Error('Missing call ID')
-  const url = new URL(`/api/v1/calls/${encodeURIComponent(id)}/media/ws`, location.href)
+  const url = new URL(`/api/v1/${target}/${encodeURIComponent(id)}/media/ws`, location.href)
   // Development on localhost uses HTTP; deployed HTTPS always uses WSS.
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.href

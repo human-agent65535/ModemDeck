@@ -19,7 +19,7 @@ var (
 	ErrNotFound    = errors.New("test call not found")
 	ErrBusy        = errors.New("a test call is already pending or was started recently")
 	ErrEnded       = errors.New("test call is no longer active")
-	ErrUnavailable = errors.New("test calls require Apple push")
+	ErrUnavailable = errors.New("call tests are unavailable")
 )
 
 type PushSender interface {
@@ -57,12 +57,32 @@ func (s *Service) Start(userID, credentialID string, language ...string) (Status
 	if s == nil || s.push == nil || userID == "" || credentialID == "" {
 		return Status{}, ErrUnavailable
 	}
+	return s.start(userID+"\x00"+credentialID, userID, credentialID, language...)
+}
+
+// StartBrowser connects a session-scoped test directly, without Apple push or
+// modem access. It shares the same leases, audio endpoint and lifetime as iOS.
+func (s *Service) StartBrowser(owner string, language ...string) (Status, error) {
+	status, err := s.start(owner, "", "", language...)
+	if err != nil {
+		return Status{}, err
+	}
+	answered, err := s.Answer(status.ID, owner)
+	if err != nil {
+		_ = s.End(status.ID, owner)
+	}
+	return answered, err
+}
+
+func (s *Service) start(owner, userID, credentialID string, language ...string) (Status, error) {
+	if s == nil || owner == "" {
+		return Status{}, ErrUnavailable
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ctx.Err() != nil {
 		return Status{}, ErrUnavailable
 	}
-	owner := userID + "\x00" + credentialID
 	for _, existing := range s.sessions {
 		if existing.owner == owner && (existing.ctx.Err() == nil || time.Since(existing.snapshot().AcceptedAt) < 30*time.Second) {
 			return Status{}, ErrBusy
@@ -95,6 +115,10 @@ func (s *Service) Start(userID, credentialID string, language ...string) (Status
 	if err == nil {
 		// Publish the empty pre-call baseline before a new ringing call appears,
 		// matching production startup without treating it as an orphaned old call.
+		_, err = entry.Refresh(ctx)
+	}
+	if err == nil && credentialID == "" {
+		entry.status.Phase, entry.status.TestPhase = "ringing", "ringing"
 		_, err = entry.Refresh(ctx)
 	}
 	if err != nil {
@@ -130,35 +154,11 @@ func (s *Service) run(entry *session, userID, credentialID string) {
 		delete(s.sessions, entry.snapshot().ID)
 		s.mu.Unlock()
 	}()
-	select {
-	case <-entry.ctx.Done():
-		return
-	case <-time.After(5 * time.Second):
+	if credentialID != "" {
+		if !s.ring(entry, userID, credentialID) {
+			return
+		}
 	}
-	entry.mu.Lock()
-	if entry.ctx.Err() != nil {
-		entry.mu.Unlock()
-		return
-	}
-	entry.status.Phase, entry.status.TestPhase = "ringing", "sending"
-	entry.mu.Unlock()
-	if _, err := entry.Refresh(entry.ctx); err != nil {
-		entry.finish("media_failed")
-		return
-	}
-	pushContext, cancel := context.WithTimeout(entry.ctx, 12*time.Second)
-	err := s.push.SendAudioTestCall(pushContext, userID, credentialID, entry.snapshot().ID)
-	cancel()
-	if err != nil {
-		s.logger.Warn("send audio test call", "call_id", entry.snapshot().ID, "error", err)
-		entry.finish("push_failed")
-		return
-	}
-	entry.mu.Lock()
-	if entry.status.Phase == "ringing" {
-		entry.status.TestPhase = "ringing"
-	}
-	entry.mu.Unlock()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -172,6 +172,39 @@ func (s *Service) run(entry *session, userID, credentialID string) {
 			}
 		}
 	}
+}
+
+func (s *Service) ring(entry *session, userID, credentialID string) bool {
+	select {
+	case <-entry.ctx.Done():
+		return false
+	case <-time.After(5 * time.Second):
+	}
+	entry.mu.Lock()
+	if entry.ctx.Err() != nil {
+		entry.mu.Unlock()
+		return false
+	}
+	entry.status.Phase, entry.status.TestPhase = "ringing", "sending"
+	entry.mu.Unlock()
+	if _, err := entry.Refresh(entry.ctx); err != nil {
+		entry.finish("media_failed")
+		return false
+	}
+	pushContext, cancel := context.WithTimeout(entry.ctx, 12*time.Second)
+	err := s.push.SendAudioTestCall(pushContext, userID, credentialID, entry.snapshot().ID)
+	cancel()
+	if err != nil {
+		s.logger.Warn("send audio test call", "call_id", entry.snapshot().ID, "error", err)
+		entry.finish("push_failed")
+		return false
+	}
+	entry.mu.Lock()
+	if entry.status.Phase == "ringing" {
+		entry.status.TestPhase = "ringing"
+	}
+	entry.mu.Unlock()
+	return true
 }
 
 func (s *Service) lookup(id, owner string) (*session, error) {

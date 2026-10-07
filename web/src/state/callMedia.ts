@@ -3,6 +3,7 @@ import { fixtureCallMediaPreview, gateway } from '../api/client'
 import type { CallSession } from '../api/types'
 import { translate } from '../i18n'
 import { CALL_AUDIO_FORMAT, CALL_AUDIO_MAX_AGE_MS, CallAudioReceiveClock, callAudioWebSocketURL, decodeCallAudioPacket, encodeCallAudioPacket, isCallAudioReady, isRecoverableCallAudioError } from './callAudioProtocol'
+import type { CallMediaTarget } from './callAudioProtocol'
 import {
   applySelectedAudioOutput,
   audioState,
@@ -12,6 +13,7 @@ import {
   markAudioInputInactive,
   markAudioInputSwitching,
   markAudioOutputInactive,
+  microphoneMeterLevel,
   refreshAudioDevices,
   selectedAudioInputConstraints
 } from './audio'
@@ -40,12 +42,14 @@ export const callMediaState = reactive<{
   error: string
   muted: boolean
   playbackBlocked: boolean
+  microphoneLevel: number
 }>({
   callID: '',
   status: 'idle',
   error: '',
   muted: false,
-  playbackBlocked: false
+  playbackBlocked: false,
+  microphoneLevel: 0
 })
 
 let generation = 0
@@ -65,8 +69,10 @@ let queuedInputDeviceID: string | undefined
 let inputSwitchPromise: Promise<void> | undefined
 let recoveryTimeoutID: number | undefined
 let mediaLockAbort: AbortController | undefined
+let mediaTarget: CallMediaTarget = 'calls'
 
 type MediaOwnership = {
+  target: CallMediaTarget
   ownerToken: string
   claimed: boolean
   release: () => void
@@ -220,6 +226,7 @@ function setIdle(status: 'idle' | 'unavailable', callID = ''): void {
   callMediaState.error = ''
   callMediaState.muted = false
   callMediaState.playbackBlocked = false
+  callMediaState.microphoneLevel = 0
 }
 
 function mediaError(error: unknown): string {
@@ -323,7 +330,7 @@ function recoverConnection(callID: string, token: number, ownership: MediaOwners
   // Release immediately: WebSocket.close itself may flush buffered frames.
   // Wait for the old owner to release before the next upgrade. DELETE is
   // owner scoped, so stale tabs cannot release a replacement owner's media.
-  void gateway.releaseCallMedia(callID, ownership.ownerToken).then(() => {
+  void releaseOwnedMedia(callID, ownership).then(() => {
     if (!isCurrent(callID, token)) return
     reconnectTimeoutID = window.setTimeout(() => {
       reconnectTimeoutID = undefined
@@ -338,6 +345,12 @@ function recoverConnection(callID: string, token: number, ownership: MediaOwners
   })
 }
 
+function releaseOwnedMedia(callID: string, ownership: MediaOwnership): Promise<void> {
+  return ownership.target === 'call-tests'
+    ? gateway.releaseCallTestMedia(callID, ownership.ownerToken)
+    : gateway.releaseCallMedia(callID, ownership.ownerToken)
+}
+
 async function openAudioSocket(callID: string, token: number, ownership: MediaOwnership): Promise<void> {
   const runtime = audioRuntime
   if (!runtime || !isCurrent(callID, token)) return
@@ -348,7 +361,7 @@ async function openAudioSocket(callID: string, token: number, ownership: MediaOw
   worker.onmessage = ({ data }: MessageEvent<{ type: string; message?: string; payload: Uint8Array; pcm: Float32Array; sequence: number; time: number }>) => {
     if (!isCurrent(callID, token) || audioRuntime !== runtime || runtime.worker !== worker) return
     if (data.type === 'ready') {
-      const connection = new WebSocket(callAudioWebSocketURL(callID, window.location))
+      const connection = new WebSocket(callAudioWebSocketURL(callID, window.location, ownership.target))
       socket = connection
       connection.binaryType = 'arraybuffer'
       connection.onopen = () => {
@@ -486,6 +499,10 @@ async function connect(callID: string, token: number, ownership: MediaOwnership)
       const sequence = (data.index - runtime.captureBase) >>> 0
       runtime.encodePending += 1
       if (callMediaState.muted) data.pcm.fill(0)
+      if (ownership.target === 'call-tests' && data.index % 5 === 0) {
+        const energy = data.pcm.reduce((sum, sample) => sum + sample * sample, 0)
+        callMediaState.microphoneLevel = microphoneMeterLevel(Math.sqrt(energy / data.pcm.length))
+      }
       runtime.worker?.postMessage({ type: 'encode', pcm: data.pcm, sequence, time: data.time }, [data.pcm.buffer])
     }
     markAudioInputActive()
@@ -524,6 +541,7 @@ async function ownAndConnect(
           completeCleanup = resolve
         })
         const ownership: MediaOwnership = {
+          target: mediaTarget,
           ownerToken: globalThis.crypto.randomUUID(),
           claimed: false,
           release: releaseLock,
@@ -536,9 +554,7 @@ async function ownAndConnect(
         } finally {
           try {
             if (ownership.claimed) {
-              await gateway
-                .releaseCallMedia(callID, ownership.ownerToken)
-                .catch(() => undefined)
+              await releaseOwnedMedia(callID, ownership).catch(() => undefined)
             }
           } finally {
             if (mediaOwnership === ownership) mediaOwnership = undefined
@@ -557,7 +573,11 @@ async function ownAndConnect(
   }
 }
 
-export function syncCallMedia(session: CallSession | null): void {
+export function syncCallMedia(session: Pick<CallSession, 'id' | 'phase' | 'media_available'> | null, target: CallMediaTarget = 'calls'): void {
+  // Empty real-call snapshots arrive throughout a diagnostic. Only an actual
+  // call, explicit test stop, or session shutdown should take its audio away.
+  if (!session && target === 'calls' && mediaTarget === 'call-tests') return
+  mediaTarget = target
   if (fixtureCallMediaPreview) {
     if (!session || session.phase !== 'active') {
       attemptedCallID = ''
@@ -590,6 +610,7 @@ export function syncCallMedia(session: CallSession | null): void {
   callMediaState.error = ''
   callMediaState.muted = false
   callMediaState.playbackBlocked = false
+  callMediaState.microphoneLevel = 0
   const token = generation
   const controller = new AbortController()
   mediaLockAbort = controller
@@ -676,8 +697,13 @@ function queueCallInputReplacement(deviceID: string): void {
 }
 
 export function shutdownCallMedia(): void {
+  mediaTarget = 'calls'
   attemptedCallID = ''
   setIdle('idle')
+}
+
+export function stopCallTestMedia(callID: string): void {
+  if (mediaTarget === 'call-tests' && callMediaState.callID === callID) shutdownCallMedia()
 }
 
 export async function releaseCallMediaForSessionEnd(): Promise<void> {

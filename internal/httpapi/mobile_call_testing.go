@@ -58,6 +58,10 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 		})
 		return
 	}
+	api.callTestResource(response, request, owner, path)
+}
+
+func (api *API) callTestResource(response http.ResponseWriter, request *http.Request, owner, path string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) < 2 || len(parts) > 3 || parts[0] == "" {
 		api.writeCallTestError(response, request, calltest.ErrNotFound)
@@ -113,7 +117,15 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 			api.writeCallTestError(response, request, err)
 			return
 		}
-		writeJSON(response, http.StatusOK, status)
+		audio, err := api.callTests.AudioStatus(id, owner)
+		if err != nil {
+			api.writeCallTestError(response, request, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			calltest.Status
+			TestAudio calltest.AudioStatus `json:"test_audio"`
+		}{Status: status, TestAudio: audio})
 	case "answer":
 		status, err := api.callTests.Answer(id, owner)
 		if err != nil {
@@ -179,7 +191,7 @@ func (api *API) writeCallTestError(response http.ResponseWriter, request *http.R
 	case errors.Is(err, calltest.ErrEnded):
 		writeError(response, http.StatusGone, "test_call_ended", "The test call has ended", "")
 	case errors.Is(err, calltest.ErrUnavailable):
-		writeError(response, http.StatusServiceUnavailable, "test_call_unavailable", "Call tests require configured Apple push", "")
+		writeError(response, http.StatusServiceUnavailable, "test_call_unavailable", "Call tests are unavailable", "")
 	case errors.Is(err, calllease.ErrInvalidArgument), errors.Is(err, calllease.ErrCallNotFound), errors.Is(err, calllease.ErrCallNotActive), errors.Is(err, calllease.ErrCallOwned), errors.Is(err, calllease.ErrHolderBusy), errors.Is(err, calllease.ErrNotOwner):
 		api.writeCallLeaseError(response, request, "control test call owner", err)
 	case errors.Is(err, mediaapp.ErrInvalidArgument), errors.Is(err, mediaapp.ErrNotFound), errors.Is(err, mediaapp.ErrNotActive), errors.Is(err, mediaapp.ErrUnavailable), errors.Is(err, mediaapp.ErrConflict), errors.Is(err, mediaapp.ErrNegotiation):

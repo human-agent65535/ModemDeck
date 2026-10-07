@@ -321,11 +321,12 @@ func run(
 			updateManager = client
 		}
 	}
-	var callTests *calltest.Service
+	var callTestPush calltest.PushSender
 	if applePushRuntime != nil {
-		callTests = calltest.New(applePushRuntime, turnProvider, logger.With("component", "call_test"))
-		defer callTests.Close()
+		callTestPush = applePushRuntime
 	}
+	callTests := calltest.New(callTestPush, turnProvider, logger.With("component", "call_test"))
+	defer callTests.Close()
 	api, err := httpapi.New(repository, httpapi.Options{
 		Communications:       communications,
 		DeviceConfigurations: communications,

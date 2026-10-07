@@ -19,6 +19,7 @@ import {
   X
 } from '@lucide/vue'
 import { fixtureMode } from '../api/client'
+import { callTestSession, initializeCallTestRuntime, shutdownCallTestRuntime } from '../state/callTestRuntime'
 import {
   callState,
   initializeCallRuntime,
@@ -74,10 +75,11 @@ const nonModalDialer = ref(false)
 const mobileMoreOpen = ref(false)
 const occupiedLineCount = computed(() => occupiedLineIDs().size)
 const activeCallPresent = computed(() =>
-  callState.sessions.some(isLiveCallSession)
+  Boolean(callTestSession.value) || callState.sessions.some(isLiveCallSession)
 )
 const incomingCallRinging = computed(
   () =>
+    callTestSession.value?.phase === 'ringing' ||
     !callState.owned &&
     callState.sessions.some(
       session =>
@@ -91,9 +93,9 @@ const minimizedIncomingCall = computed(
 )
 const minimizedActiveCall = computed(
   () =>
-    callState.sessions.some(
+    (callTestSession.value?.phase === 'active' || callState.sessions.some(
       session => session.control_state === 'owned' && session.phase === 'active'
-    ) && uiState.callMinimized
+    )) && uiState.callMinimized
 )
 const mobileCallTitle = computed(() => {
   if (incomingCallRinging.value) return t('shell.openIncomingCall')
@@ -369,6 +371,7 @@ onMounted(() => {
   initializeBrowserNotifications()
   initializeBrowserSounds()
   initializeCallRuntime(router)
+  initializeCallTestRuntime()
   initializeMessageRuntime(router)
   stopForegroundCommunicationRefresh = initializeForegroundCommunicationRefresh()
   void initializeWorkspaceRuntime(currentGeneration)
@@ -391,6 +394,7 @@ onBeforeUnmount(() => {
   shutdownRuntimeEvents()
   shutdownMessageRuntime()
   shutdownCallRuntime()
+  shutdownCallTestRuntime()
   shutdownBrowserSounds()
   shutdownDTMFAudio()
   shutdownBrowserNotifications()

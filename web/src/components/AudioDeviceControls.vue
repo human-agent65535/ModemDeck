@@ -13,6 +13,7 @@ import {
   stopMicrophoneTest
 } from '../state/audio'
 import SelectControl from './SelectControl.vue'
+import { callMediaState } from '../state/callMedia'
 
 const props = withDefaults(
   defineProps<{
@@ -164,7 +165,7 @@ onBeforeUnmount(() => {
       <button
         class="secondary-button microphone-test__button"
         type="button"
-        :disabled="audioState.microphoneTestStatus === 'requesting'"
+        :disabled="audioState.microphoneTestStatus === 'requesting' || Boolean(callMediaState.callID)"
         @click="toggleMicrophoneTest"
       >
         <LoaderCircle

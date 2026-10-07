@@ -465,6 +465,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.postOnly(response, request, api.mobilePushTestCall)
 	case "/api/v1/mobile/call-tests":
 		api.mobileCallTest(response, request)
+	case "/api/v1/call-tests":
+		api.browserCallTest(response, request)
 	case "/api/v1/mobile/diagnostics":
 		api.postOnly(response, request, api.mobileDiagnostics)
 	case "/api/v1/users":
@@ -530,6 +532,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	case "/api/v1/settings/tls/ca":
 		api.getOnly(response, request, api.tlsCertificateAuthority)
 	default:
+		if strings.HasPrefix(request.URL.Path, "/api/v1/call-tests/") {
+			api.browserCallTest(response, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/api/v1/mobile/call-tests/") {
 			api.mobileCallTest(response, request)
 			return

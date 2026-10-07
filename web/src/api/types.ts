@@ -1426,6 +1426,26 @@ export class ApiError extends Error {
 
 export type ResourceStatus = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
 
+export type CallTestAudio = {
+  phase: string
+  remaining_ms: number
+  captured_frames: number
+  captured_dbfs: number
+  captured_peak_dbfs: number
+  received_packets: number
+  sent_packets: number
+}
+
+export type CallTestStatus = {
+  id: string
+  phase: 'active' | 'ended' | 'failed'
+  accepted_at: string
+  expires_at: string
+  test_phase: string
+  failure_code?: string
+  test_audio?: CallTestAudio
+}
+
 export type Resource<T> = {
   status: ResourceStatus
   data: T
