@@ -1,0 +1,72 @@
+{
+  "app_build" : "26",
+  "app_version" : "0.1.0",
+  "dropped" : 2,
+  "events" : [
+    {
+      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "category" : "audio",
+      "fields" : {
+        "stage" : "connecting_wss",
+        "stage_elapsed_ms" : "0",
+        "test_call" : "true"
+      },
+      "id" : "00000000-0000-4000-8000-000000000001",
+      "name" : "stage_changed",
+      "network" : "wifi",
+      "time_ms" : 1780000000000
+    },
+    {
+      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "category" : "audio",
+      "fields" : {
+        "captured_frames" : "250",
+        "channels" : "1",
+        "dropped_frames" : "7",
+        "input_route" : "microphone",
+        "microphone_dbfs" : "-37",
+        "output_route" : "speaker",
+        "received_packets" : "239",
+        "sample_rate" : "16000",
+        "sent_packets" : "240",
+        "server_received_packets" : "240",
+        "stage" : "connected",
+        "test_call" : "true"
+      },
+      "id" : "00000000-0000-4000-8000-000000000002",
+      "name" : "audio_statistics",
+      "network" : "wifi",
+      "time_ms" : 1780000000001
+    },
+    {
+      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "category" : "audio",
+      "fields" : {
+        "attempt" : "2",
+        "error_code" : "-1001",
+        "error_domain" : "url",
+        "stage" : "reconnecting_wss",
+        "stage_elapsed_ms" : "25",
+        "test_call" : "true"
+      },
+      "id" : "00000000-0000-4000-8000-000000000003",
+      "name" : "wss_disconnected",
+      "network" : "wifi",
+      "time_ms" : 1780000000002
+    },
+    {
+      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "category" : "audio",
+      "fields" : {
+        "server_received_packets" : "1000000000",
+        "stage" : "connected"
+      },
+      "id" : "00000000-0000-4000-8000-000000000004",
+      "name" : "server_audio_statistics",
+      "network" : "wifi",
+      "time_ms" : 1780000000003
+    }
+  ],
+  "os_version" : "18.0",
+  "schema" : 1
+}

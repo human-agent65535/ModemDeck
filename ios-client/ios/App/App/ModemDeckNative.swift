@@ -2345,6 +2345,16 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             self.presentedCalls[uuid]?.microphoneDBFS = level
             self.publishCallState()
         }
+        audioSession.onFailed = { [weak self, weak audioSession] error in
+            guard let self,
+                  let audioSession,
+                  self.callAudioSessions[uuid] === audioSession else {
+                return
+            }
+            self.sendEndCallAction(verb: "hangup", callUUID: uuid)
+            self.reportCallEnded(with: uuid, endedAt: Date(), reason: .failed)
+            self.cleanupCall(uuid, failureMessage: error.localizedDescription)
+        }
         audioSession.onRemoteEnded = { [weak self, weak audioSession] in
             guard let self,
                   let audioSession,

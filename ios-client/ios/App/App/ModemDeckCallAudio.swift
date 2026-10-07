@@ -9,6 +9,7 @@ enum ModemDeckCallAudioError: LocalizedError {
     case invalidResponse
     case negotiationFailed
     case timedOut
+    case audioFormatUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -24,6 +25,8 @@ enum ModemDeckCallAudioError: LocalizedError {
             return "The iOS device could not establish call audio."
         case .timedOut:
             return "Call audio took too long to connect."
+        case .audioFormatUnavailable:
+            return "The device could not configure microphone and playback audio."
         }
     }
 }
@@ -154,6 +157,7 @@ final class ModemDeckCallAudioSession: NSObject {
     private static var audioActivated = false
     let callID: String
     var onRemoteEnded: (() -> Void)?
+    var onFailed: ((Error) -> Void)?
     var onBecameActive: (() -> Void)?
     var onTestPhaseChanged: ((String) -> Void)?
     var onTestAudioChanged: ((ModemDeckTestAudioStatus) -> Void)?
@@ -198,6 +202,8 @@ final class ModemDeckCallAudioSession: NSObject {
     private var testAudioAt = 0.0
     private var engine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
+    private var captureTapInstalled = false
+    private var captureGeneration = 0
     private var encoder: OpaquePointer?
     private var decoder: OpaquePointer?
     private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
@@ -242,9 +248,9 @@ final class ModemDeckCallAudioSession: NSObject {
             }
         }
         configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil) { [weak self] event in
+            let changedEngine = event.object as? AVAudioEngine
             self?.queue.async { [weak self] in
-                guard let self, !self.stopped, let engine = self.engine, event.object as? AVAudioEngine === engine else { return }
-                self.stopAudio(); self.startAudioIfReady()
+                self?.audioConfigurationChanged(changedEngine)
             }
         }
     }
@@ -488,59 +494,113 @@ final class ModemDeckCallAudioSession: NSObject {
             let engine = AVAudioEngine(), player = AVAudioPlayerNode()
             try engine.inputNode.setVoiceProcessingEnabled(true)
             engine.inputNode.isVoiceProcessingAGCEnabled = true
-            let inputFormat = engine.inputNode.outputFormat(forBus: 0)
-            guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-                  let converter = AVAudioConverter(from: inputFormat, to: format) else { throw ModemDeckCallAudioError.mediaUnavailable }
-            engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: format)
+            engine.attach(player)
             self.engine = engine; self.player = player
-            engine.inputNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(inputFormat.sampleRate * 0.02), format: inputFormat) { [weak self, weak engine] buffer, _ in
-                guard let self else { return }
-                let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 16_000 / inputFormat.sampleRate) + 32)
-                guard let converted = AVAudioPCMBuffer(pcmFormat: self.format, frameCapacity: capacity) else { return }
-                var supplied = false
-                var conversionError: NSError?
-                converter.convert(to: converted, error: &conversionError) { _, state in
-                    if supplied { state.pointee = .noDataNow; return nil }
-                    supplied = true; state.pointee = .haveData; return buffer
-                }
-                guard conversionError == nil, let samples = converted.floatChannelData?[0], converted.frameLength > 0 else { return }
-                let capturedAt = ProcessInfo.processInfo.systemUptime
-                let sampleCount = min(1600, Int(converted.frameLength))
-                let trimmed = Int(converted.frameLength) - sampleCount
-                self.captureLock.lock()
-                self.omittedCaptureSamples += trimmed
-                guard self.capturePendingSamples + sampleCount <= 1600 else {
-                    self.omittedCaptureSamples += sampleCount
-                    self.captureLock.unlock(); return
-                }
-                self.capturePendingSamples += sampleCount; self.captureLock.unlock()
-                let values = Array(UnsafeBufferPointer(start: samples.advanced(by: trimmed), count: sampleCount))
-                self.queue.async { [weak self, weak engine] in
-                    guard let self else { return }
-                    defer { self.captureLock.lock(); self.capturePendingSamples -= sampleCount; self.captureLock.unlock() }
-                    guard !self.stopped, self.engine === engine else { return }
-                    if ProcessInfo.processInfo.systemUptime - capturedAt > 0.1 {
-                        self.captureLock.lock(); self.omittedCaptureSamples += sampleCount; self.captureLock.unlock()
-                        return
-                    }
-                    self.captureLock.lock()
-                    let omitted = self.omittedCaptureSamples
-                    self.omittedCaptureSamples = 0
-                    self.captureLock.unlock()
-                    if omitted > 0 {
-                        let frames = UInt32((omitted + 319) / 320)
-                        self.sequence &+= frames; self.timestamp &+= frames &* 320
-                        self.droppedFrames += Int(frames)
-                        self.captureSamples.removeAll()
-                    }
-                    self.capture(values)
-                }
-            }
-            engine.prepare(); try engine.start(); player.play()
-            publishMediaState("active"); recordConnectionEvent("voice_processing_started")
+            try configureVoiceGraph(engine, player: player)
+            try startVoiceGraph(engine, player: player)
+            recordConnectionEvent("voice_processing_started")
         } catch {
             recordConnectionEvent("audio_engine_failed", error: error)
-            stopLocked(notifyRemoteEnd: true)
+            failMedia(error)
+        }
+    }
+    private func matchesVoiceFormat(_ candidate: AVAudioFormat) -> Bool {
+        candidate.sampleRate == format.sampleRate && candidate.channelCount == format.channelCount &&
+            candidate.commonFormat == format.commonFormat && candidate.isInterleaved == format.isInterleaved
+    }
+    private func voiceGraphMatches(_ engine: AVAudioEngine) -> Bool {
+        matchesVoiceFormat(engine.inputNode.outputFormat(forBus: 0)) &&
+            matchesVoiceFormat(engine.outputNode.inputFormat(forBus: 0))
+    }
+    private func configureVoiceGraph(_ engine: AVAudioEngine, player: AVAudioPlayerNode) throws {
+        // VoiceProcessingIO requires the same client format in both directions.
+        // Hardware/echo-reference channels are not separate telephone channels.
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: format)
+        captureLock.lock()
+        captureGeneration += 1; capturePendingSamples = 0; omittedCaptureSamples = 0
+        let generation = captureGeneration
+        captureLock.unlock()
+        // Taps request 100 ms (the SDK minimum); capture() splits it into 20 ms Opus frames.
+        engine.inputNode.installTap(onBus: 0, bufferSize: 1600, format: format) { [weak self, weak engine] buffer, _ in
+            guard let self, buffer.frameLength > 0 else { return }
+            guard self.matchesVoiceFormat(buffer.format), let samples = buffer.floatChannelData?[0] else {
+                self.queue.async { [weak self, weak engine] in
+                    guard let self, !self.stopped, self.engine === engine,
+                          self.captureGeneration == generation else { return }
+                    self.recordConnectionEvent("capture_format_invalid", error: ModemDeckCallAudioError.audioFormatUnavailable)
+                    self.failMedia(ModemDeckCallAudioError.audioFormatUnavailable)
+                }
+                return
+            }
+            let capturedAt = ProcessInfo.processInfo.systemUptime
+            let sampleCount = min(1600, Int(buffer.frameLength))
+            let trimmed = Int(buffer.frameLength) - sampleCount
+            self.captureLock.lock()
+            guard self.captureGeneration == generation else { self.captureLock.unlock(); return }
+            self.omittedCaptureSamples += trimmed
+            guard self.capturePendingSamples + sampleCount <= 1600 else {
+                self.omittedCaptureSamples += sampleCount
+                self.captureLock.unlock(); return
+            }
+            self.capturePendingSamples += sampleCount; self.captureLock.unlock()
+            let values = Array(UnsafeBufferPointer(start: samples.advanced(by: trimmed), count: sampleCount))
+            self.queue.async { [weak self, weak engine] in
+                guard let self else { return }
+                defer {
+                    self.captureLock.lock()
+                    if self.captureGeneration == generation { self.capturePendingSamples -= sampleCount }
+                    self.captureLock.unlock()
+                }
+                guard !self.stopped, self.engine === engine, self.captureGeneration == generation else { return }
+                if ProcessInfo.processInfo.systemUptime - capturedAt > 0.1 {
+                    self.captureLock.lock(); self.omittedCaptureSamples += sampleCount; self.captureLock.unlock()
+                    return
+                }
+                self.captureLock.lock()
+                let omitted = self.omittedCaptureSamples
+                self.omittedCaptureSamples = 0
+                self.captureLock.unlock()
+                if omitted > 0 {
+                    let frames = UInt32((omitted + 319) / 320)
+                    self.sequence &+= frames; self.timestamp &+= frames &* 320
+                    self.droppedFrames += Int(frames)
+                    self.captureSamples.removeAll()
+                }
+                self.capture(values)
+            }
+        }
+        captureTapInstalled = true
+        guard voiceGraphMatches(engine) else {
+            let input = engine.inputNode.outputFormat(forBus: 0), output = engine.outputNode.inputFormat(forBus: 0)
+            recordConnectionEvent("voice_input_format", fields: ["sample_rate": String(Int(input.sampleRate)), "channels": String(input.channelCount)])
+            recordConnectionEvent("voice_output_format", fields: ["sample_rate": String(Int(output.sampleRate)), "channels": String(output.channelCount)])
+            throw ModemDeckCallAudioError.audioFormatUnavailable
+        }
+    }
+    private func startVoiceGraph(_ engine: AVAudioEngine, player: AVAudioPlayerNode) throws {
+        engine.prepare(); try engine.start()
+        let input = engine.inputNode.outputFormat(forBus: 0), output = engine.outputNode.inputFormat(forBus: 0)
+        recordConnectionEvent("voice_input_format", fields: ["sample_rate": String(Int(input.sampleRate)), "channels": String(input.channelCount)])
+        recordConnectionEvent("voice_output_format", fields: ["sample_rate": String(Int(output.sampleRate)), "channels": String(output.channelCount)])
+        guard voiceGraphMatches(engine) else { throw ModemDeckCallAudioError.audioFormatUnavailable }
+        player.play()
+        publishMediaState(ready ? "active" : "reconnecting")
+    }
+    private func audioConfigurationChanged(_ changedEngine: AVAudioEngine?) {
+        guard !stopped, activated, let engine, let player, changedEngine === engine else { return }
+        // Startup can queue a notification that is delivered after the graph is
+        // already running. Recreating VoiceProcessingIO here changes its format again.
+        guard !engine.isRunning || !voiceGraphMatches(engine) else { return }
+        do {
+            engine.stop(); flushPlayback(); captureSamples.removeAll()
+            if captureTapInstalled { engine.inputNode.removeTap(onBus: 0); captureTapInstalled = false }
+            try configureVoiceGraph(engine, player: player)
+            try startVoiceGraph(engine, player: player)
+            recordConnectionEvent("voice_processing_reconfigured")
+        } catch {
+            recordConnectionEvent("audio_engine_failed", error: error)
+            failMedia(error)
         }
     }
     private func capture(_ values: [Float]) {
@@ -610,7 +670,11 @@ final class ModemDeckCallAudioSession: NSObject {
     }
     private func stopAudio() {
         guard let engine else { return }
-        flushPlayback(); engine.inputNode.removeTap(onBus: 0); engine.stop()
+        captureLock.lock()
+        captureGeneration += 1; capturePendingSamples = 0; omittedCaptureSamples = 0
+        captureLock.unlock()
+        flushPlayback(); engine.stop()
+        if captureTapInstalled { engine.inputNode.removeTap(onBus: 0); captureTapInstalled = false }
         self.engine = nil; player = nil; captureSamples.removeAll()
         publishMediaState(ready ? "waiting_for_audio" : "reconnecting")
     }
@@ -662,8 +726,12 @@ final class ModemDeckCallAudioSession: NSObject {
         DispatchQueue.main.async { [weak self] in self?.onMediaStateChanged?(state) }
     }
     private func failMedia(_ error: Error) {
+        guard !stopped else { return }
         if connectCompletion != nil { finishConnection(.failure(error)) }
-        else { recordConnectionEvent("media_failed", error: error); stopLocked(notifyRemoteEnd: true) }
+        else {
+            recordConnectionEvent("media_failed", error: error); stopLocked(notifyRemoteEnd: false)
+            DispatchQueue.main.async { [weak self] in self?.onFailed?(error) }
+        }
     }
     private func finishConnection(_ result: Result<Void, Error>) {
         guard let completion = connectCompletion else { return }

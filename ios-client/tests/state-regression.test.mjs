@@ -72,6 +72,17 @@ test('audio teardown survives owner release and mute persists before capture sta
   ].map(marker => declaration(source, marker).replace('private func', 'func')))
 })
 
+test('native voice graph fixes both directions to mono, preserves the engine across notifications and reports failures', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  await verify('voice-graph-stubs.swift', [
+    'enum ModemDeckCallAudioError:', 'private func startAudioIfReady()',
+    'private func matchesVoiceFormat(', 'private func voiceGraphMatches(',
+    'private func configureVoiceGraph(', 'private func startVoiceGraph(',
+    'private func audioConfigurationChanged(', 'private func flushPlayback()',
+    'private func stopAudio()', 'private func failMedia(', 'private func finishConnection('
+  ].map(marker => declaration(source, marker)))
+})
+
 test('native conversation refresh removes deleted cache entries and send completion preserves newer drafts', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckSession.swift', import.meta.url), 'utf8')
   await verify('conversation-stubs.swift', ['final class ModemDeckConversationStore:', 'final class ModemDeckMessageDraft:']
