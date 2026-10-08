@@ -5,8 +5,9 @@ import Foundation
 final class ModemDeckDiagnostics {
     enum Category { case app, network, api, pairing, push, callkit, audio, storage, permissions }
     static let shared = ModemDeckDiagnostics()
+    var lastRecordedFields: [String: String] = [:]
     func record(_ category: Category, _ name: String, callID: String? = nil,
-                fields: [String: String] = [:], error: Error? = nil, scope: String? = nil) {}
+                fields: [String: String] = [:], error: Error? = nil, scope: String? = nil) { lastRecordedFields = fields }
     func recordRequest(_ request: URLRequest?, response: URLResponse?, error: Error?) {}
     static func urlSession(configuration: URLSessionConfiguration) -> URLSession { URLSession(configuration: configuration) }
 }

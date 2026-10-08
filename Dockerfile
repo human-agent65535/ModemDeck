@@ -19,6 +19,9 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --include=dev --no-audit --no-fund
 
 COPY web/ ./
+COPY internal/audiocore/ ../internal/audiocore/
+COPY scripts/build-audio-core.mjs ../scripts/build-audio-core.mjs
+COPY scripts/audio-core/ ../scripts/audio-core/
 RUN npm run build
 
 

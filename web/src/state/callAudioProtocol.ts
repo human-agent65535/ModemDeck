@@ -1,3 +1,5 @@
+import { instantiateAudioCore, type AudioCoreExports } from './audioCore'
+
 export const CALL_AUDIO_FORMAT = {
   version: 1, codec: 'opus', sample_rate: 16000, channels: 1, frame_ms: 20
 } as const
@@ -43,41 +45,28 @@ export function isRecoverableCallAudioError(code: unknown): boolean {
   return code === 'transport_timeout' || code === 'transport_closed' || code === 'backpressure'
 }
 
-// Compare in uint32 space so a long call can wrap without accepting replays.
+// Thin adapter: the same C source is compiled for iOS, Go and this WASM.
+// Public browser times remain milliseconds; the shared ABI uses seconds.
 export class CallAudioReceiveClock {
-  private previous: { sequence: number; timestamp: number; time: number } | undefined
-  private anchor: { timestamp: number; time: number } | undefined
-  private stableStaleFrames = 0
+  private readonly core: AudioCoreExports
+
+  constructor(module: WebAssembly.Module) {
+    this.core = instantiateAudioCore(module)
+  }
+
+  get sendQueueCapacity(): number { return this.core.md_audio_send_queue_capacity() }
+  get queueCapacity(): number { return this.core.md_audio_queue_capacity() }
+  expired(sourceSeconds: number, nowSeconds: number): boolean {
+    return this.core.md_audio_frame_expired(sourceSeconds, nowSeconds) !== 0
+  }
+
+  get generation(): number { return this.core.md_clock_generation() }
+  get sourceSamples(): number { return this.core.md_clock_source_samples() }
+  get playAt(): number { return this.core.md_clock_play_at() * 1000 }
 
   accept(sequence: number, timestamp: number, now: number): boolean {
-    let stableCadence = false
-    if (this.previous) {
-      const frames = (sequence - this.previous.sequence) >>> 0
-      const samples = (timestamp - this.previous.timestamp) >>> 0
-      if (!frames || frames >= 0x80000000 || samples !== ((frames * CALL_AUDIO_FRAME_SAMPLES) >>> 0)) {
-        throw new Error('Invalid call audio clock')
-      }
-      const arrivalGap = now - this.previous.time
-      stableCadence = frames === 1 && arrivalGap >= 12 && arrivalGap <= 28
-    }
-    this.previous = { sequence, timestamp, time: now }
-    if (!this.anchor) this.anchor = { timestamp, time: now }
-    const elapsed = ((timestamp - this.anchor.timestamp) >>> 0) / 16
-    const age = now - this.anchor.time - elapsed
-    // Clock drift is adjusted gradually; a stalled TCP burst keeps its old age
-    // until a current frame arrives, so the backlog is never replayed.
-    if (age > CALL_AUDIO_MAX_AGE_MS) {
-      // A route may acquire a new base latency. Three real-time arrival gaps
-      // establish its new clock; a TCP backlog arrives in a burst and cannot
-      // satisfy this condition. Drop the old burst before re-anchoring.
-      this.stableStaleFrames = stableCadence ? this.stableStaleFrames + 1 : 0
-      if (this.stableStaleFrames < 3) return false
-      this.anchor = { timestamp, time: now }
-      this.stableStaleFrames = 0
-      return true
-    }
-    this.stableStaleFrames = 0
-    this.anchor = { timestamp, time: Math.min(now, this.anchor.time + elapsed + 0.2) }
-    return true
+    const result = this.core.md_clock_accept(sequence, timestamp, now / 1000)
+    if (result < 0) throw new Error('Invalid call audio clock')
+    return result === 1
   }
 }

@@ -284,3 +284,8 @@ install-check:
 
 clean:
 	rm -rf "$(DIST_DIR)" web/dist
+
+# Rebuild the browser artifact from the same C source used by iOS and Go.
+.PHONY: audio-core
+audio-core:
+	node scripts/build-audio-core.mjs

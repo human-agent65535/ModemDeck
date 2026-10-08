@@ -1,4 +1,5 @@
 import { reactive, watch } from 'vue'
+import { loadAudioCore } from './audioCore'
 import { fixtureCallMediaPreview, gateway } from '../api/client'
 import type { CallSession } from '../api/types'
 import { translate } from '../i18n'
@@ -29,7 +30,6 @@ const MEDIA_CONNECT_TIMEOUT_MS = 5000
 const MEDIA_RECONNECT_DELAY_MS = 500
 const MEDIA_STABLE_WINDOW_MS = 1000
 const MEDIA_STABLE_FRAMES = 40
-const MAX_CODEC_PENDING = 3
 const MAX_SOCKET_BUFFER_BYTES = 5 * (12 + 1275)
 const MEDIA_RECOVERY_TIMEOUT_MS = 15_000
 const MEDIA_LOCK_PREFIX = 'modemdeck-call-media:'
@@ -85,12 +85,19 @@ type MicrophonePipeline = {
 }
 
 type AudioRuntime = {
+  coreModule: WebAssembly.Module
   context: AudioContext
   node: AudioWorkletNode
   destination: MediaStreamAudioDestinationNode
   worker?: Worker
+  // Pending belongs to the current device epoch; in-flight belongs to this
+  // worker and bounds its real queue across interruptions.
+  contextEpoch: number
+  captureCutoff: number
   encodePending: number
   decodePending: number
+  encodeInFlight: number
+  decodeInFlight: number
   captureBase?: number
   ready: boolean
   clock: CallAudioReceiveClock
@@ -165,11 +172,12 @@ function clearSocketResources(): void {
     audioRuntime.worker?.terminate()
     audioRuntime.worker = undefined
     audioRuntime.encodePending = audioRuntime.decodePending = 0
+    audioRuntime.encodeInFlight = audioRuntime.decodeInFlight = 0
     audioRuntime.captureBase = undefined
     audioRuntime.sentFrames = audioRuntime.receivedFrames = 0
     audioRuntime.stableSince = undefined
     audioRuntime.lastSentAt = audioRuntime.lastReceivedAt = -Infinity
-    audioRuntime.clock = new CallAudioReceiveClock()
+    audioRuntime.clock = new CallAudioReceiveClock(audioRuntime.coreModule)
     audioRuntime.node.port.postMessage({ type: 'clear' })
   }
 }
@@ -246,10 +254,10 @@ async function playRemoteAudio(): Promise<void> {
   }
   if (remoteAudio !== element) return
   const context = audioRuntime?.context
-  if (context?.state === 'suspended') await context.resume().catch(() => undefined)
+  if (context && context.state !== 'running' && context.state !== 'closed') await context.resume().catch(() => undefined)
   await element.play().then(
     () => {
-      callMediaState.playbackBlocked = context?.state === 'suspended'
+      callMediaState.playbackBlocked = Boolean(context && context.state !== 'running')
     },
     () => {
       callMediaState.playbackBlocked = true
@@ -345,7 +353,7 @@ async function openAudioSocket(callID: string, token: number, ownership: MediaOw
   runtime.worker = worker
   connectTimeoutID = window.setTimeout(() => recoverConnection(callID, token, ownership), MEDIA_CONNECT_TIMEOUT_MS)
   worker.onerror = () => failConnection(callID, token, new Error(translate('runtime.callAudioFailed')))
-  worker.onmessage = ({ data }: MessageEvent<{ type: string; message?: string; payload: Uint8Array; pcm: Float32Array; sequence: number; time: number }>) => {
+  worker.onmessage = ({ data }: MessageEvent<{ type: string; message?: string; payload: Uint8Array; pcm: Float32Array; sequence: number; time: number; playAt: number; generation: number; sourceSamples: number; contextEpoch?: number; requestType?: 'encode' | 'decode' }>) => {
     if (!isCurrent(callID, token) || audioRuntime !== runtime || runtime.worker !== worker) return
     if (data.type === 'ready') {
       const connection = new WebSocket(callAudioWebSocketURL(callID, window.location))
@@ -390,9 +398,18 @@ async function openAudioSocket(callID: string, token: number, ownership: MediaOw
           }
           if (!runtime.ready || !(event.data instanceof ArrayBuffer)) throw new Error(translate('runtime.callAudioFailed'))
           const packet = decodeCallAudioPacket(event.data)
-          if (!runtime.clock.accept(packet.sequence, packet.timestamp, performance.now()) || runtime.decodePending >= MAX_CODEC_PENDING) return
+          const now = performance.now()
+          const oldGeneration = runtime.clock.generation
+          if (!runtime.clock.accept(packet.sequence, packet.timestamp, now)) return
+          if (runtime.clock.generation !== oldGeneration) {
+            runtime.node.port.postMessage({ type: 'clear', generation: runtime.clock.generation })
+          }
+          if (runtime.context.state !== 'running' || runtime.decodeInFlight >= runtime.clock.queueCapacity) return
           runtime.decodePending += 1
-          worker.postMessage({ type: 'decode', payload: packet.payload, time: runtime.context.currentTime }, [packet.payload.buffer])
+          runtime.decodeInFlight += 1
+          const playAt = runtime.context.currentTime + (runtime.clock.playAt - now) / 1000
+          worker.postMessage({ type: 'decode', payload: packet.payload, sequence: packet.sequence,
+            generation: runtime.clock.generation, sourceSamples: runtime.clock.sourceSamples, playAt, contextEpoch: runtime.contextEpoch }, [packet.payload.buffer])
         } catch (error) {
           failConnection(callID, token, error)
         }
@@ -406,10 +423,12 @@ async function openAudioSocket(callID: string, token: number, ownership: MediaOw
         } else recoverConnection(callID, token, ownership)
       }
     } else if (data.type === 'encoded') {
+      runtime.encodeInFlight = Math.max(0, runtime.encodeInFlight - 1)
+      if (data.contextEpoch !== runtime.contextEpoch) return
       runtime.encodePending = Math.max(0, runtime.encodePending - 1)
       const connection = socket
-      if (runtime.ready && connection?.readyState === WebSocket.OPEN &&
-          runtime.context.currentTime - data.time <= CALL_AUDIO_MAX_AGE_MS / 1000) {
+      if (runtime.ready && runtime.context.state === 'running' && connection?.readyState === WebSocket.OPEN &&
+          !runtime.clock.expired(data.time, runtime.context.currentTime)) {
         if (connection.bufferedAmount === 0) socketBufferedSince = undefined
         else socketBufferedSince ??= performance.now()
         if (connection.bufferedAmount > MAX_SOCKET_BUFFER_BYTES) {
@@ -423,13 +442,20 @@ async function openAudioSocket(callID: string, token: number, ownership: MediaOw
         runtime.lastSentAt = performance.now()
       }
     } else if (data.type === 'decoded') {
+      runtime.decodeInFlight = Math.max(0, runtime.decodeInFlight - 1)
+      if (data.contextEpoch !== runtime.contextEpoch) return
       runtime.decodePending = Math.max(0, runtime.decodePending - 1)
-      if (runtime.ready && runtime.context.currentTime - data.time <= CALL_AUDIO_MAX_AGE_MS / 1000) {
+      if (runtime.ready && runtime.context.state === 'running' && data.generation === runtime.clock.generation &&
+          !runtime.clock.expired(data.playAt, runtime.context.currentTime)) {
         runtime.receivedFrames += 1
         runtime.lastReceivedAt = performance.now()
-        runtime.node.port.postMessage({ type: 'play', pcm: data.pcm, sentAt: data.time }, [data.pcm.buffer])
+        runtime.node.port.postMessage({ type: 'play', pcm: data.pcm, playAt: data.playAt,
+          sequence: data.sequence, generation: data.generation, sourceSamples: data.sourceSamples }, [data.pcm.buffer])
       }
     } else if (data.type === 'error') {
+      if (data.requestType === 'encode') runtime.encodeInFlight = Math.max(0, runtime.encodeInFlight - 1)
+      if (data.requestType === 'decode') runtime.decodeInFlight = Math.max(0, runtime.decodeInFlight - 1)
+      if (data.contextEpoch !== undefined && data.contextEpoch !== runtime.contextEpoch) return
       failConnection(callID, token, new Error(data.message || translate('runtime.callAudioFailed')))
     }
   }
@@ -443,6 +469,8 @@ async function connect(callID: string, token: number, ownership: MediaOwnership)
     if (!navigator.mediaDevices?.getUserMedia || typeof AudioWorkletNode === 'undefined' || typeof WebAssembly === 'undefined') {
       throw new Error(translate('runtime.microphoneHTTPSRequired'))
     }
+    const coreModule = await loadAudioCore()
+    if (!isCurrent(callID, token)) return
     pendingMicrophone = await navigator.mediaDevices.getUserMedia({ audio: selectedAudioInputConstraints(), video: false })
     if (!isCurrent(callID, token)) {
       for (const track of pendingMicrophone.getTracks()) track.stop()
@@ -459,14 +487,24 @@ async function connect(callID: string, token: number, ownership: MediaOwnership)
       return
     }
     const context = pendingContext
-    const node = new AudioWorkletNode(context, 'modemdeck-call-audio', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })
+    const node = new AudioWorkletNode(context, 'modemdeck-call-audio', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: { coreModule } })
     const destination = context.createMediaStreamDestination()
     node.connect(destination)
-    const runtime: AudioRuntime = { context, node, destination, encodePending: 0, decodePending: 0, ready: false, clock: new CallAudioReceiveClock(), lastActivity: Date.now(), recoveryAttempts: 0, lastSentAt: -Infinity, lastReceivedAt: -Infinity, sentFrames: 0, receivedFrames: 0 }
+    const runtime: AudioRuntime = { coreModule, context, node, destination, contextEpoch: 0, captureCutoff: -Infinity, encodePending: 0, decodePending: 0, encodeInFlight: 0, decodeInFlight: 0, ready: false, clock: new CallAudioReceiveClock(coreModule), lastActivity: Date.now(), recoveryAttempts: 0, lastSentAt: -Infinity, lastReceivedAt: -Infinity, sentFrames: 0, receivedFrames: 0 }
     audioRuntime = runtime
+    node.onprocessorerror = () => failConnection(callID, token, new Error(translate('runtime.callAudioFailed')))
     context.onstatechange = () => {
       if (isCurrent(callID, token) && audioRuntime === runtime) {
-        callMediaState.playbackBlocked = context.state === 'suspended'
+        callMediaState.playbackBlocked = context.state !== 'running'
+        if (context.state !== 'running') {
+          runtime.contextEpoch += 1
+          runtime.captureCutoff = Math.max(runtime.captureCutoff, context.currentTime)
+          runtime.encodePending = runtime.decodePending = 0
+          runtime.sentFrames = runtime.receivedFrames = 0
+          runtime.stableSince = undefined
+          runtime.lastSentAt = runtime.lastReceivedAt = -Infinity
+          node.port.postMessage({ type: 'clear', generation: runtime.clock.generation })
+        }
       }
     }
     pendingContext = undefined
@@ -479,14 +517,15 @@ async function connect(callID: string, token: number, ownership: MediaOwnership)
     }
     microphonePipeline = pipeline
     node.port.onmessage = ({ data }: MessageEvent<{ type: string; pcm: Float32Array; index: number; time: number }>) => {
-      if (!isCurrent(callID, token) || audioRuntime !== runtime || !runtime.ready || data.type !== 'capture') return
-      if (runtime.context.currentTime - data.time > CALL_AUDIO_MAX_AGE_MS / 1000 || runtime.encodePending >= MAX_CODEC_PENDING) return
+      if (!isCurrent(callID, token) || audioRuntime !== runtime || !runtime.ready || runtime.context.state !== 'running' || data.type !== 'capture') return
+      if (data.time <= runtime.captureCutoff || runtime.clock.expired(data.time, runtime.context.currentTime) || runtime.encodeInFlight >= runtime.clock.sendQueueCapacity) return
       if (runtime.captureBase === undefined) runtime.captureBase = data.index
       // Sequence reflects capture time even when stale frames are discarded.
       const sequence = (data.index - runtime.captureBase) >>> 0
       runtime.encodePending += 1
+      runtime.encodeInFlight += 1
       if (callMediaState.muted) data.pcm.fill(0)
-      runtime.worker?.postMessage({ type: 'encode', pcm: data.pcm, sequence, time: data.time }, [data.pcm.buffer])
+      runtime.worker?.postMessage({ type: 'encode', pcm: data.pcm, sequence, time: data.time, contextEpoch: runtime.contextEpoch }, [data.pcm.buffer])
     }
     markAudioInputActive()
     remoteStream = destination.stream

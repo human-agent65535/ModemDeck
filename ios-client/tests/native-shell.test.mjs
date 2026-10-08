@@ -117,7 +117,7 @@ test('CallKit owns native WSS Opus audio and keeps synthetic calls local', async
   assert.match(audio, /components\.scheme = "wss"/)
   assert.match(audio, /callPath\("media"\)/)
   assert.match(audio, /callPath\("lease"\)/)
-  assert.match(audio, /sendQueue\.count >= 4/)
+  // Queue capacity and sample-age deadlines run against the product methods in state-regression.
   assert.match(audio, /reconnectAttempts < 4/)
   assert.match(audio, /timeoutIntervalForResource = 24 \* 60 \* 60/)
   assert.match(audio, /func start\(audioSession: AVAudioSession\)/)

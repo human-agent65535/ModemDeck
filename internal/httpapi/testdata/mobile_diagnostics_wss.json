@@ -1,5 +1,5 @@
 {
-  "app_build" : "28",
+  "app_build" : "29",
   "app_version" : "0.1.0",
   "dropped" : 2,
   "events" : [
@@ -17,24 +17,29 @@
       "time_ms" : 1780000000000
     },
     {
-      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "call_id" : "call_0123456789abcdef0123456789abcdef",
       "category" : "audio",
       "fields" : {
+        "capture_dropped_frames" : "1",
         "captured_frames" : "250",
         "channels" : "1",
         "dropped_frames" : "7",
         "input_route" : "microphone",
         "microphone_dbfs" : "-37",
         "output_route" : "speaker",
+        "playback_dropped_frames" : "3",
         "playback_pending" : "3",
         "playback_resets" : "1",
         "playback_underruns" : "2",
+        "receive_invalid_frames" : "0",
+        "receive_stale_frames" : "1",
         "received_packets" : "239",
         "sample_rate" : "16000",
+        "send_dropped_frames" : "2",
         "sent_packets" : "240",
         "server_received_packets" : "240",
         "stage" : "connected",
-        "test_call" : "true"
+        "test_call" : "false"
       },
       "id" : "00000000-0000-4000-8000-000000000002",
       "name" : "audio_statistics",
@@ -42,7 +47,7 @@
       "time_ms" : 1780000000001
     },
     {
-      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "call_id" : "call_0123456789abcdef0123456789abcdef",
       "category" : "audio",
       "fields" : {
         "attempt" : "2",
@@ -58,9 +63,20 @@
       "time_ms" : 1780000000002
     },
     {
-      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "call_id" : "call_0123456789abcdef0123456789abcdef",
       "category" : "audio",
       "fields" : {
+        "server_clock_reanchors" : "2",
+        "server_dropped_packets" : "21",
+        "server_dropped_playout_packets" : "5",
+        "server_dropped_queue_overflow_packets" : "3",
+        "server_dropped_reanchor_packets" : "4",
+        "server_dropped_rebuffer_packets" : "6",
+        "server_dropped_source_early_packets" : "1",
+        "server_dropped_source_late_packets" : "2",
+        "server_playout_missed_ticks" : "1",
+        "server_playout_silence_frames" : "4",
+        "server_playout_underruns" : "3",
         "server_received_packets" : "1000000000",
         "stage" : "connected"
       },

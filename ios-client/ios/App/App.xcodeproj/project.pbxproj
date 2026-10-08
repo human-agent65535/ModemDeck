@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		96C100023300000000000002 /* audio_core.c in Sources */ = {isa = PBXBuildFile; fileRef = 96C100013300000000000001 /* audio_core.c */; };
 		96B000013200000000000001 /* CommunicationUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96B000023200000000000002 /* CommunicationUXTests.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
@@ -37,6 +38,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		96C100013300000000000001 /* audio_core.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = ../../../internal/audiocore/audio_core.c; sourceTree = SOURCE_ROOT; };
 		96B000023200000000000002 /* CommunicationUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunicationUXTests.swift; sourceTree = "<group>"; };
 		96B000033200000000000003 /* AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -124,6 +126,7 @@
 				96A000173100000000000017 /* ModemDeckSettingsView.swift */,
 				9582B6842FEA1F250072D4E8 /* ModemDeckNative.swift */,
 				95C0A0013000000000000001 /* ModemDeckCallAudio.swift */,
+				96C100013300000000000001 /* audio_core.c */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -253,6 +256,7 @@
 				96A000073100000000000007 /* ModemDeckSettingsView.swift in Sources */,
 				9582B6852FEA1F270072D4E8 /* ModemDeckNative.swift in Sources */,
 				95C0A0023000000000000002 /* ModemDeckCallAudio.swift in Sources */,
+				96C100023300000000000002 /* audio_core.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -434,7 +438,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 28;
+				CURRENT_PROJECT_VERSION = 29;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -447,6 +451,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MODEMDECK_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/../../../internal/audiocore";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -458,7 +463,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 28;
+				CURRENT_PROJECT_VERSION = 29;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -470,6 +475,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MODEMDECK_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/../../../internal/audiocore";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

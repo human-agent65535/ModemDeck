@@ -88,41 +88,59 @@ final class AVAudioPlayerNode {
     }
 }
 var encodedFrames: [[Float]] = []
+var failEncodeAttempt: Int?
 func opus_decode_float(_ decoder: OpaquePointer, _ input: UnsafePointer<UInt8>?, _ count: Int32,
                        _ output: inout [Float], _ capacity: Int32, _ fec: Int32) -> Int32 { 320 }
 func opus_encode_float(_ encoder: OpaquePointer, _ frame: inout [Float], _ size: Int32,
                        _ payload: inout [UInt8], _ capacity: Int32) -> Int32 {
     precondition(size == 320 && frame.count == 320)
-    encodedFrames.append(frame); payload[0] = 1; return 1
+    encodedFrames.append(frame)
+    if encodedFrames.count == failEncodeAttempt { return -1 }
+    payload[0] = 1; return 1
+}
+final class Socket {
+    enum Message { case data(Data) }
+    let queue: Queue
+    var delay = 0, sent: [Data] = [], sendTimes: [Int] = []
+    init(queue: Queue) { self.queue = queue }
+    func send(_ message: Message, completionHandler: @escaping (Error?) -> Void) {
+        if case .data(let data) = message { sent.append(data); sendTimes.append(Simulation.now) }
+        Simulation.events.append((Simulation.now + delay, { completionHandler(nil); self.queue.drain() }))
+    }
 }
 final class Owner {
+    private var dropCounts = ModemDeckAudioDropCounts()
     var decoder: OpaquePointer? = OpaquePointer(bitPattern: 1), encoder: OpaquePointer? = OpaquePointer(bitPattern: 2)
     let format = AVAudioFormat(), engine: AVAudioEngine? = AVAudioEngine(), queue = Queue()
     var player: AVAudioPlayerNode?
     var receiveClock = ModemDeckAudioClock(), receivedPackets = 0, droppedFrames = 0, renderedPackets = 0, capturedFrames = 0
     var activated = true, ready = true, muted = false, playbackPending = 0, playbackGeneration = 0
     var lastRenderedAudioAt = 0.0, microphoneLevel = -96.0
-    var playbackEpochTimestamp: UInt32?
+    var playbackEpochSourceSamples: Double?
     var playbackFrameEnds: [AVAudioFramePosition] = []
     var playbackLastSampleEnd: AVAudioFramePosition = 0
     var playbackEpochStartedAt = 0.0, playbackQueuedUntil = -Double.infinity
     var playbackUnderruns = 0, playbackResets = 0
+    var captureSourceFrameStart: UInt64 = 0
     var captureSamples: [Float] = [], sendQueue: [(Data, Double)] = [], sending = false
-    var sent: [Data] = [], sequence: UInt32 = 0, timestamp: UInt32 = 0
-    init(latency: Int = 0) { player = AVAudioPlayerNode(queue: queue); player!.hardwareLatency = latency }
+    var socket: Socket?, stopped = false, sendStarted = 0.0, sentPackets = 0
+    var lastSentAudioAt = -Double.infinity
+    var sent: [Data] { socket!.sent }
+    var sequence: UInt32 = 0, timestamp: UInt32 = 0
+    init(latency: Int = 0) { player = AVAudioPlayerNode(queue: queue); player!.hardwareLatency = latency; socket = Socket(queue: queue) }
     func receive(_ sequence: UInt32) {
         receiveAudio(ModemDeckAudioPacket.encode(sequence: sequence, timestamp: sequence &* 320, payload: Data([1])))
         queue.drain()
     }
     func resetPlayback() { flushPlayback() }
-    func captureIngress(_ samples: [Float]) { capture(samples) }
-    func sendNext() {
-        guard !sending, !sendQueue.isEmpty else { return }
-        sending = true; sent.append(sendQueue.removeFirst().0)
-    }
+    func captureWithEnd(_ samples: [Float], end: Double) { capture(samples, sampleEnd: end) }
+    func captureIngress(_ samples: [Float]) { capture(samples, sampleEnd: ProcessInfo.processInfo.systemUptime) }
     func completeSends() {
-        while sending { sending = false; sendNext() }
+        while sending {
+            Simulation.advance(to: Simulation.events.map(\.0).min()!); queue.drain()
+        }
     }
+    func transportFailed(task: Socket?, error: Error) { preconditionFailure("Unexpected transport failure") }
     func recordConnectionEvent(_ name: String) { preconditionFailure(name) }
     // INSERT_PRODUCT_METHODS
 }
@@ -132,6 +150,10 @@ final class Owner {
         unrenderedBacklogIsStillBounded()
         oldCompletionsCannotReleaseNewBuffers()
         capturePreservesTwentyMillisecondBoundaries()
+        encodingFailureKeepsSourceTimeAndMuteKeepsCadence()
+        sendQueueUsesSampleAgeNotCompletionCount()
+        expiredCaptureUsesEachFramesOwnSampleEnd()
+        expandedSourceSlotsPreserveTimestampWrap()
         shortJitterAndBatchesKeepTheSamePlaybackEpoch()
         delayedCompletionDeliveryIsNotRenderingBacklog()
         explicitSourceSlotsPreserveMissingFrames()
@@ -308,4 +330,78 @@ final class Owner {
         precondition(encodedFrames.count == 2 && split.captureSamples.isEmpty)
         precondition(encodedFrames.flatMap { $0 } == next && split.timestamp == 640 && split.droppedFrames == 0)
     }
+    static func encodingFailureKeepsSourceTimeAndMuteKeepsCadence() {
+        Simulation.reset(); encodedFrames = []; failEncodeAttempt = 2
+        let owner = Owner()
+        owner.captureIngress(Array(repeating: 0.5, count: 960)); owner.completeSends()
+        precondition(owner.capturedFrames == 3 && owner.droppedFrames == 1)
+        precondition(owner.sequence == 3 && owner.timestamp == 960)
+        let packets = owner.sent.map { Owner.ModemDeckAudioPacket.decode($0)! }
+        precondition(packets.map(\.sequence) == [0, 2] && packets.map(\.timestamp) == [0, 640],
+                     "A codec failure must leave a source-time hole rather than compressing later speech")
+        failEncodeAttempt = nil; encodedFrames = []
+        let muted = Owner(); muted.muted = true
+        muted.captureIngress(Array(repeating: 0.5, count: 1600)); muted.completeSends()
+        precondition(muted.sent.count == 5 && muted.droppedFrames == 0 && muted.timestamp == 1600)
+        precondition(encodedFrames.flatMap { $0 }.allSatisfy { $0 == 0 },
+                     "Mute replaces samples with silence without stopping the media clock")
+    }
+
+    static func sendQueueUsesSampleAgeNotCompletionCount() {
+        for delay in [19, 20, 21, 25] {
+            Simulation.reset(); encodedFrames = []; failEncodeAttempt = nil
+            let owner = Owner(); owner.socket!.delay = delay
+            for batch in 1...300 {
+                let arrival = batch * 100
+                Simulation.advance(to: arrival - 1)
+                // Capture arrives first at an exactly coincident completion.
+                Simulation.now = arrival
+                owner.captureIngress(Array(repeating: 0.5, count: 1600))
+                precondition(owner.sendQueue.count <= Int(md_audio_send_queue_capacity()))
+                Simulation.advance(to: arrival); owner.queue.drain()
+            }
+            owner.completeSends()
+            if delay <= 20 {
+                precondition(owner.sent.count == 1500 && owner.droppedFrames == 0,
+                             "20 ms completions must not manufacture a periodic 200 ms capture dropout")
+            } else {
+                precondition(owner.droppedFrames > 0 && owner.sent.count + owner.droppedFrames == 1500,
+                             "Insufficient throughput must discard old media, without extending its deadline")
+            }
+            for (data, sentAt) in zip(owner.sent, owner.socket!.sendTimes) {
+                let packet = Owner.ModemDeckAudioPacket.decode(data)!
+                let sampleEnd = 20 + Int(packet.sequence) * 20
+                precondition(sentAt - sampleEnd <= 100, "Never send a frame over 100 ms old")
+                precondition(packet.timestamp == packet.sequence &* 320)
+            }
+        }
+    }
+
+    static func expiredCaptureUsesEachFramesOwnSampleEnd() {
+        Simulation.reset(); encodedFrames = []
+        let owner = Owner()
+        owner.captureWithEnd(Array(repeating: 0.5, count: 1600), end: -0.04); owner.completeSends()
+        precondition(owner.capturedFrames == 5 && owner.droppedFrames == 1 && owner.sent.count == 4)
+        let packets = owner.sent.map { Owner.ModemDeckAudioPacket.decode($0)! }
+        precondition(packets.map(\.sequence) == [1, 2, 3, 4] && packets.map(\.timestamp) == [320, 640, 960, 1280],
+                     "A partially old input batch drops only its truly expired head, preserving source gaps")
+        precondition(owner.sequence == 5 && owner.timestamp == 1600)
+        let expired = Owner()
+        expired.captureWithEnd(Array(repeating: 0.5, count: 1600), end: -0.12)
+        precondition(expired.sent.isEmpty && expired.droppedFrames == 5 && expired.timestamp == 1600)
+    }
+
+    static func expandedSourceSlotsPreserveTimestampWrap() {
+        Simulation.reset(); let owner = Owner(); owner.receive(0)
+        let advance = UInt32.max / 320 + 2
+        let arrival = Int(advance) * 20
+        Simulation.advance(to: arrival)
+        owner.playbackQueuedUntil = Double(arrival + 1000) / 1000
+        owner.player!.renderStall = arrival
+        owner.receive(advance)
+        precondition(owner.receiveClock.generation == 1 && owner.player!.playStarts == [40])
+        precondition(owner.player!.scheduledSlots == [0, Int64(advance) * 320],
+                     "The fixed device epoch uses expanded samples through uint32 timestamp wrap")
+    }
+
 }

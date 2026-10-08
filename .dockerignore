@@ -14,7 +14,11 @@ packaging
 third_party
 scripts
 !scripts/
+scripts/*
 !scripts/docker-entrypoint.sh
+!scripts/nginx-entrypoint.sh
+!scripts/build-audio-core.mjs
+!scripts/audio-core/
 
 data
 dist

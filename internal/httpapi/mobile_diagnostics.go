@@ -33,7 +33,7 @@ type mobileDiagnosticBatch struct {
 
 var (
 	diagnosticUUID    = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	diagnosticCallID  = regexp.MustCompile(`^(call_[A-Za-z0-9_-]{24}|(test-|call-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
+	diagnosticCallID  = regexp.MustCompile(`^(call_[A-Za-z0-9_-]{24}|call_[0-9a-f]{32}|(test-|call-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
 	diagnosticName    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 	diagnosticVersion = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
 )
@@ -130,7 +130,11 @@ func validMobileDiagnosticField(key, value string) bool {
 		return false
 	}
 	switch key {
-	case "elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "candidates", "relay_candidates", "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets", "playback_pending", "playback_underruns", "playback_resets":
+	case "elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "candidates", "relay_candidates", "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets", "playback_pending", "playback_underruns", "playback_resets",
+		"capture_dropped_frames", "send_dropped_frames", "receive_stale_frames", "receive_invalid_frames", "playback_dropped_frames",
+		"server_dropped_packets", "server_dropped_source_early_packets", "server_dropped_source_late_packets",
+		"server_dropped_queue_overflow_packets", "server_dropped_reanchor_packets", "server_dropped_playout_packets", "server_dropped_rebuffer_packets",
+		"server_clock_reanchors", "server_playout_underruns", "server_playout_silence_frames", "server_playout_missed_ticks":
 		number, err := strconv.ParseInt(value, 10, 64)
 		return err == nil && number >= -1_000_000_000 && number <= 1_000_000_000
 	case "expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "microphone_track_enabled", "reused_connection":

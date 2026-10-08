@@ -1,0 +1,4 @@
+module ModemDeckAudioCore {
+    header "audio_core.h"
+    export *
+}

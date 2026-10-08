@@ -8,18 +8,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/audiocore"
 	"github.com/pion/webrtc/v4"
 )
 
 const SocketHeaderBytes = 12
 const SocketSampleRate = 16000
-const socketBatchFrames = 5
-const socketPrebuffer = 40 * time.Millisecond
-const socketQueueFrames = socketBatchFrames + int(socketPrebuffer/defaultFramePeriod)
-const socketLateBudget = 100 * time.Millisecond
-const socketClockWindow = 100 * time.Millisecond
-const socketClockWindowTolerance = 20 * time.Millisecond
-const socketClockDriftLimit = 100 * time.Microsecond
+
+var socketPrebuffer = audiocore.Prebuffer
+var socketQueueFrames = audiocore.QueueCapacity
+var socketLateBudget = audiocore.MaxAge
 
 // SocketTransport is supplied by HTTP, keeping authentication and WebSocket
 // framing outside the PCM core. Close must unblock a pending Read or Write.
@@ -32,10 +30,11 @@ type SocketTransport interface {
 }
 
 type socketPacket struct {
-	payload    []byte
-	sequence   uint32
-	playAt     time.Time
-	generation uint64
+	payload       []byte
+	sequence      uint32
+	playAt        time.Time
+	generation    uint64
+	sourceSamples float64
 }
 
 // Future packets stay in this queue until their media slot, so peeking cannot
@@ -47,11 +46,19 @@ type socketPacketQueue struct {
 	generation uint64
 }
 
-func (q *socketPacketQueue) push(packet socketPacket) (dropped uint64) {
+type socketDrops struct{ overflow, reanchor, playout, rebuffer uint64 }
+
+func (d socketDrops) total() uint64 { return d.overflow + d.reanchor + d.playout + d.rebuffer }
+func (s *Session) enqueueSocketPacket(packet socketPacket) uint64 {
+	d := s.socket.incoming.push(packet)
+	s.stats.recordQueueDrops(d)
+	return d.total()
+}
+func (q *socketPacketQueue) push(packet socketPacket) (dropped socketDrops) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if packet.generation != q.generation {
-		dropped += uint64(len(q.packets))
+		dropped.reanchor += uint64(len(q.packets))
 		clear(q.packets)
 		q.packets = q.packets[:0]
 		q.generation = packet.generation
@@ -59,24 +66,28 @@ func (q *socketPacketQueue) push(packet socketPacket) (dropped uint64) {
 	if len(q.packets) == socketQueueFrames {
 		copy(q.packets, q.packets[1:])
 		q.packets = q.packets[:len(q.packets)-1]
-		dropped++
+		dropped.overflow++
 	}
 	q.packets = append(q.packets, packet)
 	return dropped
 }
 
-func (q *socketPacketQueue) head(now time.Time, prebuffer time.Duration) (packet socketPacket, queued bool, dropped uint64, generation uint64) {
+func (q *socketPacketQueue) head(now time.Time, prebuffer time.Duration) (packet socketPacket, queued bool, dropped socketDrops, generation uint64) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	generation = q.generation
 	for len(q.packets) > 0 {
 		packet = q.packets[0]
 		// Rebuffer cannot extend a packet's original late deadline.
-		if now.Add(prebuffer).Sub(packet.playAt) <= socketLateBudget {
+		if !audiocore.Expired(0, now.Add(prebuffer).Sub(packet.playAt)) {
 			return packet, true, dropped, generation
 		}
 		q.removeHead()
-		dropped++
+		if audiocore.Expired(0, now.Sub(packet.playAt)) {
+			dropped.playout++
+		} else {
+			dropped.rebuffer++
+		}
 	}
 	return socketPacket{}, false, dropped, generation
 }
@@ -88,7 +99,7 @@ func (q *socketPacketQueue) removeHead() {
 }
 
 // socketHardwareClock projects source slots onto the nearest fixed hardware
-// tick. This makes the10/20ms quantization explicit rather than adding an
+// tick. This makes the 10/20ms quantization explicit rather than adding an
 // arrival-time epsilon that varies with scheduler latency.
 type socketHardwareClock struct {
 	anchor time.Time
@@ -99,18 +110,29 @@ func (c socketHardwareClock) slot(source time.Time) time.Time {
 	return c.anchor.Add(source.Sub(c.anchor).Round(c.period))
 }
 
-func (q *socketPacketQueue) take(now time.Time, generation uint64, offset time.Duration, hardware socketHardwareClock) (packet socketPacket, ready bool) {
+func (q *socketPacketQueue) take(slot time.Time, generation uint64, epoch socketPlaybackEpoch, hardware socketHardwareClock) (packet socketPacket, ready, queued bool, dropped socketDrops) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.generation != generation || len(q.packets) == 0 {
-		return socketPacket{}, false
+	if q.generation != generation {
+		return socketPacket{}, false, len(q.packets) > 0, dropped
 	}
-	packet = q.packets[0]
-	if now.Before(hardware.slot(packet.playAt.Add(offset))) {
-		return socketPacket{}, false
+	for len(q.packets) > 0 {
+		packet = q.packets[0]
+		start := hardware.slot(epoch.slot(packet))
+		// A lost hardware slot cannot be occupied by old source audio later. TTL
+		// above is an independent upper bound, not permission to shift the epoch.
+		if !slot.Before(start.Add(defaultFramePeriod)) {
+			q.removeHead()
+			dropped.playout++
+			continue
+		}
+		if slot.Before(start) {
+			return socketPacket{}, false, true, dropped
+		}
+		q.removeHead()
+		return packet, true, true, dropped
 	}
-	q.removeHead()
-	return packet, true
+	return socketPacket{}, false, false, dropped
 }
 
 func (q *socketPacketQueue) current(generation uint64) bool {
@@ -149,6 +171,9 @@ func ParseSocketFrame(frame []byte) (sequence, timestamp uint32, opus []byte, er
 func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, transport SocketTransport) (*Session, error) {
 	if c == nil {
 		return nil, ErrCoreClosed
+	}
+	if !audiocore.Available {
+		return nil, &UnsupportedError{Feature: "portable audio core CGO"}
 	}
 	ctx = normalizeContext(ctx)
 	call, err := normalizeActiveCall(active)
@@ -247,18 +272,22 @@ func (s *Session) socketReceiveLoop() error {
 			return ErrInvalidRTP
 		}
 		now := time.Now()
+		previousGeneration := clock.generation
 		current, err := clock.accept(sequence, timestamp, now)
 		if err != nil {
 			return err
 		}
 		s.stats.receivedPackets.Add(1)
 		s.stats.receivedBytes.Add(uint64(len(payload)))
+		if previousGeneration != 0 && previousGeneration != clock.generation {
+			s.stats.clockReanchors.Add(1)
+		}
 		if !current {
-			s.stats.droppedPackets.Add(1)
+			s.stats.recordSourceDrop(clock.age)
 			continue
 		}
-		packet := socketPacket{payload: append([]byte(nil), payload...), sequence: sequence, playAt: clock.playAt, generation: clock.generation}
-		s.stats.droppedPackets.Add(s.socket.incoming.push(packet))
+		packet := socketPacket{payload: append([]byte(nil), payload...), sequence: sequence, playAt: clock.playAt, generation: clock.generation, sourceSamples: clock.sourceSamples}
+		s.enqueueSocketPacket(packet)
 		if !initialized {
 			initialized = true
 			s.events.updateState(webrtc.PeerConnectionStateConnected)
@@ -278,11 +307,14 @@ type socketPlayout struct {
 	decoded              bool
 	pending              []byte
 	pendingAt            time.Time
+	pendingSlot          time.Time
+	pendingDropped       bool
 	epochGeneration      uint64
 	offset               time.Duration
 	starving             bool
 	decoderDiscontinuous bool
 	hardware             socketHardwareClock
+	epoch                socketPlaybackEpoch
 }
 
 func (p *socketPlayout) close() {
@@ -308,35 +340,81 @@ func (p *socketPlayout) resetDecoder() error {
 	return nil
 }
 
-func (p *socketPlayout) next(now time.Time) ([]byte, error) {
+// A device epoch is fixed to unwrapped source samples. Healthy oscillator
+// drift updates source-age estimates, never the spacing of already playing PCM.
+type socketPlaybackEpoch struct {
+	initialized   bool
+	sourceSamples float64
+	start         time.Time
+}
+
+func (e socketPlaybackEpoch) slot(packet socketPacket) time.Time {
+	return e.start.Add(audiocore.SourceSlot(0, packet.sourceSamples-e.sourceSamples))
+}
+
+func (p *socketPlayout) recordPendingDrop(d socketDrops) {
+	if !p.pendingDropped {
+		p.session.stats.recordQueueDrops(d)
+		p.pendingDropped = true
+	}
+}
+
+func (p *socketPlayout) skipMissedPending(slot time.Time) {
+	if len(p.pending) == 0 || !slot.After(p.pendingSlot) {
+		return
+	}
+	period := p.session.hub.format.FrameDuration
+	frames := min(len(p.pending)/p.session.hub.format.FrameBytes(), int(slot.Sub(p.pendingSlot)/period))
+	if frames == 0 {
+		return
+	}
+	p.recordPendingDrop(socketDrops{playout: 1})
+	p.pending = p.pending[frames*p.session.hub.format.FrameBytes():]
+	p.pendingSlot = p.pendingSlot.Add(time.Duration(frames) * period)
+}
+
+func (p *socketPlayout) next(slot, now time.Time) ([]byte, error) {
 	s := p.session
 	frameBytes := s.hub.format.FrameBytes()
 	if p.hardware.period == 0 {
-		p.hardware = socketHardwareClock{anchor: now, period: s.hub.format.FrameDuration}
+		p.hardware = socketHardwareClock{anchor: slot, period: s.hub.format.FrameDuration}
 	}
-	if len(p.pending) > 0 && (!s.socket.incoming.current(p.generation) || now.Sub(p.pendingAt) > socketLateBudget) {
+	if len(p.pending) > 0 && (!s.socket.incoming.current(p.generation) || audiocore.Expired(0, now.Sub(p.pendingAt))) {
+		if !s.socket.incoming.current(p.generation) {
+			p.recordPendingDrop(socketDrops{reanchor: 1})
+		} else {
+			p.recordPendingDrop(socketDrops{playout: 1})
+		}
 		p.pending = nil
-		s.stats.droppedPackets.Add(1)
 	}
+	p.skipMissedPending(slot)
 	if len(p.pending) == 0 {
 		prebuffer := time.Duration(0)
 		if p.starving {
 			prebuffer = socketPrebuffer
 		}
 		head, queued, dropped, generation := s.socket.incoming.head(now, prebuffer)
-		s.stats.droppedPackets.Add(dropped)
+		s.stats.recordQueueDrops(dropped)
 		if generation != p.epochGeneration {
 			p.epochGeneration, p.offset, p.starving = generation, 0, false
+			p.epoch = socketPlaybackEpoch{}
 		}
-		if p.starving && queued {
-			// Replace the playback mapping once per genuine underrun; never add
-			// another 40ms to a previous offset or re-anchor the source-age gate.
-			p.offset = max(0, now.Add(socketPrebuffer).Sub(head.playAt))
+		if queued && (!p.epoch.initialized || p.starving) {
+			// Replace the epoch after a genuine underrun; original packet deadlines
+			// remain independent and the offset never accumulates across episodes.
+			if p.starving {
+				p.offset = audiocore.PlaybackStart(0, now.Sub(head.playAt))
+			}
+			p.epoch = socketPlaybackEpoch{initialized: true, sourceSamples: head.sourceSamples, start: head.playAt.Add(p.offset)}
 			p.starving = false
 		}
 		// Expiry above uses actual now, independent of hardware quantization.
-		packet, ready := s.socket.incoming.take(now, generation, p.offset, p.hardware)
+		packet, ready, queued, slotDrops := s.socket.incoming.take(slot, generation, p.epoch, p.hardware)
+		s.stats.recordQueueDrops(slotDrops)
 		if !queued && p.decoded {
+			if !p.starving {
+				s.stats.playoutUnderruns.Add(1)
+			}
 			p.starving, p.decoderDiscontinuous = true, true
 		}
 		if ready {
@@ -355,15 +433,19 @@ func (p *socketPlayout) next(now time.Time) ([]byte, error) {
 			p.generation, p.previousSequence, p.decoded = packet.generation, packet.sequence, true
 			p.decoderDiscontinuous = false
 			p.pendingAt = packet.playAt
+			p.pendingSlot = p.hardware.slot(p.epoch.slot(packet))
+			p.pendingDropped = false
 			p.pending = socketResample(decoded.PCM, SocketSampleRate, s.hub.format.SampleRate)
 			// Receipt may have re-anchored while Decode was running.
 			if !s.socket.incoming.current(p.generation) {
 				p.pending = nil
-				s.stats.droppedPackets.Add(1)
+				p.recordPendingDrop(socketDrops{reanchor: 1})
 			}
 		}
 	}
+	p.skipMissedPending(slot)
 	if len(p.pending) == 0 {
+		s.stats.playoutSilenceFrames.Add(1)
 		s.stats.inputDBFS.Store(-96)
 		s.stats.inputPeakDBFS.Store(-96)
 		return make([]byte, frameBytes), nil
@@ -373,7 +455,7 @@ func (p *socketPlayout) next(now time.Time) ([]byte, error) {
 	}
 	frame := p.pending[:frameBytes]
 	p.pending = p.pending[frameBytes:]
-	p.pendingAt = p.pendingAt.Add(s.hub.format.FrameDuration)
+	p.pendingSlot = p.pendingSlot.Add(s.hub.format.FrameDuration)
 	level, peak := PCMLevels(frame)
 	s.stats.inputDBFS.Store(int64(level))
 	s.stats.inputPeakDBFS.Store(int64(peak))
@@ -387,29 +469,49 @@ func (s *Session) socketPlaybackLoop() error {
 	if err := s.subscription.Start(s.ctx); err != nil {
 		return err
 	}
-	ticker := time.NewTicker(s.hub.format.FrameDuration)
-	defer ticker.Stop()
+	// Logical hardware slots are independent of scheduler wake times. A late
+	// wake skips elapsed slots once; it never shifts the grid or bursts catch-up
+	// audio into the hub. Freshness always uses the actual monotonic wall time.
+	cadence := socketPlaybackCadence{next: time.Now(), period: s.hub.format.FrameDuration}
+	timer := time.NewTimer(0)
+	defer timer.Stop()
 	playout := socketPlayout{session: s, decoder: s.codec}
 	defer playout.close()
 	for {
-		// Start the hardware cadence immediately. Source slots provide the fixed
-		// 40ms prebuffer; startup and every re-anchor apply it exactly once.
-		if s.ctx.Err() != nil {
+		select {
+		case <-s.ctx.Done():
 			return nil
+		case <-timer.C:
 		}
-		frame, err := playout.next(time.Now())
+		now := time.Now()
+		slot, skipped := cadence.advance(now)
+		s.stats.playoutMissedTicks.Add(skipped)
+		frame, err := playout.next(slot, now)
 		if err != nil {
 			return err
 		}
 		if err := s.hub.WritePCM(s.ctx, frame); err != nil {
 			return err
 		}
-		select {
-		case <-s.ctx.Done():
-			return nil
-		case <-ticker.C:
-		}
+		timer.Reset(max(0, time.Until(cadence.next)))
 	}
+}
+
+// advance returns a position on the original hardware grid, not a new
+// anchor derived from a delayed wake. Missed slots produce no catch-up burst.
+type socketPlaybackCadence struct {
+	next   time.Time
+	period time.Duration
+}
+
+func (c *socketPlaybackCadence) advance(now time.Time) (time.Time, uint64) {
+	skipped := time.Duration(0)
+	if now.After(c.next) {
+		skipped = now.Sub(c.next) / c.period
+	}
+	slot := c.next.Add(skipped * c.period)
+	c.next = slot.Add(c.period)
+	return slot, uint64(skipped)
 }
 
 func (s *Session) socketCaptureLoop() error {
@@ -497,81 +599,24 @@ func (s *Session) waitSocketAudio() error {
 // occupy five distinct 20ms slots.
 // Arrival age rejects TCP backlog; queue expiry is relative to each source slot.
 type socketReceiveClock struct {
-	initialized       bool
-	previousSequence  uint32
-	previousTimestamp uint32
-	mediaTime         time.Duration
-	anchorMedia       time.Duration
-	anchorArrival     time.Time
-	playAt            time.Time
-	generation        uint64
-	windowMedia       time.Duration
-	windowArrival     time.Time
-	recovering        bool
-	recoveryWindows   int
+	core          audiocore.Clock
+	origin        time.Time
+	initialized   bool
+	playAt        time.Time
+	generation    uint64
+	age           time.Duration
+	sourceSamples float64
 }
 
 func (c *socketReceiveClock) accept(sequence, timestamp uint32, now time.Time) (bool, error) {
-	if c.initialized {
-		advance := sequence - c.previousSequence
-		if int32(advance) <= 0 || timestamp-c.previousTimestamp != advance*320 {
-			return false, ErrInvalidRTP
-		}
-		// Accumulation handles both timestamp and sequence wrap, including calls
-		// longer than a complete 32-bit sample clock period.
-		c.mediaTime += time.Duration(advance) * defaultFramePeriod
-	} else {
-		c.initialized = true
-		c.anchorArrival, c.windowArrival = now, now
-		c.generation = 1
+	if !c.initialized {
+		c.origin = now
 	}
-	c.previousSequence, c.previousTimestamp = sequence, timestamp
-	predicted := c.anchorArrival.Add(c.mediaTime - c.anchorMedia)
-	age := now.Sub(predicted)
-	outside := age > socketLateBudget || age < -socketLateBudget
-	if outside && !c.recovering {
-		c.recovering = true
-		c.recoveryWindows = 0
-		c.windowMedia, c.windowArrival = c.mediaTime, now
+	result, err := c.core.Accept(sequence, timestamp, now.Sub(c.origin))
+	if err != nil {
+		return false, ErrInvalidRTP
 	}
-	if !outside && c.recovering {
-		// Backlog can catch up into the original freshness envelope without a
-		// re-anchor. Start a new observation window: the catch-up interval must
-		// not be misclassified as negative clock drift on the next packet.
-		c.recovering, c.recoveryWindows = false, 0
-		c.windowMedia, c.windowArrival = c.mediaTime, now
-	}
-	span := c.mediaTime - c.windowMedia
-	if span >= socketClockWindow {
-		difference := now.Sub(c.windowArrival) - span
-		stable := difference >= -socketClockWindowTolerance && difference <= socketClockWindowTolerance
-		c.windowMedia, c.windowArrival = c.mediaTime, now
-		if c.recovering {
-			if stable {
-				c.recoveryWindows++
-			} else {
-				c.recoveryWindows = 0
-			}
-		} else if stable {
-			// Correct slow hardware clock drift only across media windows. Per-packet
-			// correction would mistake a normal batch for a clock running fast.
-			correction := max(-socketClockDriftLimit, min(socketClockDriftLimit, difference))
-			c.anchorArrival = c.anchorArrival.Add(correction)
-			predicted = predicted.Add(correction)
-		}
-	}
-	if outside {
-		if c.recoveryWindows < 3 {
-			return false, nil
-		}
-		c.anchorMedia, c.anchorArrival = c.mediaTime, now
-		c.windowMedia, c.windowArrival = c.mediaTime, now
-		c.generation++
-		predicted = now
-	}
-	c.recovering, c.recoveryWindows = false, 0
-	// Slow drift never changes packet spacing into a batch. Re-anchors create
-	// a new generation, whose old scheduled packets have been invalidated.
-	c.playAt = predicted.Add(socketPrebuffer)
-	return true, nil
+	c.initialized = true
+	c.playAt, c.generation, c.age, c.sourceSamples = c.origin.Add(result.PlayAt), result.Generation, result.Age, result.SourceSamples
+	return result.Accepted, nil
 }

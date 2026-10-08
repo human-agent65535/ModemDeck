@@ -33,7 +33,7 @@ func TestSocketSharedClockVectors(t *testing.T) {
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	if fixture.Version != 1 || len(fixture.Cases) < 8 {
+	if fixture.Version != 1 || len(fixture.Cases) < 14 {
 		t.Fatal("incomplete clock fixture")
 	}
 	base := time.Unix(1000, 0)
@@ -71,7 +71,7 @@ func newSocketPlayoutForTest(t *testing.T, hardwarePeriod time.Duration) (*Sessi
 
 func readSocketPlayout(t *testing.T, playout *socketPlayout, at time.Time) byte {
 	t.Helper()
-	pcm, err := playout.next(at)
+	pcm, err := playout.next(at, at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,12 +91,12 @@ func enqueueSocketClock(t *testing.T, session *Session, clock *socketReceiveCloc
 		t.Fatal(err)
 	}
 	if accepted {
-		session.stats.droppedPackets.Add(session.socket.incoming.push(socketPacket{
-			payload: []byte{20, byte(sequence%250 + 1)}, sequence: sequence,
+		session.enqueueSocketPacket(socketPacket{
+			payload: []byte{20, byte(sequence%250 + 1)}, sequence: sequence, sourceSamples: clock.sourceSamples,
 			generation: clock.generation, playAt: clock.playAt,
-		}))
+		})
 	} else {
-		session.stats.droppedPackets.Add(1)
+		session.stats.recordSourceDrop(clock.age)
 	}
 	if len(session.socket.incoming.packets) > socketQueueFrames {
 		t.Fatal("queue exceeded capacity")
@@ -170,7 +170,7 @@ func TestSocketPlayoutLateBudgetUsesEachMediaSlot(t *testing.T) {
 	if drops := session.stats.droppedPackets.Load(); drops != 0 {
 		t.Fatal("normal batch expired", drops)
 	}
-	session.socket.incoming.push(socketPacket{payload: []byte{20, 99}, sequence: 5, generation: 1, playAt: base.Add(140 * time.Millisecond)})
+	session.enqueueSocketPacket(socketPacket{payload: []byte{20, 99}, sequence: 5, sourceSamples: float64(5) * 320, generation: 1, playAt: base.Add(140 * time.Millisecond)})
 	if got := readSocketPlayout(t, playout, base.Add(500*time.Millisecond)); got != 0 {
 		t.Fatal("old audio replayed after playback stall")
 	}
@@ -183,7 +183,7 @@ func TestSocketPlayoutCapacityAndFutureGap(t *testing.T) {
 	session, playout, _ := newSocketPlayoutForTest(t, 20*time.Millisecond)
 	base := time.Unix(1000, 0)
 	for i := 0; i < socketQueueFrames+1; i++ {
-		session.stats.droppedPackets.Add(session.socket.incoming.push(socketPacket{payload: []byte{20, byte(i + 1)}, sequence: uint32(i), generation: 1, playAt: base.Add(time.Duration(i) * 20 * time.Millisecond)}))
+		session.enqueueSocketPacket(socketPacket{payload: []byte{20, byte(i + 1)}, sequence: uint32(i), sourceSamples: float64(uint32(i)) * 320, generation: 1, playAt: base.Add(time.Duration(i) * 20 * time.Millisecond)})
 	}
 	if len(session.socket.incoming.packets) != socketQueueFrames || session.stats.droppedPackets.Load() != 1 {
 		t.Fatal("capacity/drop invariant failed")
@@ -196,7 +196,7 @@ func TestSocketPlayoutCapacityAndFutureGap(t *testing.T) {
 	}
 	// A legitimate capture omission must leave its source slot silent.
 	session.socket.incoming.packets = nil
-	session.socket.incoming.push(socketPacket{payload: []byte{20, 42}, sequence: 3, generation: 1, playAt: base.Add(60 * time.Millisecond)})
+	session.enqueueSocketPacket(socketPacket{payload: []byte{20, 42}, sequence: 3, sourceSamples: float64(3) * 320, generation: 1, playAt: base.Add(60 * time.Millisecond)})
 	if got := readSocketPlayout(t, playout, base.Add(40*time.Millisecond)); got != 0 {
 		t.Fatal("source timestamp gap collapsed")
 	}
@@ -208,13 +208,12 @@ func TestSocketPlayoutCapacityAndFutureGap(t *testing.T) {
 func TestSocketPlayoutGenerationInvalidatesQueueAndDecodedHalfFrame(t *testing.T) {
 	session, playout, factory := newSocketPlayoutForTest(t, 10*time.Millisecond)
 	base := time.Unix(1000, 0)
-	session.socket.incoming.push(socketPacket{payload: []byte{20, 11}, sequence: 1, generation: 1, playAt: base})
-	session.socket.incoming.push(socketPacket{payload: []byte{20, 12}, sequence: 2, generation: 1, playAt: base.Add(20 * time.Millisecond)})
+	session.enqueueSocketPacket(socketPacket{payload: []byte{20, 11}, sequence: 1, sourceSamples: float64(1) * 320, generation: 1, playAt: base})
+	session.enqueueSocketPacket(socketPacket{payload: []byte{20, 12}, sequence: 2, sourceSamples: float64(2) * 320, generation: 1, playAt: base.Add(20 * time.Millisecond)})
 	if got := readSocketPlayout(t, playout, base); got != 11 {
 		t.Fatal("first half missing")
 	}
-	dropped := session.socket.incoming.push(socketPacket{payload: []byte{20, 77}, sequence: 50, generation: 2, playAt: base.Add(50 * time.Millisecond)})
-	session.stats.droppedPackets.Add(dropped)
+	dropped := session.enqueueSocketPacket(socketPacket{payload: []byte{20, 77}, sequence: 50, sourceSamples: float64(50) * 320, generation: 2, playAt: base.Add(50 * time.Millisecond)})
 	if dropped != 1 {
 		t.Fatal("old generation queue not invalidated")
 	}
@@ -240,7 +239,7 @@ func TestSocketPlayoutGenerationInvalidatesQueueAndDecodedHalfFrame(t *testing.T
 func TestSocketPlayoutRepeatedUnderrunsReplaceBoundedEpoch(t *testing.T) {
 	session, playout, _ := newSocketPlayoutForTest(t, 20*time.Millisecond)
 	base := time.Unix(1000, 0)
-	session.socket.incoming.push(socketPacket{payload: []byte{20, 1}, generation: 1, playAt: base})
+	session.enqueueSocketPacket(socketPacket{payload: []byte{20, 1}, generation: 1, playAt: base})
 	if got := readSocketPlayout(t, playout, base); got != 1 {
 		t.Fatal("initial audio missing")
 	}
@@ -252,7 +251,7 @@ func TestSocketPlayoutRepeatedUnderrunsReplaceBoundedEpoch(t *testing.T) {
 		arrival := start.Add(20 * time.Millisecond)
 		// Original media slot is20ms late. Resume adds one40ms prefill, using a
 		// replacement60ms offset each time; it must not grow with epoch count.
-		session.socket.incoming.push(socketPacket{payload: []byte{20, byte(epoch + 2)}, sequence: uint32(epoch + 1), generation: 1, playAt: start})
+		session.enqueueSocketPacket(socketPacket{payload: []byte{20, byte(epoch + 2)}, sequence: uint32(epoch + 1), generation: 1, playAt: start})
 		if got := readSocketPlayout(t, playout, arrival); got != 0 {
 			t.Fatal("rebuffer skipped prefill")
 		}
@@ -275,7 +274,7 @@ func TestSocketPlayoutRepeatedUnderrunsReplaceBoundedEpoch(t *testing.T) {
 	// Rebuffering cannot give an already90ms-late frame another40ms of life.
 	now := base.Add(3 * time.Second)
 	readSocketPlayout(t, playout, now)
-	session.socket.incoming.push(socketPacket{payload: []byte{20, 99}, sequence: 100, generation: 1, playAt: now.Add(-90 * time.Millisecond)})
+	session.enqueueSocketPacket(socketPacket{payload: []byte{20, 99}, sequence: 100, sourceSamples: float64(100) * 320, generation: 1, playAt: now.Add(-90 * time.Millisecond)})
 	if got := readSocketPlayout(t, playout, now); got != 0 || len(session.socket.incoming.packets) != 0 {
 		t.Fatal("rebuffer renewed stale source deadline")
 	}
@@ -285,65 +284,103 @@ func TestSocketPlayoutRepeatedUnderrunsReplaceBoundedEpoch(t *testing.T) {
 }
 
 func TestSocketProductionHubPlaysEveryUniformAndBatchedFrame(t *testing.T) {
-	for _, batchSize := range []int{1, 5} {
-		t.Run((time.Duration(batchSize) * 20 * time.Millisecond).String(), func(t *testing.T) {
-			core, opener, _ := testCore(t, testFormat(SocketSampleRate))
-			authorizeCall(t, core, "batch-call")
-			socket := newFakeSocket()
-			session, err := core.OpenSocket(context.Background(), ActiveCall{ID: "batch-call", State: CallStateActive}, "owner", socket)
-			if err != nil {
-				t.Fatal(err)
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			sent := make(chan struct{})
-			go func() {
-				defer close(sent)
-				start := time.Now()
-				for first := 0; first < 40; first += batchSize {
-					timer := time.NewTimer(time.Until(start.Add(time.Duration(first) * 20 * time.Millisecond)))
-					select {
-					case <-timer.C:
-					case <-ctx.Done():
-						timer.Stop()
-						return
+	for _, rate := range []int{8000, 16000} {
+		for _, period := range []time.Duration{10 * time.Millisecond, 20 * time.Millisecond} {
+			for _, batchSize := range []int{1, 5} {
+				t.Run(fmt.Sprintf("%d/%s/batch%d", rate, period, batchSize), func(t *testing.T) {
+					format := testFormat(rate)
+					format.FrameDuration = period
+					core, opener, _ := testCore(t, format)
+					authorizeCall(t, core, "batch-call")
+					socket := newFakeSocket()
+					session, err := core.OpenSocket(context.Background(), ActiveCall{ID: "batch-call", State: CallStateActive}, "owner", socket)
+					if err != nil {
+						t.Fatal(err)
 					}
-					for j := 0; j < batchSize; j++ {
-						sequence := uint32(first + j)
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					sent := make(chan struct{})
+					go func() {
+						defer close(sent)
+						start := time.Now()
+						for first := 0; first < 40; first += batchSize {
+							timer := time.NewTimer(time.Until(start.Add(time.Duration(first) * 20 * time.Millisecond)))
+							select {
+							case <-timer.C:
+							case <-ctx.Done():
+								timer.Stop()
+								return
+							}
+							for j := 0; j < batchSize; j++ {
+								sequence := uint32(first + j)
+								select {
+								case socket.inbound <- SocketFrame(sequence, sequence*320, []byte{20, byte(sequence + 1)}):
+								case <-ctx.Done():
+									return
+								}
+							}
+						}
+					}()
+					deadline := time.NewTimer(3 * time.Second)
+					defer deadline.Stop()
+					// Deterministic tests above require every healthy source slot. This
+					// real-timer integration also runs under race/build CPU contention: a
+					// genuinely missed device slot must be dropped, never replayed later.
+					observed := map[byte]int{}
+					var last byte
+					sentDone := sent
+					var drained <-chan time.Time
+					var drainTimer *time.Timer
+					defer func() {
+						if drainTimer != nil {
+							drainTimer.Stop()
+						}
+					}()
+				observe:
+					for {
 						select {
-						case socket.inbound <- SocketFrame(sequence, sequence*320, []byte{20, byte(sequence + 1)}):
-						case <-ctx.Done():
-							return
+						case pcm := <-opener.endpoint.writes:
+							if allBytes(pcm, 0) {
+								continue
+							}
+							marker := pcm[0]
+							if !allBytes(pcm, marker) || marker < last || marker < 1 || marker > 40 {
+								t.Fatalf("out-of-order/mixed source PCM marker%d after%d", marker, last)
+							}
+							observed[marker]++
+							last = marker
+							if observed[marker] > int(defaultFramePeriod/period) {
+								t.Fatalf("replayed source frame%d", marker)
+							}
+						case <-sentDone:
+							sentDone = nil
+							drainTimer = time.NewTimer(250 * time.Millisecond)
+							drained = drainTimer.C
+						case <-drained:
+							break observe
+						case <-deadline.C:
+							t.Fatalf("PCM stalled: %+v", session.Statistics())
+						case <-session.Done():
+							t.Fatalf("media ended: %v", session.Err())
 						}
 					}
-				}
-			}()
-			deadline := time.NewTimer(3 * time.Second)
-			defer deadline.Stop()
-			for expected := byte(1); expected <= 40; {
-				select {
-				case pcm := <-opener.endpoint.writes:
-					if allBytes(pcm, 0) {
-						continue
+					stats := session.Statistics()
+					if stats.ReceivedPackets != 40 {
+						t.Fatalf("transport lost source frames: %+v", stats)
 					}
-					if !allBytes(pcm, expected) {
-						t.Fatalf("PCM marker%d, want%d", pcm[0], expected)
+					if uint64(40-len(observed)) > stats.DroppedPackets {
+						t.Fatalf("unclassified lost source frames: observed%d stats%+v", len(observed), stats)
 					}
-					expected++
-				case <-deadline.C:
-					t.Fatalf("PCM stalled: %+v", session.Statistics())
-				case <-session.Done():
-					t.Fatalf("media ended: %v", session.Err())
-				}
+					if stats.PlayoutMissedTicks == 0 && (len(observed) != 40 || stats.DroppedPackets != 0) {
+						t.Fatalf("healthy cadence lost source frames: observed%d stats%+v", len(observed), stats)
+					}
+
+					if err := session.Close(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+				})
 			}
-			<-sent
-			if stats := session.Statistics(); stats.ReceivedPackets != 40 || stats.DroppedPackets != 0 {
-				t.Fatalf("lost batch frames: %+v", stats)
-			}
-			if err := session.Close(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-		})
+		}
 	}
 }
 
@@ -352,7 +389,7 @@ func TestSocketPlayoutSmallClockDriftDoesNotInsertHardwareFrame(t *testing.T) {
 	base := time.Unix(1000, 0)
 	// A100ppm input-clock correction puts the next source slot10us after the
 	// hardware tick. Quantization must not defer it by an entire20ms frame.
-	session.socket.incoming.push(socketPacket{payload: []byte{20, 1}, generation: 1, playAt: base.Add(40*time.Millisecond + 10*time.Microsecond)})
+	session.enqueueSocketPacket(socketPacket{payload: []byte{20, 1}, generation: 1, playAt: base.Add(40*time.Millisecond + 10*time.Microsecond)})
 	if got := readSocketPlayout(t, playout, base.Add(20*time.Millisecond)); got != 0 {
 		t.Fatal("prebuffer skipped a whole frame")
 	}

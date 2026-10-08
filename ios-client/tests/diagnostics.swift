@@ -121,6 +121,16 @@ private func eventually(_ predicate: () -> Bool) {
         precondition(turn == ["turn_transport": "tls", "turn_port": "443", "turn_host": "cloudflare"])
         precondition(ModemDeckDiagnostics.turnFailureReason("DNS failed at 192.0.2.1 secret") == "dns")
         precondition(ModemDeckDiagnostics.safeCallID("+12025550101") == nil)
+        let realCall = "call_0123456789abcdef0123456789abcdef"
+        precondition(ModemDeckDiagnostics.safeCallID(realCall) == realCall)
+        for rejected in ["call_" + String(repeating: "A", count: 32),
+                         "call_" + String(repeating: "g", count: 32),
+                         "call_" + String(repeating: "a", count: 31),
+                         realCall + "extra", "prefix" + realCall, realCall + "\n"] {
+            precondition(ModemDeckDiagnostics.safeCallID(rejected) == nil)
+        }
+        let testCall = "test-AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        precondition(ModemDeckDiagnostics.safeCallID(testCall) == testCall.lowercased())
         precondition(ModemDeckDiagnostics.safeCallID("call_aBcDeFgHiJkLmNoPqRsTuVwX") == "call_aBcDeFgHiJkLmNoPqRsTuVwX")
         precondition(ModemDeckDiagnostics.errorFields(NSError(domain: "secret", code: 10,
             userInfo: [NSLocalizedDescriptionKey: "secret"])) == ["error_domain": "other", "error_code": "10"])

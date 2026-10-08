@@ -62,6 +62,7 @@ func TestMobileDiagnosticsAuthenticateValidateAndLog(t *testing.T) {
 		}
 	}
 	batch.Events[0].CallID = "call_aBcDeFgHiJkLmNoPqRsTuVwX"
+	batch.Events[1].CallID = "call_0123456789abcdef0123456789abcdef"
 	batch.Events[6].Fields = map[string]string{
 		"microphone_dbfs": "-37", "received_packets": "250", "sent_packets": "240", "sent_bytes": "18000",
 		"input_route": "microphone", "output_route": "receiver", "input_available": "true",
@@ -85,6 +86,8 @@ func TestMobileDiagnosticsAuthenticateValidateAndLog(t *testing.T) {
 		func(b *mobileDiagnosticBatch) { b.Events[8].Fields["reason"] = "private IP 192.0.2.1" },
 		func(b *mobileDiagnosticBatch) { b.Events[6].Fields["input_route"] = "personal headset name" },
 		func(b *mobileDiagnosticBatch) { b.Events[8].CallID = "+12025550101" },
+		func(b *mobileDiagnosticBatch) { b.Events[8].CallID = "call_0123456789abcdef0123456789abcdef0" },
+		func(b *mobileDiagnosticBatch) { b.Events[8].CallID = "call_0123456789abcdef0123456789abcdeg" },
 		func(b *mobileDiagnosticBatch) { b.Events[8].Category = "unknown" },
 		func(b *mobileDiagnosticBatch) { b.AppBuild = "secret" },
 		func(b *mobileDiagnosticBatch) { b.Schema = 2 },

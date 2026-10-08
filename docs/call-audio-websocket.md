@@ -48,7 +48,7 @@ capture can deliver five frames together every 100 ms; receivers must retain
 their distinct 20 ms media positions. Silence fills missing source positions.
 A pause in microphone packets alone does not end the connection.
 
-Native and server playback use a fixed 40 ms prebuffer. Each source timestamp
+Native, browser and server playback use a fixed 40 ms prebuffer. Each source timestamp
 maps to its own playback position; arrival time is not a shared expiry deadline
 for an entire batch. The bounded playback capacity is seven frames: five frames
 of supported capture batching plus two frames of prebuffer, or 140 ms of queued
@@ -58,15 +58,34 @@ latency is not counted as audio still waiting to be rendered.
 The server maps playback positions to the nearest hardware frame boundary;
 40 ms is the buffering target, not an exact wall-clock or end-to-end guarantee.
 
-Both native and server receivers compare source progress with monotonic arrival
+All three receivers use the same C source in `internal/audiocore/audio_core.c`.
+iOS compiles it into the native App, Go calls it through the small CGO adapter,
+and Web loads the generated `audioCore.wasm` only when connecting a call. There
+is no separate Swift, TypeScript or Go implementation of clock recovery.
+The adapters own CallKit/AVAudioEngine, Web Audio, or the hardware PCM cadence;
+platform device interfaces and PCM formats remain outside the portable core.
+
+The shared core compares source progress with monotonic arrival
 time, so audio held in TCP buffers does not become fresh merely on receipt.
 The source-age and late-playback budgets remain 100 ms. A sustained change in
 arrival latency is accepted only after three independent windows of at least
 100 ms of source audio show matching real-time progress (within 20 ms per
-window). This permits regular five-frame batches, while fast stale TCP bursts
+window). Packet freshness and this estimator are independent: a fresh tail of
+a partially stale batch cannot reset an incomplete observation window. A full
+stable fresh window ends a transient episode without changing the source anchor.
+This permits regular five-frame batches, while fast stale TCP bursts
 cannot establish a new clock. A new clock generation invalidates old queued
 audio. A true playback underrun starts a new 40 ms playback epoch without
-resetting the source-age check or accumulating unbounded delay.
+resetting the source-age check or accumulating unbounded delay. The server uses
+a fixed logical hardware grid for slot selection and the actual monotonic wake
+time for expiry; timer wake delay cannot introduce an extra frame each batch.
+All device epochs project the core's unwrapped source sample positions onto
+the device render cursor. A missed hardware slot or Web Audio render interval
+skips the missed samples rather than delaying all subsequent audio. A partial
+10 ms hardware frame is accounted for at most once per original Opus packet.
+Capture batches carry their own source sample ranges and each frame's sample-end
+time, so discarded future batches cannot move the position of an earlier batch.
+Encoding failures preserve the omitted source positions as sequence gaps.
 
 The 40 ms target is a low-latency starting point, not a universal network
 guarantee. Twilio documents fixed 20/40/60 ms conference buffers; WebRTC NetEq
@@ -90,8 +109,18 @@ state becomes `disconnected` and failure remains available after a failed sessio
 `{"type":"error","code":"invalid_audio","message":"..."}`. Bounded codes include
 `transport_timeout`, `transport_closed`, `invalid_audio`, `endpoint_failed`,
 `codec_failed`, `backpressure`, `cancelled`, and fallback `media_failed`.
-Clients may ignore
-unknown JSON fields. Server snapshots retain final counters after disconnection.
+WSS `dropped_packets` is the sum of six mutually exclusive counters:
+`dropped_source_early_packets`, `dropped_source_late_packets`,
+`dropped_queue_overflow_packets`, `dropped_reanchor_packets`,
+`dropped_playout_packets`, and `dropped_rebuffer_packets`.
+`dropped_playout_packets` includes expired source deadlines and packets whose
+hardware source slots or remaining fragments were missed. `clock_reanchors`,
+`playout_underruns`, `playout_silence_frames`, and `playout_missed_ticks`
+distinguish source-clock recovery, missing media and scheduler delay. Client
+diagnostics upload local capture/send/receive/playback counts and the server
+counts in separate bounded events, using the existing opt-in setting. These
+counters contain no PCM, Opus payload, phone number or recording content.
+Clients may ignore unknown JSON fields. Server snapshots retain final counters after disconnection.
 
 Reconnect through a fresh upgrade/start and fresh codec/queues. Release the old
 owner through the existing media DELETE endpoint before replacing it, or wait
@@ -100,3 +129,14 @@ bounded backoff while the authoritative call is active and the lease remains
 held. Keep the original retry deadline across early `ready` messages; clear it
 only after useful duplex audio has stayed healthy for at least one second.
 Reconnecting does not create a new call or recording.
+
+The portable source is built reproducibly with `make audio-core`, using the
+Docker SDK image pinned by digest in `scripts/build-audio-core.mjs`. Commit the
+small Wasm file and its source/artifact fingerprint together. `npm test` and
+`npm run build` in `web/` reject stale artifacts. Xcode and CGO compile the
+canonical C file directly; do not copy it into either client. The shared clock
+vectors in `internal/callmedia/testdata/socket_clock_vectors.json` run through
+each production adapter, including actual Wasm in the Web tests. The suite
+covers latency steps, partial stale batches, transient catch-up, fast TCP
+backlog, source gaps and uint32 wrap; device rendering and hardware cadence
+also have adapter-specific tests.

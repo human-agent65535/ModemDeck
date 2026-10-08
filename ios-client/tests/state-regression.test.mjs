@@ -23,9 +23,21 @@ async function verify(template, declarations) {
     const stubs = await readFile(new URL(`fixtures/${template}`, import.meta.url), 'utf8')
     const file = path.join(directory, 'test.swift')
     const binary = path.join(directory, 'test')
-    await writeFile(file, stubs.replace('// INSERT_PRODUCT_METHODS', declarations.join('\n')))
+    const needsCore = declarations.some(value => value.includes('md_audio_'))
+    const core = new URL('../../internal/audiocore/', import.meta.url).pathname
+    const object = path.join(directory, 'audio_core.o')
+    const coreArguments = []
+    if (needsCore) {
+      const compiledCore = spawnSync('xcrun', ['clang', '-std=c11', '-Wall', '-Wextra', '-Werror', '-c',
+        path.join(core, 'audio_core.c'), '-o', object], {
+        env: { ...process.env, DEVELOPER_DIR: process.env.DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }, encoding: 'utf8'
+      })
+      assert.equal(compiledCore.status, 0, compiledCore.stderr)
+      coreArguments.push('-I', core, object)
+    }
+    await writeFile(file, (needsCore ? 'import ModemDeckAudioCore\n' : '') + stubs.replace('// INSERT_PRODUCT_METHODS', declarations.join('\n')))
     const compiled = spawnSync('xcrun', ['swiftc', '-parse-as-library', file,
-      new URL('fixtures/diagnostics-stub.swift', import.meta.url).pathname, '-o', binary], {
+      new URL('fixtures/diagnostics-stub.swift', import.meta.url).pathname, ...coreArguments, '-o', binary], {
       env: { ...process.env, DEVELOPER_DIR: process.env.DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }, encoding: 'utf8'
     })
     assert.equal(compiled.status, 0, compiled.stderr)
@@ -75,7 +87,8 @@ test('audio teardown survives owner release and mute persists before capture sta
 test('native voice graph fixes both directions to mono, preserves the engine across notifications and reports failures', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
   await verify('voice-graph-stubs.swift', [
-    'enum ModemDeckCallAudioError:', 'private func startAudioIfReady()',
+    'enum ModemDeckCallAudioError:', 'private enum ModemDeckAudioDropReason', 'private struct ModemDeckAudioDropCounts',
+    'private func recordDroppedFrames(', 'private func resetCaptureStream(', 'private func updateCaptureDropCounts()', 'private func captureBatch(', 'private func startAudioIfReady()',
     'private func matchesVoiceFormat(', 'private func voiceGraphMatches(',
     'private func configureVoiceGraph(', 'private func startVoiceGraph(',
     'private func audioConfigurationChanged(', 'private func flushPlayback()',
@@ -86,8 +99,18 @@ test('native voice graph fixes both directions to mono, preserves the engine acr
 test('native playback bounds unrendered audio without counting device latency and capture keeps 20 ms frames', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
   await verify('audio-cadence-stubs.swift', ['struct ModemDeckAudioPacket {', 'struct ModemDeckAudioClock {',
-    'private func receiveAudio(', 'private func retireRenderedPlayback(', 'private func resetPlaybackForMedia(', 'private func flushPlayback()', 'private func capture('
+    'private enum ModemDeckAudioDropReason', 'private struct ModemDeckAudioDropCounts', 'private func recordDroppedFrames(',
+    'private func receiveAudio(', 'private func retireRenderedPlayback(', 'private func resetPlaybackForMedia(', 'private func flushPlayback()', 'private func capture(', 'private func sendNext('
   ].map(marker => declaration(source, marker)))
+})
+
+test('native drop accounting and server stats expose only enumerated numeric facts', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  const route = await readFile(new URL('../ios/App/App/ModemDeckAudioRoute.swift', import.meta.url), 'utf8')
+  await verify('audio-observability-stubs.swift', ['private enum ModemDeckAudioDropReason',
+    'private struct ModemDeckAudioDropCounts', 'private func recordDroppedFrames(',
+    'private func updateServerAudioStatistics(', 'private func localAudioStatisticsFields()', 'private func recordConnectionEvent('
+  ].map(marker => declaration(source, marker)).concat('final class ModemDeckAudioRoute {\n' + ['static func fields(', 'private static func port('].map(marker => declaration(route, marker)).join('\n') + '\n}'))
 })
 
 test('native conversation refresh removes deleted cache entries and send completion preserves newer drafts', { skip: process.platform !== 'darwin' }, async () => {
@@ -213,4 +236,10 @@ test('repeated early ready/errors preserve the retry budget until duplex media s
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
   await verify('media-health-stubs.swift', ['struct ModemDeckMediaRecoveryHealth {',
     'private func markSocketReady(', 'private func clearRecoveryAfterStableMedia('].map(marker => declaration(source, marker)))
+})
+
+
+test('transport failure accounts queued media and exhausted recovery reports failure rather than remote hangup', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  await verify('media-transport-stubs.swift', [declaration(source, 'private func transportFailed(')])
 })

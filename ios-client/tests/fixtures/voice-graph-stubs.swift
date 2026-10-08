@@ -48,7 +48,14 @@ final class AVAudioPCMBuffer {
         channels.deinitialize(count: 1); channels.deallocate()
     }
 }
-typealias Tap = (AVAudioPCMBuffer, Int) -> Void
+struct AVAudioTime: ExpressibleByIntegerLiteral {
+    var hostTime: UInt64 = 0, sampleTime: Int64 = 0
+    var sampleRate = 16_000.0, isHostTimeValid = false, isSampleTimeValid = false
+    init(integerLiteral: Int) {}
+    static func seconds(forHostTime value: UInt64) -> Double { Double(value) / 1_000_000_000 }
+}
+func mach_absolute_time() -> UInt64 { UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000) }
+typealias Tap = (AVAudioPCMBuffer, AVAudioTime) -> Void
 class AVAudioNode {
     var input = hardwareFormat(), output = hardwareFormat()
     func inputFormat(forBus: Int) -> AVAudioFormat { input }
@@ -115,17 +122,21 @@ func opus_decoder_create(_ rate: Int32, _ channels: Int32, _ status: inout Int32
     status = OPUS_OK; return OpaquePointer(bitPattern: 2)
 }
 final class Owner {
+    private var dropCounts = ModemDeckAudioDropCounts()
     var stopped = false, activated = true, ready = true, connecting = false
     var engine: AVAudioEngine?, player: AVAudioPlayerNode?
     var encoder: OpaquePointer?, decoder: OpaquePointer?
     let format = monoFormat(), queue = DispatchQueue(), captureLock = NSLock()
     var captureTapInstalled = false, captureGeneration = 0, playbackGeneration = 0, playbackPending = 0
-    var captureSamples: [Float] = [], captured: [[Float]] = []
-    var playbackEpochTimestamp: UInt32?
+    var captureSamples: [Float] = [], captured: [[Float]] = [], capturedSequences: [UInt32] = [], capturedEnds: [Double] = []
+    var playbackEpochSourceSamples: Double?
     var playbackFrameEnds: [AVAudioFramePosition] = []
     var playbackLastSampleEnd: AVAudioFramePosition = 0
     var playbackEpochStartedAt = 0.0, playbackQueuedUntil = -Double.infinity
-    var capturePendingSamples = 0, omittedCaptureSamples = 0, droppedFrames = 0
+    var capturePendingSamples = 0, captureStreamGeneration = 0, droppedFrames = 0
+    var captureSourceCursor: UInt64 = 0, captureSourceFrameStart: UInt64 = 0
+    var captureDroppedSamples: UInt64 = 0, captureReportedDropFrames: UInt64 = 0
+    var captureHardwareNext: AVAudioFramePosition?
     var sequence: UInt32 = 0, timestamp: UInt32 = 0
     var connectCompletion: ((Result<Void, Error>) -> Void)?
     var connectTimeout: DispatchWorkItem?
@@ -138,10 +149,11 @@ final class Owner {
         onRemoteEnded = { [weak self] in self?.remoteEnds += 1 }
     }
     func start() { startAudioIfReady() }
+    func resetStream() { resetCaptureStream() }
     func configurationChanged(_ changed: AVAudioEngine?) { audioConfigurationChanged(changed) }
     func deactivate() { activated = false; stopAudio() }
     func end() { stopped = true; stopAudio() }
-    func capture(_ values: [Float]) { captured.append(values) }
+    func capture(_ values: [Float], sampleEnd: Double) { captured.append(values); capturedSequences.append(sequence); capturedEnds.append(sampleEnd); captureSourceFrameStart += UInt64(values.count) }
     func recordConnectionEvent(_ event: String, fields: [String: String] = [:], error: Error? = nil) {
         events.append(event); eventFields.append((event, fields))
     }
@@ -166,6 +178,9 @@ func requireMono(_ format: AVAudioFormat) {
         oldCaptureCannotOccupyTheNewQueue()
         oldQueuedDeferCannotSubtractNewPendingSamples()
         failuresAreNotRemoteHangups()
+        newerDroppedBatchCannotRelabelOlderQueuedCapture()
+        reconnectStreamResetIsolatesAlreadyQueuedCapture()
+        hardwareSampleAndHostTimesSurviveDispatch()
     }
     static func initialGraphAndDuplicateNotifications() {
         let owner = Owner(), before = AVAudioEngine.instances
@@ -252,12 +267,12 @@ func requireMono(_ format: AVAudioFormat) {
         let newTap = engine.inputNode.tap!
         oldTap(AVAudioPCMBuffer(frames: 3200, value: 0.1), 0)
         owner.queue.drain()
-        precondition(owner.capturePendingSamples == 0 && owner.omittedCaptureSamples == 0)
+        precondition(owner.capturePendingSamples == 0 && owner.capturePendingSamples >= 0)
         newTap(AVAudioPCMBuffer(value: 0.8), 0); owner.queue.drain()
         precondition(owner.captured.count == 1 && owner.captured[0].allSatisfy { $0 == 0.8 })
         precondition(owner.sequence == 0 && owner.timestamp == 0 && owner.droppedFrames == 0,
                      "A removed tap's trimmed samples must not advance the replacement capture clock")
-        precondition(owner.omittedCaptureSamples == 0 && owner.capturePendingSamples == 0)
+        precondition(owner.capturePendingSamples >= 0 && owner.capturePendingSamples == 0)
     }
     static func oversizedCurrentCaptureSkipsDiscardedSampleTicks() {
         let owner = Owner(); owner.start()
@@ -266,7 +281,7 @@ func requireMono(_ format: AVAudioFormat) {
         precondition(owner.captured.count == 1 && owner.captured[0].count == 1600)
         precondition(owner.sequence == 5 && owner.timestamp == 1600 && owner.droppedFrames == 5,
                      "Discarded capture must advance its source ticks instead of fabricating continuous audio")
-        precondition(owner.capturePendingSamples == 0 && owner.omittedCaptureSamples == 0)
+        precondition(owner.capturePendingSamples == 0 && owner.capturePendingSamples >= 0)
         owner.engine!.inputNode.tap!(AVAudioPCMBuffer(frames: 320), 0)
         owner.queue.drain()
         precondition(owner.captured.count == 2 && owner.captured[1].count == 320)
@@ -280,12 +295,12 @@ func requireMono(_ format: AVAudioFormat) {
         owner.queue.async {
             oldTap(AVAudioPCMBuffer(frames: 1600, value: 0.1), 0)
             newTap(AVAudioPCMBuffer(value: 0.7), 0)
-            precondition(owner.capturePendingSamples == 320 && owner.omittedCaptureSamples == 0,
+            precondition(owner.capturePendingSamples == 320 && owner.capturePendingSamples >= 0,
                          "An obsolete tap cannot consume the current generation's 100 ms allowance")
         }
         owner.queue.drain()
         precondition(owner.captured.count == 1 && owner.captured[0].allSatisfy { $0 == 0.7 })
-        precondition(owner.capturePendingSamples == 0 && owner.omittedCaptureSamples == 0)
+        precondition(owner.capturePendingSamples == 0 && owner.capturePendingSamples >= 0)
         precondition(owner.sequence == 0 && owner.timestamp == 0 && owner.droppedFrames == 0)
     }
     static func oldQueuedDeferCannotSubtractNewPendingSamples() {
@@ -294,7 +309,7 @@ func requireMono(_ format: AVAudioFormat) {
         oldTap(AVAudioPCMBuffer(frames: 1600, value: 0.1), 0)
         precondition(owner.capturePendingSamples == 1600)
         engine.isRunning = false; owner.configurationChanged(engine)
-        precondition(owner.capturePendingSamples == 0 && owner.omittedCaptureSamples == 0,
+        precondition(owner.capturePendingSamples == 0 && owner.capturePendingSamples >= 0,
                      "Reconfiguration must start a fresh capture accounting generation")
         engine.inputNode.tap!(AVAudioPCMBuffer(value: 0.6), 0)
         precondition(owner.capturePendingSamples == 320)
@@ -307,7 +322,7 @@ func requireMono(_ format: AVAudioFormat) {
         engine.inputNode.tap!(AVAudioPCMBuffer(frames: 1600), 0)
         precondition(owner.capturePendingSamples == 1600)
         owner.deactivate()
-        precondition(owner.capturePendingSamples == 0 && owner.omittedCaptureSamples == 0)
+        precondition(owner.capturePendingSamples == 0 && owner.capturePendingSamples >= 0)
         owner.queue.drain()
         precondition(owner.capturePendingSamples == 0, "A stopped generation's defer must not create a negative count")
     }
@@ -342,4 +357,45 @@ func requireMono(_ format: AVAudioFormat) {
         AVAudioEngine.nextFault = .start; connecting.start(); DispatchQueue.main.drain()
         precondition(connectionFailures == 1 && connecting.failures.isEmpty && connecting.remoteEnds == 0)
     }
+    static func newerDroppedBatchCannotRelabelOlderQueuedCapture() {
+        let owner = Owner(); owner.start(); let tap = owner.engine!.inputNode.tap!
+        tap(AVAudioPCMBuffer(frames: 1600, value: 0.1), 0) // A is already queued.
+        tap(AVAudioPCMBuffer(frames: 1600, value: 0.2), 0) // B exceeds pending samples.
+        owner.queue.drain()
+        precondition(owner.capturedSequences == [0] && owner.captured[0][0] == 0.1,
+                     "Dropping newer B cannot advance the source clock of older queued A")
+        precondition(owner.droppedFrames == 5 && owner.captureSourceCursor == 3200)
+        tap(AVAudioPCMBuffer(frames: 1600, value: 0.3), 0); owner.queue.drain()
+        precondition(owner.capturedSequences == [0, 5] && owner.captureSourceFrameStart == 4800,
+                     "The missing B range is consumed only before C, not before A")
+        precondition(owner.droppedFrames == 5 && owner.capturePendingSamples == 0)
+    }
+    static func reconnectStreamResetIsolatesAlreadyQueuedCapture() {
+        let owner = Owner(); owner.start(); let tap = owner.engine!.inputNode.tap!
+        tap(AVAudioPCMBuffer(frames: 1600, value: 0.1), 0)
+        owner.resetStream()
+        tap(AVAudioPCMBuffer(frames: 320, value: 0.4), 0)
+        owner.queue.drainNext()
+        precondition(owner.capturePendingSamples == 320 && owner.captured.isEmpty)
+        owner.queue.drain()
+        precondition(owner.capturePendingSamples == 0 && owner.captured.count == 1 && owner.captured[0][0] == 0.4)
+        precondition(owner.sequence == 0 && owner.timestamp == 0 && owner.droppedFrames == 0)
+    }
+
+    static func hardwareSampleAndHostTimesSurviveDispatch() {
+        let owner = Owner(); owner.start(); let tap = owner.engine!.inputNode.tap!
+        var first: AVAudioTime = 0
+        first.isSampleTimeValid = true; first.sampleTime = 0
+        first.isHostTimeValid = true
+        first.hostTime = mach_absolute_time() - 70_000_000 // 20 ms buffer ended 50 ms ago.
+        let before = ProcessInfo.processInfo.systemUptime
+        tap(AVAudioPCMBuffer(frames: 320), first); owner.queue.drain()
+        precondition(abs(owner.capturedEnds[0] - (before - 0.05)) < 0.005,
+                     "Dispatch must retain hardware capture time instead of relabeling old audio as now")
+        var second: AVAudioTime = 0; second.isSampleTimeValid = true; second.sampleTime = 640
+        tap(AVAudioPCMBuffer(frames: 320), second); owner.queue.drain()
+        precondition(owner.capturedSequences == [0, 1] && owner.captureSourceCursor == 960 && owner.droppedFrames == 1,
+                     "A genuine input sample-clock gap advances media ticks and is accounted once")
+    }
+
 }

@@ -81,11 +81,15 @@ func TestSocketSharedHubGatesAudioAndRetainsFinalStatistics(t *testing.T) {
 			if err != nil || sequence != 0 || timestamp != 0 || len(payload) == 0 {
 				t.Fatalf("wire frame: %d %d %v", sequence, timestamp, err)
 			}
+			// A valid source jump arriving too early is counted by the actual
+			// receive worker, then retained across release and reacquisition.
+			socket.inbound <- SocketFrame(100, 32000, []byte{20, 0x44})
+			eventually(t, func() bool { return session.Statistics().DroppedSourceEarlyPackets == 1 })
 			if err := core.ReleaseOwner(context.Background(), "socket-call", "owner"); err != nil {
 				t.Fatal(err)
 			}
 			stats := core.Statistics("socket-call")
-			if stats.ReceivedPackets != 1 || stats.SentPackets != 1 || stats.State != "disconnected" {
+			if stats.ReceivedPackets != 2 || stats.SentPackets != 1 || stats.State != "disconnected" || stats.DroppedPackets != 1 || stats.DroppedSourceEarlyPackets != 1 {
 				t.Fatalf("lost final statistics: %+v", stats)
 			}
 			if opener.endpoint.closeCalls.Load() != 0 {
@@ -95,7 +99,7 @@ func TestSocketSharedHubGatesAudioAndRetainsFinalStatistics(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if core.Statistics("socket-call").ReceivedPackets != 1 {
+			if stats := core.Statistics("socket-call"); stats.ReceivedPackets != 2 || stats.DroppedPackets != 1 || stats.DroppedSourceEarlyPackets != 1 {
 				t.Fatal("reconnect reset call counters")
 			}
 			if opener.opens.Load() != 1 {
@@ -154,7 +158,7 @@ func TestSocketDropsStaleAndBoundedBurstFrames(t *testing.T) {
 	}
 	// Exercise the playback queue directly without transport receipt races.
 	close(session.socket.firstPacket)
-	session.socket.incoming.push(socketPacket{payload: []byte{20, 0x77}, playAt: time.Now().Add(-time.Second), generation: 1})
+	session.enqueueSocketPacket(socketPacket{payload: []byte{20, 0x77}, playAt: time.Now().Add(-time.Second), generation: 1})
 	receive(t, opener.endpoint.started)
 	for i := 0; i < 3; i++ {
 		pcm := receive(t, opener.endpoint.writes)
