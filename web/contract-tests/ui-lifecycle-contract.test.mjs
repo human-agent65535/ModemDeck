@@ -295,7 +295,7 @@ test('desktop shell has one permanent dialer and dashboard renders every modem r
     dialer,
     /v-if="permanent \|\| uiState\.dialerOpen \|\| callSurfaceVisible"/
   )
-  assert.match(dialer, /<CallSurface v-if="showingCall" \/>/)
+  assert.match(dialer, /<CallSurface v-if="showingCall && callState\.session" :session="callState\.session" \/>/)
   assert.match(
     dialer,
     /@mousedown\.self="[\s\S]*!permanent && !nonModal && !showingCall && closeDialer\(\)/
@@ -329,7 +329,7 @@ test('active calls own the dialer surface and keep modal call controls reachable
   assert.match(dialer, /ref="panelRef"/)
   assert.match(
     dialer,
-    /:tabindex="!permanent && !nonModal && callSurfaceVisible \? -1 : undefined"/
+    /:tabindex="-1"/
   )
   assert.match(dialer, /function trapCallFocus\(event: KeyboardEvent\)/)
   assert.match(dialer, /props\.nonModal \|\|/)

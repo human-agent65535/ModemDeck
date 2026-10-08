@@ -54,7 +54,7 @@ import CryptoKit
         precondition(events.allSatisfy { $0.fields.count <= 32 })
         precondition(events[1].fields["send_dropped_frames"] == "2")
         precondition(events[3].fields["server_dropped_rebuffer_packets"] == "6")
-        let batch = ModemDeckDiagnostics.Batch(appVersion: "0.1.0", appBuild: "29", osVersion: "18.0", dropped: 2, events: events)
+        let batch = ModemDeckDiagnostics.Batch(appVersion: "0.1.0", appBuild: "30", osVersion: "18.0", dropped: 2, events: events)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let output = URL(fileURLWithPath: CommandLine.arguments[2])

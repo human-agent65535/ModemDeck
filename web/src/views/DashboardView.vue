@@ -176,7 +176,7 @@ const onlineModules = computed(
   () => presentModules.value.filter(line => isRegisteredNetwork(line)).length
 )
 const callReadyLines = computed(() => {
-  if (bootstrapResource.data?.capabilities.webrtc_audio !== true) return 0
+  if (bootstrapResource.data?.capabilities.wss_audio !== true) return 0
   return lines.value.filter(
     line =>
       isVoiceServiceReady(line) &&

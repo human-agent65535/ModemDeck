@@ -7,11 +7,10 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/communication"
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
-func TestExchangeRequiresAuthoritativeActiveMediaCall(t *testing.T) {
+func TestSocketRequiresAuthoritativeActiveMediaCall(t *testing.T) {
 	t.Parallel()
 
 	core := &fakeCore{}
@@ -23,12 +22,11 @@ func TestExchangeRequiresAuthoritativeActiveMediaCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := service.Exchange(
+	if _, err := service.OpenSocket(
 		context.Background(),
 		"call-1",
 		"owner-1",
-		"offer",
-		false,
+		nil,
 	); !errors.Is(err, ErrNotActive) {
 		t.Fatalf("Exchange() error = %v, want ErrNotActive", err)
 	}
@@ -37,10 +35,10 @@ func TestExchangeRequiresAuthoritativeActiveMediaCall(t *testing.T) {
 	}
 }
 
-func TestExchangeReturnsCoreAnswerForActiveMediaCall(t *testing.T) {
+func TestSocketForwardsActiveCallAndOwner(t *testing.T) {
 	t.Parallel()
 
-	core := &fakeCore{answer: "answer"}
+	core := &fakeCore{}
 	service, err := New(
 		fakeRefresher{},
 		fakeCallStore{call: store.Call{ID: "call-1", Phase: "active", MediaAvailable: true}},
@@ -49,20 +47,17 @@ func TestExchangeReturnsCoreAnswerForActiveMediaCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	answer, err := service.Exchange(
+	_, err = service.OpenSocket(
 		context.Background(),
 		"call-1",
 		"owner-1",
-		"offer",
-		false,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("Exchange() error = %v", err)
 	}
-	if answer != "answer" ||
-		core.exchanges != 1 ||
-		core.offer.OwnerToken != "owner-1" {
-		t.Fatalf("answer = %q, exchanges = %d, offer = %+v", answer, core.exchanges, core.offer)
+	if core.exchanges != 1 || core.owner != "owner-1" || core.call.ID != "call-1" {
+		t.Fatalf("socket binding = %+v", core)
 	}
 }
 
@@ -82,51 +77,6 @@ func TestReleaseOwnerForwardsOpaqueOwnerToken(t *testing.T) {
 			"released call = %q, owner = %q",
 			core.releasedCallID,
 			core.releasedOwnerToken,
-		)
-	}
-}
-
-func TestExchangeGeneratesRelayConfigurationForMobilePeer(t *testing.T) {
-	t.Parallel()
-
-	core := &fakeCore{answer: "answer"}
-	provider := &fakeRTCProvider{configuration: rtcconfig.Configuration{
-		ICEServers: []rtcconfig.ICEServer{{
-			URLs:       []string{"turns:turn.example.test:443"},
-			Username:   "relay-user",
-			Credential: "relay-secret",
-		}},
-		RelayOnly: true,
-	}}
-	service, err := New(
-		fakeRefresher{},
-		fakeCallStore{call: store.Call{
-			ID:             "call-1",
-			Phase:          "active",
-			MediaAvailable: true,
-		}},
-		core,
-		Options{RTCProvider: provider},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.Exchange(
-		context.Background(),
-		"call-1",
-		"owner-1",
-		"offer",
-		true,
-	); err != nil {
-		t.Fatalf("Exchange() error = %v", err)
-	}
-	if provider.generated != 1 ||
-		!core.offer.RTCConfiguration.RelayOnly ||
-		len(core.offer.RTCConfiguration.ICEServers) != 1 {
-		t.Fatalf(
-			"generated = %d, offer = %+v",
-			provider.generated,
-			core.offer,
 		)
 	}
 }
@@ -165,40 +115,18 @@ type fakeCallStore struct {
 	err  error
 }
 
-type fakeRTCProvider struct {
-	configuration rtcconfig.Configuration
-	err           error
-	generated     int
-}
-
-func (provider *fakeRTCProvider) Generate(
-	context.Context,
-) (rtcconfig.Configuration, error) {
-	provider.generated++
-	return provider.configuration, provider.err
-}
-
 func (f fakeCallStore) CallByID(context.Context, string) (store.Call, error) {
 	return f.call, f.err
 }
 
 type fakeCore struct {
-	answer             string
 	err                error
 	exchanges          int
-	offer              callmedia.Offer
+	owner              string
+	call               callmedia.ActiveCall
 	reconciled         []string
 	releasedCallID     string
 	releasedOwnerToken string
-}
-
-func (f *fakeCore) Exchange(
-	_ context.Context,
-	offer callmedia.Offer,
-) (callmedia.ExchangeResult, error) {
-	f.exchanges++
-	f.offer = offer
-	return callmedia.ExchangeResult{AnswerSDP: f.answer}, f.err
 }
 
 func (f *fakeCore) ReleaseOwner(_ context.Context, callID, ownerToken string) error {
@@ -218,4 +146,11 @@ func (f *fakeCore) ReconcileActiveCalls(_ context.Context, callIDs []string) err
 
 func (*fakeCore) Close(context.Context) error {
 	return nil
+}
+
+func (f *fakeCore) OpenSocket(_ context.Context, call callmedia.ActiveCall, owner string, _ callmedia.SocketTransport) (*callmedia.Session, error) {
+	f.exchanges++
+	f.call = call
+	f.owner = owner
+	return nil, f.err
 }

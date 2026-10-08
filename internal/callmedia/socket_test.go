@@ -125,7 +125,7 @@ func TestSocketRejectsInvalidOrderingAndRetainsFailure(t *testing.T) {
 	socket.inbound <- SocketFrame(0, 0, []byte{20, 1})
 	receive(t, session.Done())
 	eventually(t, func() bool { return core.Statistics("call").FailureCode == "invalid_audio" })
-	if !errors.Is(session.Err(), ErrInvalidRTP) {
+	if !errors.Is(session.Err(), ErrInvalidAudio) {
 		t.Fatalf("error lost: %v", session.Err())
 	}
 }
@@ -195,10 +195,10 @@ func TestSocketSourceClockValidatesWrapAndTimestampSkips(t *testing.T) {
 	if accepted, err := clock.accept(2, 640, base.Add(60*time.Millisecond)); err != nil || !accepted {
 		t.Fatal("omitted capture frame failed", err)
 	}
-	if _, err := clock.accept(2, 640, base.Add(80*time.Millisecond)); !errors.Is(err, ErrInvalidRTP) {
+	if _, err := clock.accept(2, 640, base.Add(80*time.Millisecond)); !errors.Is(err, ErrInvalidAudio) {
 		t.Fatal("duplicate accepted")
 	}
-	if _, err := clock.accept(3, 641, base.Add(80*time.Millisecond)); !errors.Is(err, ErrInvalidRTP) {
+	if _, err := clock.accept(3, 641, base.Add(80*time.Millisecond)); !errors.Is(err, ErrInvalidAudio) {
 		t.Fatal("inconsistent timestamp accepted")
 	}
 }
@@ -219,7 +219,105 @@ func TestSocketInvalidFirstOpusDoesNotStartOrConnectHub(t *testing.T) {
 	if opener.endpoint.startCalls.Load() != 0 {
 		t.Fatal("invalid Opus started modem/test source")
 	}
-	if !errors.Is(session.Err(), ErrInvalidRTP) {
+	if !errors.Is(session.Err(), ErrInvalidAudio) {
 		t.Fatal("invalid first frame accepted")
+	}
+}
+
+func TestSocketOwnerCallbacksAndReplacementAreSerialized(t *testing.T) {
+	core, _, _ := testCore(t, testFormat(16000))
+	states := make(chan bool, 8)
+	core.onOwnerStateChange = func(id string, connected bool) {
+		if id != "owner-call" {
+			panic("wrong callback call")
+		}
+		states <- connected
+	}
+	authorizeCall(t, core, "owner-call")
+	call := ActiveCall{ID: "owner-call", State: CallStateActive}
+	socket := newFakeSocket()
+	session, err := core.OpenSocket(context.Background(), call, "first", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := core.ReleaseOwner(context.Background(), call.ID, "foreign"); !errors.Is(err, ErrNotMediaOwner) {
+		t.Fatalf("foreign release: %v", err)
+	}
+	select {
+	case <-session.Done():
+		t.Fatal("foreign release ended owner")
+	default:
+	}
+	select {
+	case <-states:
+		t.Fatal("connected before valid audio")
+	default:
+	}
+	socket.inbound <- SocketFrame(0, 0, []byte{20, 1})
+	if !receive(t, states) {
+		t.Fatal("missing connected callback")
+	}
+	if err := core.ReleaseOwner(context.Background(), call.ID, "first"); err != nil {
+		t.Fatal(err)
+	}
+	replacementSocket := newFakeSocket()
+	replacement, err := core.OpenSocket(context.Background(), call, "second", replacementSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementSocket.inbound <- SocketFrame(0, 0, []byte{20, 1})
+	if receive(t, states) {
+		t.Fatal("replacement connected before original disconnect")
+	}
+	if !receive(t, states) {
+		t.Fatal("replacement did not connect")
+	}
+	if err := core.ReleaseOwner(context.Background(), call.ID, "first"); !errors.Is(err, ErrNotMediaOwner) {
+		t.Fatalf("old owner released replacement: %v", err)
+	}
+	if err := replacement.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if receive(t, states) {
+		t.Fatal("missing replacement disconnect")
+	}
+	select {
+	case <-states:
+		t.Fatal("duplicate owner callback")
+	default:
+	}
+}
+
+func TestSocketOwnerReleaseCancelsPreparationWithoutClosingCall(t *testing.T) {
+	opener := &blockingEndpointOpener{started: make(chan struct{})}
+	core, err := New(Options{EndpointOpener: opener, CodecFactory: &fakeCodecFactory{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer core.Close(context.Background())
+	authorizeCall(t, core, "preparing")
+	opened := make(chan error, 1)
+	go func() {
+		_, err := core.OpenSocket(context.Background(), ActiveCall{ID: "preparing", State: CallStateActive}, "owner", newFakeSocket())
+		opened <- err
+	}()
+	receive(t, opener.started)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	if err := core.ReleaseOwner(ctx, "preparing", "wrong"); !errors.Is(err, ErrNotMediaOwner) {
+		t.Fatalf("foreign preparation release: %v", err)
+	}
+	if err := core.ReleaseOwner(ctx, "preparing", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := receive(t, opened); !errors.Is(err, ErrCanceled) {
+		t.Fatalf("preparation error: %v", err)
+	}
+	core.mu.Lock()
+	_, owned := core.owners["preparing"]
+	lifetime := core.lifetimes["preparing"]
+	core.mu.Unlock()
+	if owned || lifetime == nil || lifetime.ctx.Err() != nil {
+		t.Fatal("release removed call lifetime or retained owner")
 	}
 }

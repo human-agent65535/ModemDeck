@@ -82,7 +82,7 @@ test('call ownership uses independent control and server media liveness', async 
 	)
   assert.match(
     callState,
-    /session\.control_state === 'available'[\s\S]*?syncCallMedia\(owned \? session : null\)/
+    /session\.control_state === 'available'[\s\S]*?syncCallMedia\(owned && !ending \? session : null\)/
   )
   assert.match(serverEvents, /runtimeHeartbeatInterval\s*=\s*5\s*\*\s*time\.Second/)
 })

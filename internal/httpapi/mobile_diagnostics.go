@@ -130,29 +130,25 @@ func validMobileDiagnosticField(key, value string) bool {
 		return false
 	}
 	switch key {
-	case "elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "candidates", "relay_candidates", "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets", "playback_pending", "playback_underruns", "playback_resets",
+	case "elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "error_code", "http_status", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets", "playback_pending", "playback_underruns", "playback_resets",
 		"capture_dropped_frames", "send_dropped_frames", "receive_stale_frames", "receive_invalid_frames", "playback_dropped_frames",
 		"server_dropped_packets", "server_dropped_source_early_packets", "server_dropped_source_late_packets",
 		"server_dropped_queue_overflow_packets", "server_dropped_reanchor_packets", "server_dropped_playout_packets", "server_dropped_rebuffer_packets",
 		"server_clock_reanchors", "server_playout_underruns", "server_playout_silence_frames", "server_playout_missed_ticks":
 		number, err := strconv.ParseInt(value, 10, 64)
 		return err == nil && number >= -1_000_000_000 && number <= 1_000_000_000
-	case "expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "microphone_track_enabled", "reused_connection":
+	case "expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "reused_connection":
 		return value == "true" || value == "false"
 	case "input_route", "output_route":
 		return diagnosticChoice(value, "none microphone receiver speaker bluetooth headphones external")
 	case "http_protocol":
 		return diagnosticChoice(value, "h2 h3 http/1.1 other")
 	case "stage":
-		return diagnosticChoice(value, "idle waiting_for_active_call fetching_turn_configuration creating_offer setting_local_description gathering_candidates exchanging_offer applying_answer connecting_ice connecting_wss reconnecting_wss connected")
+		return diagnosticChoice(value, "idle waiting_for_active_call connecting_wss reconnecting_wss connected")
 	case "method":
 		return diagnosticChoice(value, "GET POST PUT PATCH DELETE HEAD")
 	case "error_domain":
-		return diagnosticChoice(value, "url cocoa osstatus callkit webrtc call_audio api other")
-	case "turn_transport":
-		return diagnosticChoice(value, "udp tcp tls")
-	case "turn_host":
-		return diagnosticChoice(value, "cloudflare other")
+		return diagnosticChoice(value, "url cocoa osstatus callkit call_audio api other")
 	case "reason":
 		return diagnosticChoice(value, "dns tls timeout authentication address_family unreachable other")
 	case "status":
@@ -166,7 +162,7 @@ func validMobileDiagnosticField(key, value string) bool {
 			return false
 		}
 		for _, part := range parts {
-			if !diagnosticChoice(part, ":id api v1 mobile session bootstrap pairing push call-tests test-call calls active media ice lease answer hangup reject hold resume mute dtmf recording recordings audio segments contacts batch messages threads state read read-all unread-summary events runtime settings system lines devices users account sessions password profile telegram units diagnostics logs health external-access status favorite contact") {
+			if !diagnosticChoice(part, ":id api v1 mobile session bootstrap pairing push call-tests test-call calls active media ws lease answer hangup reject hold resume mute dtmf recording recordings audio segments contacts batch messages threads state read read-all unread-summary events runtime settings system lines devices users account sessions password profile telegram units diagnostics logs health external-access status favorite contact") {
 				return false
 			}
 		}

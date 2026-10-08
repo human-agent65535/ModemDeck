@@ -63,10 +63,10 @@ private final class ModemDeckOfflineCache {
         }
     }
 
-    func write<T: Encodable>(_ value: T, key: String) {
+    func write<T: Encodable>(_ value: T, key: String, credential: ModemDeckCredential? = nil) {
         // Capture the pairing scope before queueing: a pending write must never
         // land in a replacement account's cache. The serial queue preserves order.
-        guard let fileURL = scopedFileURL(key: key) else { return }
+        guard let fileURL = scopedFileURL(key: key, credential: credential) else { return }
         queue.async { [self] in
             guard let data = try? JSONEncoder().encode(value) else { return }
             write(data, to: fileURL)
@@ -100,13 +100,13 @@ private final class ModemDeckOfflineCache {
         queue.async { [self] in try? fileManager.removeItem(at: directory) }
     }
 
-    private func scopedFileURL(key: String) -> URL? {
-        scopedDirectoryURL()?.appendingPathComponent(digest(key), isDirectory: false)
+    private func scopedFileURL(key: String, credential: ModemDeckCredential? = nil) -> URL? {
+        scopedDirectoryURL(credential: credential)?.appendingPathComponent(digest(key), isDirectory: false)
     }
 
-    private func scopedDirectoryURL() -> URL? {
+    private func scopedDirectoryURL(credential: ModemDeckCredential? = nil) -> URL? {
         guard let rootURL,
-              let credential = try? credentialStore.load() else {
+              let credential = credential ?? (try? credentialStore.load()) else {
             return nil
         }
         return rootURL.appendingPathComponent(
@@ -152,7 +152,7 @@ struct ModemDeckCapabilities: Codable, Equatable {
     let agentConnected: Bool
     let dial: Bool
     let message: Bool
-    let webrtcAudio: Bool
+    let wssAudio: Bool
     let deviceControl: Bool
     let volteControl: Bool
     let vowifiControl: Bool
@@ -844,7 +844,8 @@ final class ModemDeckAPIClient {
         try await decode(
             ModemDeckMobileSession.self,
             path: "/api/v1/mobile/session",
-            credential: credential
+            credential: credential,
+            pairingVerification: true
         )
     }
 
@@ -886,14 +887,17 @@ final class ModemDeckAPIClient {
     }
 
     func contacts(query: String = "") async throws -> [ModemDeckContact] {
+        guard let credential = try credentialStore.load() else { throw ModemDeckAPIError.notPaired }
         let contacts = try await allPages(
             ModemDeckContactsResponse.self,
+            credential: credential,
             base: "/api/v1/contacts",
             queryItems: [URLQueryItem(name: "q", value: query)],
             items: \.contacts, meta: \.meta
         )
+        guard !Task.isCancelled, isCurrentCredential(credential) else { throw CancellationError() }
         if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            offlineCache.write(contacts, key: "contacts")
+            offlineCache.write(contacts, key: "contacts", credential: credential)
         }
         return contacts
     }
@@ -1099,13 +1103,16 @@ final class ModemDeckAPIClient {
     }
 
     func calls() async throws -> [ModemDeckCallRecord] {
+        guard let credential = try credentialStore.load() else { throw ModemDeckAPIError.notPaired }
         let calls = try await allPages(
             ModemDeckCallsResponse.self,
+            credential: credential,
             base: "/api/v1/calls",
             queryItems: [URLQueryItem(name: "kind", value: "all")],
             items: \.calls, meta: \.meta
         )
-        offlineCache.write(calls, key: "calls")
+        guard !Task.isCancelled, isCurrentCredential(credential) else { throw CancellationError() }
+        offlineCache.write(calls, key: "calls", credential: credential)
         return calls
     }
 
@@ -1118,10 +1125,13 @@ final class ModemDeckAPIClient {
     }
 
     func recordings() async throws -> [ModemDeckRecording] {
+        guard let credential = try credentialStore.load() else { throw ModemDeckAPIError.notPaired }
         let items = try await allPages(
             ModemDeckRecordingsResponse.self,
+            credential: credential,
             base: "/api/v1/recordings", items: \.recordings, meta: \.meta
         )
+        guard !Task.isCancelled, isCurrentCredential(credential) else { throw CancellationError() }
         let recordings = items.map {
             ModemDeckRecording(
                 segment: $0.segment,
@@ -1130,7 +1140,7 @@ final class ModemDeckAPIClient {
                 favorite: $0.favorite
             )
         }
-        offlineCache.write(recordings, key: "recordings")
+        offlineCache.write(recordings, key: "recordings", credential: credential)
         return recordings
     }
 
@@ -1510,6 +1520,7 @@ final class ModemDeckAPIClient {
 
     private func allPages<Response: Decodable, Item>(
         _ responseType: Response.Type,
+        credential: ModemDeckCredential,
         base: String,
         queryItems: [URLQueryItem] = [],
         items: KeyPath<Response, [Item]>,
@@ -1519,9 +1530,11 @@ final class ModemDeckAPIClient {
         var cursor = ""
         var seenCursors = Set<String>()
         repeat {
+            guard !Task.isCancelled, isCurrentCredential(credential) else { throw CancellationError() }
             var query = queryItems + [URLQueryItem(name: "limit", value: "100")]
             if !cursor.isEmpty { query.append(URLQueryItem(name: "cursor", value: cursor)) }
-            let response = try await decode(responseType, path: path(base, queryItems: query))
+            let response = try await decode(responseType, path: path(base, queryItems: query), credential: credential)
+            guard !Task.isCancelled, isCurrentCredential(credential) else { throw CancellationError() }
             result.append(contentsOf: response[keyPath: items])
             let page = response[keyPath: meta]
             if !page.hasMore { return result }
@@ -1569,14 +1582,16 @@ final class ModemDeckAPIClient {
         method: String = "GET",
         headers: [String: String] = [:],
         body: Data? = nil,
-        credential: ModemDeckCredential? = nil
+        credential: ModemDeckCredential? = nil,
+        pairingVerification: Bool = false
     ) async throws -> T {
         let payload = try await data(
             path: path,
             method: method,
             headers: headers,
             body: body,
-            credential: credential
+            credential: credential,
+            pairingVerification: pairingVerification
         )
         do {
             return try decoder.decode(type, from: payload)
@@ -1591,7 +1606,8 @@ final class ModemDeckAPIClient {
         method: String = "GET",
         headers suppliedHeaders: [String: String] = [:],
         body: Data? = nil,
-        credential suppliedCredential: ModemDeckCredential? = nil
+        credential suppliedCredential: ModemDeckCredential? = nil,
+        pairingVerification: Bool = false
     ) async throws -> Data {
         let credential: ModemDeckCredential
         if let suppliedCredential {
@@ -1601,6 +1617,7 @@ final class ModemDeckAPIClient {
         } else {
             throw ModemDeckAPIError.notPaired
         }
+        if !pairingVerification, !isCurrentCredential(credential) { throw CancellationError() }
         var headers = suppliedHeaders
         headers["Accept"] = headers["Accept"] ?? "application/json"
         if body != nil {
@@ -1620,13 +1637,13 @@ final class ModemDeckAPIClient {
             (payload, response) = try await session.diagnosticData(for: request)
         } catch {
             if let error = error as? URLError, error.code != .cancelled {
-                await reportConnectivity(false, credential: credential, verifying: suppliedCredential != nil)
+                await reportConnectivity(false, credential: credential, verifying: pairingVerification)
             }
             throw error
         }
         // A late response from a revoked/replaced pairing must not populate the
         // new account's cache or change its connectivity state.
-        if suppliedCredential == nil, !isCurrentCredential(credential) {
+        if !pairingVerification, !isCurrentCredential(credential) {
             throw CancellationError()
         }
         guard let response = response as? HTTPURLResponse else {
@@ -1634,11 +1651,11 @@ final class ModemDeckAPIClient {
         }
         guard (200..<300).contains(response.statusCode) else {
             if [502, 503, 504].contains(response.statusCode) {
-                await reportConnectivity(false, credential: credential, verifying: suppliedCredential != nil)
+                await reportConnectivity(false, credential: credential, verifying: pairingVerification)
             }
             let serverError = try? decoder.decode(ModemDeckServerError.self, from: payload)
             let message = serverError?.message?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if response.statusCode == 401, suppliedCredential == nil {
+            if response.statusCode == 401, !pairingVerification {
                 DispatchQueue.main.async {
                     guard self.isCurrentCredential(credential) else { return }
                     NotificationCenter.default.post(
@@ -1655,8 +1672,8 @@ final class ModemDeckAPIClient {
                     : "ModemDeck request failed (HTTP \(response.statusCode))."
             )
         }
-        await reportConnectivity(true, credential: credential, verifying: suppliedCredential != nil)
-        if suppliedCredential == nil, !isCurrentCredential(credential) { throw CancellationError() }
+        await reportConnectivity(true, credential: credential, verifying: pairingVerification)
+        if !pairingVerification, !isCurrentCredential(credential) { throw CancellationError() }
         return payload
     }
 

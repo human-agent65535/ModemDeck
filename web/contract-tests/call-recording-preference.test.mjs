@@ -93,7 +93,7 @@ test('dial forwards the current recording preference and keeps one call in fligh
       agent_connected: true,
       dial: true,
       message: true,
-      webrtc_audio: true,
+      wss_audio: true,
       device_control: false,
       volte_control: false,
       vowifi_control: false
@@ -591,7 +591,10 @@ test('call reconciliation repeats when a terminal event arrives during an active
     await terminalRefresh
 
     assert.equal(requestCount, 2)
-    assert.equal(callState.session, null)
+    assert.equal(callState.session?.id, 'call-reconcile-1')
+    assert.equal(callState.session?.phase, 'ended')
+    assert.equal(callState.owned, false)
+    assert.deepEqual(callState.sessions, [])
   } finally {
     shutdownCallRuntime()
     gateway.getActiveCallSnapshot = originalGetActiveCallSnapshot

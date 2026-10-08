@@ -415,7 +415,7 @@ func (m *Manager) Renew(ctx context.Context, callID string, holderID string) (St
 	return statusFor(record), nil
 }
 
-// MediaConnected records the server-side WebRTC session as the strongest
+// MediaConnected records the server-side WSS session as the strongest
 // positive liveness signal. It never creates or transfers ownership.
 func (m *Manager) MediaConnected(callID string) {
 	callID = strings.TrimSpace(callID)

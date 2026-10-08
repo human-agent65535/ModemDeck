@@ -27,6 +27,32 @@ enum ModemDeckConnectionState: Equatable {
     case offline
 }
 
+// Durable revisions invalidate REST collections; active-call snapshots are not history.
+struct ModemDeckRuntimeDataWatermark {
+    private struct Event: Decodable {
+        let epoch: String
+        let revision: UInt64
+        let dataRevision: UInt64
+        enum CodingKeys: String, CodingKey {
+            case epoch, revision
+            case dataRevision = "data_revision"
+        }
+    }
+    private var current: Event?
+
+    mutating func accept(_ data: Data) throws -> Bool {
+        let next = try JSONDecoder().decode(Event.self, from: data)
+        guard !next.epoch.isEmpty else { return false }
+        if let current, current.epoch == next.epoch {
+            guard next.revision > current.revision,
+                  next.dataRevision >= current.dataRevision else { return false }
+        }
+        let changed = current?.epoch != next.epoch || current?.dataRevision != next.dataRevision
+        current = next
+        return changed
+    }
+}
+
 @MainActor
 final class ModemDeckSessionController: ObservableObject {
     @Published private(set) var phase: ModemDeckSessionPhase = .launching {
@@ -68,6 +94,15 @@ final class ModemDeckSessionController: ObservableObject {
     private let networkMonitor = NWPathMonitor()
     private var networkAvailable: Bool?
     private var connectivityObserver: AnyCancellable?
+    private var runtimeForeground = true
+    private var runtimeEventStream: ModemDeckRuntimeCallStream?
+    private var runtimeEventGeneration = 0
+    private var runtimeReconnectWorkItem: DispatchWorkItem?
+    private var runtimeReconnectAttempts = 0
+    private var runtimeWatermark = ModemDeckRuntimeDataWatermark()
+    private var runtimeCollectionsTask: Task<Void, Never>?
+    private var runtimeCollectionsGeneration = 0
+    private var runtimeReloadRequested = false
     private lazy var recovery = ModemDeckConnectionRecovery { [weak self] in
         guard let self else { return .stop }
         return await self.checkConnection()
@@ -120,7 +155,13 @@ final class ModemDeckSessionController: ObservableObject {
         networkMonitor.start(queue: DispatchQueue(label: "modemdeck.connectivity"))
     }
 
-    deinit { networkMonitor.cancel() }
+    deinit {
+        networkMonitor.cancel()
+        runtimeReconnectWorkItem?.cancel()
+        runtimeCollectionsTask?.cancel()
+        let stream = runtimeEventStream
+        DispatchQueue.main.async { stream?.cancel() }
+    }
 
     var serverDisplayName: String {
         guard let credential = try? credentialStore.load(),
@@ -137,7 +178,7 @@ final class ModemDeckSessionController: ObservableObject {
     var voiceDialLines: [ModemDeckLine] {
         guard let bootstrap,
               bootstrap.capabilities.dial,
-              bootstrap.capabilities.webrtcAudio else {
+              bootstrap.capabilities.wssAudio else {
             return []
         }
         return bootstrap.lines.filter {
@@ -187,14 +228,19 @@ final class ModemDeckSessionController: ObservableObject {
     }
 
     func resume() async {
+        runtimeForeground = true
         ModemDeckDiagnostics.shared.record(.app, "foreground")
         ModemDeckDiagnostics.shared.flush()
         recovery.setForeground(true)
         guard phase == .paired else { return }
+        startRuntimeEvents()
+        if runtimeReloadRequested { requestRuntimeCollectionsRefresh() }
         await refresh()
     }
 
     func suspend() {
+        runtimeForeground = false
+        stopRuntimeEvents()
         ModemDeckDiagnostics.shared.record(.app, "background")
         ModemDeckDiagnostics.shared.flush()
         refreshGeneration &+= 1
@@ -207,6 +253,123 @@ final class ModemDeckSessionController: ObservableObject {
         async let messages: () = messagesStore.load()
         async let calls: () = callsStore.load()
         _ = await (contacts, messages, calls)
+    }
+
+    private func startRuntimeEvents() {
+        guard runtimeForeground, phase == .paired,
+              runtimeEventStream == nil, runtimeReconnectWorkItem == nil,
+              let credential = try? credentialStore.load(),
+              let request = try? authorizedRequest(
+                  credential: credential, path: "/api/v1/runtime/events", method: "GET",
+                  headers: ["Accept": "text/event-stream"], timeout: 90
+              ) else { return }
+        runtimeEventGeneration &+= 1
+        let generation = runtimeEventGeneration
+        let stream = ModemDeckRuntimeCallStream(
+            request: request,
+            onEvent: { [weak self] event, data in
+                if event == "state" {
+                    self?.acceptRuntimeEvent(data, generation: generation)
+                } else if event == "heartbeat" {
+                    self?.acceptRuntimeHeartbeat(generation: generation)
+                }
+            },
+            onCompletion: { [weak self] status, _ in
+                guard let self, generation == self.runtimeEventGeneration else { return }
+                self.runtimeEventStream = nil
+                if status == 401 {
+                    self.stopRuntimeEvents(resetWatermark: true)
+                    let endedGeneration = self.runtimeEventGeneration
+                    Task { @MainActor [weak self] in
+                        guard let self, endedGeneration == self.runtimeEventGeneration else { return }
+                        await self.handleAuthenticationFailure()
+                    }
+                    return
+                }
+                // A forbidden stream does not authorize a different data source.
+                guard status != 403 else { return }
+                self.scheduleRuntimeEventsReconnect()
+            }
+        )
+        runtimeEventStream = stream
+        stream.start()
+    }
+
+    private func scheduleRuntimeEventsReconnect() {
+        guard runtimeForeground, phase == .paired, runtimeReconnectWorkItem == nil else { return }
+        let generation = runtimeEventGeneration
+        let delay = min(30.0, 2.0 * pow(2.0, Double(min(runtimeReconnectAttempts, 4))))
+        runtimeReconnectAttempts = min(runtimeReconnectAttempts + 1, 5)
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, generation == self.runtimeEventGeneration else { return }
+            self.runtimeReconnectWorkItem = nil
+            self.startRuntimeEvents()
+        }
+        runtimeReconnectWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    private func stopRuntimeEvents(resetWatermark: Bool = false) {
+        runtimeEventGeneration &+= 1
+        runtimeReconnectWorkItem?.cancel()
+        runtimeReconnectWorkItem = nil
+        runtimeEventStream?.cancel()
+        runtimeEventStream = nil
+        runtimeReconnectAttempts = 0
+        runtimeCollectionsGeneration &+= 1
+        if runtimeCollectionsTask != nil { runtimeReloadRequested = true }
+        runtimeCollectionsTask?.cancel()
+        runtimeCollectionsTask = nil
+        if resetWatermark {
+            runtimeReloadRequested = false
+            runtimeWatermark = ModemDeckRuntimeDataWatermark()
+        }
+    }
+
+    private func acceptRuntimeHeartbeat(generation: Int) {
+        guard generation == runtimeEventGeneration, runtimeForeground, phase == .paired,
+              runtimeReloadRequested, runtimeCollectionsTask == nil else { return }
+        // The existing server heartbeat retries only an unresolved durable read.
+        // A healthy stream never causes history polling.
+        requestRuntimeCollectionsRefresh()
+    }
+
+    private func acceptRuntimeEvent(_ data: Data, generation: Int) {
+        guard generation == runtimeEventGeneration, runtimeForeground, phase == .paired else { return }
+        do {
+            let changed = try runtimeWatermark.accept(data)
+            runtimeReconnectAttempts = 0
+            if changed || runtimeReloadRequested { requestRuntimeCollectionsRefresh() }
+        } catch {
+            // Reconnect to obtain an authoritative snapshot after malformed framing/data.
+            runtimeEventGeneration &+= 1
+            runtimeEventStream?.cancel()
+            runtimeEventStream = nil
+            scheduleRuntimeEventsReconnect()
+        }
+    }
+
+    private func requestRuntimeCollectionsRefresh() {
+        runtimeReloadRequested = true
+        guard runtimeCollectionsTask == nil else { return }
+        let generation = runtimeCollectionsGeneration
+        runtimeCollectionsTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while generation == self.runtimeCollectionsGeneration,
+                  self.runtimeForeground, self.phase == .paired,
+                  self.runtimeReloadRequested, !Task.isCancelled {
+                self.runtimeReloadRequested = false
+                await self.callsStore.load()
+                guard generation == self.runtimeCollectionsGeneration, !Task.isCancelled else { return }
+                guard self.callsStore.lastLoadSucceeded else {
+                    // Keep the invalidation for the next heartbeat/snapshot/foreground recovery;
+                    // failure must neither acknowledge it nor start a collection polling loop.
+                    self.runtimeReloadRequested = true
+                    break
+                }
+            }
+            if generation == self.runtimeCollectionsGeneration { self.runtimeCollectionsTask = nil }
+        }
     }
 
     private func checkConnection() async -> ModemDeckConnectionRecovery.Result {
@@ -231,6 +394,7 @@ final class ModemDeckSessionController: ObservableObject {
             bootstrap = values.1
             errorMessage = ""
             phase = .paired
+            startRuntimeEvents()
             // Session and capabilities authorize controls. History pagination is
             // background work, not a prerequisite for interacting with the app.
             if transportFailureRevision == failuresBeforeCheck { connectionState = .online }
@@ -282,6 +446,8 @@ final class ModemDeckSessionController: ObservableObject {
                     message: "The pairing code was rejected by ModemDeck."
                 )
             }
+            stopRuntimeEvents(resetWatermark: true)
+            callsStore.clear()
             api.clearCachedData()
             try credentialStore.save(credential)
             ModemDeckPushCoordinator.shared.configure(store: credentialStore)
@@ -434,6 +600,7 @@ final class ModemDeckSessionController: ObservableObject {
     }
 
     private func resetAfterRevocation() async {
+        stopRuntimeEvents(resetWatermark: true)
         refreshGeneration &+= 1
         dialDraft.clear()
         callsFilter = "all"
@@ -478,6 +645,31 @@ struct ModemDeckPresentedCall: Identifiable, Equatable {
     var id: String { callID }
 }
 
+struct ModemDeckEndedCall: Identifiable, Equatable {
+    let call: ModemDeckPresentedCall
+    let endedAt: Date
+    let elapsedSeconds: Int?
+    let locallyEnded: Bool
+    var status: String
+    let failureMessage: String
+    let testResult: String
+
+    var id: String { call.callID }
+    var message: (chinese: String, english: String) {
+        if status == "pending" { return ("本机音频已停止，正在确认挂断…", "Audio stopped on this device · Confirming call end…") }
+        if status == "failed" || !failureMessage.isEmpty { return ("通话连接中断", "Call connection interrupted") }
+        if status == "handled_elsewhere" { return ("已由其他设备处理", "Handled on another device") }
+        if call.testCall { return testResult == "connected" ? ("音频测试已结束", "Audio test finished") : ("测试已取消", "Test cancelled") }
+        if elapsedSeconds != nil { return ("通话已结束", "Call ended") }
+        let unansweredIncoming = call.direction == "incoming" && call.state == "ringing"
+        if locallyEnded { return unansweredIncoming ? ("已拒绝来电", "Call declined") : ("已取消呼叫", "Call cancelled") }
+        return unansweredIncoming ? ("未接来电", "Missed call") : ("未能接通", "Call not connected")
+    }
+    var requiresAcknowledgement: Bool {
+        call.testCall || !failureMessage.isEmpty || status == "failed" || status == "pending"
+    }
+}
+
 @MainActor
 final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallStateObserver {
     private struct DTMFRequest: Equatable {
@@ -486,6 +678,16 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     }
 
     @Published private(set) var call: ModemDeckPresentedCall?
+    @Published private(set) var endedCall: ModemDeckEndedCall?
+    @Published private(set) var endedCallClosing = false
+    var visibleCall: ModemDeckPresentedCall? { call ?? endedCall?.call }
+    private var endedCallGeneration = 0
+    private var endedCallDismissWorkItem: DispatchWorkItem?
+    private var localEndRequestedCallID: String?
+    private var lastTerminationStatus: (callID: String, status: String)?
+    #if DEBUG
+    private var uatCallFixtureStopped = false
+    #endif
     @Published private(set) var busy = false
     @Published private(set) var ending = false
     @Published private(set) var muteBusy = false
@@ -517,7 +719,26 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             guard let self else { return }
             guard (state["state"] as? String) != "idle",
                   let callID = state["callID"] as? String else {
+                if let endedCallID = state["endedCallID"] as? String,
+                   let currentCallID = self.call?.callID, endedCallID != currentCallID {
+                    if let status = state["terminationState"] as? String {
+                        self.applyCallTermination(endedCallID, status: status)
+                    }
+                    return
+                }
+                let previous = self.call
+                let locallyEnded = self.localEndRequestedCallID == previous?.callID
                 self.resetCallState()
+                if let previous {
+                    let status = self.lastTerminationStatus?.callID == previous.callID
+                        ? self.lastTerminationStatus!.status : (state["terminationState"] as? String ?? "ended")
+                    self.presentEndedCall(previous, status: status, locallyEnded: locallyEnded,
+                        failureMessage: state["failureMessage"] as? String ?? "",
+                        testResult: state["testResult"] as? String ?? "")
+                } else if let endedCallID = state["endedCallID"] as? String,
+                          let status = state["terminationState"] as? String {
+                    self.applyCallTermination(endedCallID, status: status)
+                }
                 if let message = state["failureMessage"] as? String {
                     self.connectionFailureMessage = message
                 }
@@ -549,6 +770,9 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             )
             self.call = presentedCall
             if previousCall?.callID != callID {
+                self.dismissEndedCall()
+                self.localEndRequestedCallID = nil
+                self.lastTerminationStatus = nil
                 self.connectionFailureMessage = ""
                 if presentedCall.testAudio { self.testCallResult = "" }
                 self.prepareForNewCall(presentedCall)
@@ -556,6 +780,68 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 self.reconcileRecording(for: presentedCall)
             }
         }
+    }
+
+    nonisolated func callTerminationDidChange(_ callID: String, status: String) {
+        Task { @MainActor [weak self] in self?.applyCallTermination(callID, status: status) }
+    }
+
+    private func applyCallTermination(_ callID: String, status: String) {
+        guard ["pending", "ended", "handled_elsewhere", "failed"].contains(status) else { return }
+        if call?.callID == callID { lastTerminationStatus = (callID, status) }
+        guard endedCall?.id == callID, endedCall?.status != status else { return }
+        // Duplicate idle snapshots cannot downgrade an authoritative completion.
+        if endedCall?.status != "pending", status == "pending" { return }
+        endedCall?.status = status
+        scheduleEndedCallDismissal()
+    }
+
+    private func presentEndedCall(_ call: ModemDeckPresentedCall, status: String,
+                                  locallyEnded: Bool, failureMessage: String, testResult: String) {
+        dismissEndedCall()
+        let now = Date()
+        let elapsed = call.activeAt.flatMap(ModemDeckDateText.date).map { max(0, Int(now.timeIntervalSince($0))) }
+        endedCall = ModemDeckEndedCall(call: call, endedAt: now, elapsedSeconds: elapsed,
+            locallyEnded: locallyEnded, status: status, failureMessage: failureMessage, testResult: testResult)
+        scheduleEndedCallDismissal()
+    }
+
+    private func scheduleEndedCallDismissal() {
+        endedCallDismissWorkItem?.cancel()
+        endedCallDismissWorkItem = nil
+        guard let endedCall, !endedCall.requiresAcknowledgement, !UIAccessibility.isVoiceOverRunning else { return }
+        let generation = endedCallGeneration
+        let callID = endedCall.id
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, generation == self.endedCallGeneration,
+                  self.call == nil, self.endedCall?.id == callID else { return }
+            self.closeEndedCall()
+        }
+        endedCallDismissWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: item)
+    }
+
+    func closeEndedCall() {
+        guard endedCall != nil, !endedCallClosing else { return }
+        if UIAccessibility.isReduceMotionEnabled { dismissEndedCall(); return }
+        endedCallGeneration &+= 1
+        endedCallDismissWorkItem?.cancel()
+        endedCallClosing = true
+        let generation = endedCallGeneration
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, generation == self.endedCallGeneration, self.call == nil else { return }
+            self.dismissEndedCall()
+        }
+        endedCallDismissWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: item)
+    }
+
+    func dismissEndedCall() {
+        endedCallGeneration &+= 1
+        endedCallDismissWorkItem?.cancel()
+        endedCallDismissWorkItem = nil
+        endedCallClosing = false
+        endedCall = nil
     }
 
     func start(
@@ -632,9 +918,25 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     func end() async {
         guard let call, !ending else { return }
         let callID = call.callID
+        localEndRequestedCallID = callID
         ending = true
         errorMessage = ""
         defer { if self.call?.callID == callID { ending = false } }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["MODEMDECK_UAT_MODE"] == "1", callID == "uat-call-surface" {
+            uatCallFixtureStopped = true
+            let environment = ProcessInfo.processInfo.environment
+            var state: [String: Any] = ["state": "idle", "endedCallID": callID,
+                "terminationState": environment["MODEMDECK_UAT_END_PENDING"] == "1" ? "pending" : "ended"]
+            if call.testAudio { state["testResult"] = "connected" }
+            if environment["MODEMDECK_UAT_END_FAILED"] == "1" {
+                state["failureMessage"] = "UAT audio connection failed"
+                state["terminationState"] = "failed"
+            }
+            callStateDidChange(state)
+            return
+        }
+        #endif
         do {
             try await withCheckedThrowingContinuation { continuation in
                 ModemDeckPushCoordinator.shared.endCall(callID: callID) { result in
@@ -642,22 +944,26 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 }
             }
         } catch {
-            if self.call?.callID == callID { errorMessage = error.localizedDescription }
+            if self.call?.callID == callID {
+                localEndRequestedCallID = nil
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     func setMuted(_ muted: Bool) async {
-        guard !muteBusy else { return }
+        guard let callID = call?.callID, !muteBusy else { return }
         muteBusy = true
         errorMessage = ""
-        defer { muteBusy = false }
+        defer { if call?.callID == callID { muteBusy = false } }
         do {
             try await withCheckedThrowingContinuation { continuation in
-                ModemDeckPushCoordinator.shared.setCurrentCallMuted(muted) { result in
+                ModemDeckPushCoordinator.shared.setCurrentCallMuted(muted, callID: callID) { result in
                     continuation.resume(with: result)
                 }
             }
         } catch {
+            guard call?.callID == callID else { return }
             ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
@@ -693,16 +999,19 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             return
         }
         guard call.state == "active" || call.direction == "outgoing" else { return }
+        let generation = recordingGeneration
         recordingBusy = true
         errorMessage = ""
-        defer { recordingBusy = false }
+        defer { if call.callID == self.call?.callID, generation == recordingGeneration { recordingBusy = false } }
         do {
             let state = try await api.setCallRecording(
                 callID: call.callID,
                 enabled: !recordingEnabled
             )
+            guard call.callID == self.call?.callID, generation == recordingGeneration else { return }
             acceptRecordingState(state, for: call.callID)
         } catch {
+            guard call.callID == self.call?.callID, generation == recordingGeneration else { return }
             ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
             await refreshRecordingState(callID: call.callID)
@@ -732,6 +1041,11 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     }
 
     private func prepareForNewCall(_ call: ModemDeckPresentedCall) {
+        // Native may switch directly between UUIDs without an intervening idle.
+        // Interaction ownership changes here; old completions must not unlock it.
+        busy = false
+        ending = false
+        muteBusy = false
         recordingGeneration += 1
         recordingSnapshotCallID = ""
         recordingEnabled = false
@@ -807,7 +1121,8 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
         _ state: ModemDeckCallRecordingState,
         for callID: String
     ) {
-        guard state.callId == callID, call?.callID == callID else {
+        guard call?.callID == callID else { return }
+        guard state.callId == callID else {
             errorMessage = ModemDeckAPIError.invalidResponse.localizedDescription
             return
         }
@@ -828,15 +1143,11 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             digits: request.digits
         ) { [weak self] result in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.call?.callID == request.callID else { return }
                 if self.dtmfQueue.first == request {
                     self.dtmfQueue.removeFirst()
                 }
                 self.dtmfBusy = false
-                guard self.call?.callID == request.callID else {
-                    self.dtmfQueue.removeAll()
-                    return
-                }
                 if case .failure(let error) = result {
                     ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                     self.errorMessage = error.localizedDescription
@@ -879,6 +1190,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
 
     /// Visual fixture only. No audio engine, microphone, CallKit, or WSS is started.
     private func publishUATCallState(state: String, audioTest: Bool, dynamic: Bool, startedAt: Double) {
+        guard !uatCallFixtureStopped else { return }
         let elapsed = (ProcessInfo.processInfo.systemUptime - startedAt).truncatingRemainder(dividingBy: 10)
         let phase = !dynamic || elapsed < 6 ? "speak" : (elapsed < 9 ? "playback" : "pause")
         let remaining = dynamic ? Int(max(0, (elapsed < 6 ? 6 - elapsed : (elapsed < 9 ? 9 - elapsed : 10 - elapsed)) * 1000)) : 3000
@@ -1337,6 +1649,7 @@ final class ModemDeckCallsStore: ObservableObject {
 
     private let api: ModemDeckAPIClient
     private let contactsStore: ModemDeckContactsStore
+    private(set) var lastLoadSucceeded = false
     private var reloadRequested = false
     private var revision = 0
     private var scope = 0
@@ -1361,6 +1674,7 @@ final class ModemDeckCallsStore: ObservableObject {
             return
         }
         loading = true
+        lastLoadSucceeded = false
         let scope = scope
         defer {
             if scope == self.scope {
@@ -1386,8 +1700,10 @@ final class ModemDeckCallsStore: ObservableObject {
                 calls = values.0
                 recordings = values.1
                 errorMessage = ""
+                lastLoadSucceeded = true
             } catch {
                 guard scope == self.scope else { return }
+                lastLoadSucceeded = false
                 errorMessage = calls.isEmpty && recordings.isEmpty
                     ? error.localizedDescription
                     : ""
@@ -1464,6 +1780,7 @@ final class ModemDeckCallsStore: ObservableObject {
     }
 
     func clear() {
+        lastLoadSucceeded = false
         finishWaitingLoads()
         scope += 1
         revision += 1

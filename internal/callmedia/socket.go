@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/audiocore"
-	"github.com/pion/webrtc/v4"
 )
 
 const SocketHeaderBytes = 12
@@ -161,13 +160,13 @@ func SocketFrame(sequence, timestamp uint32, opus []byte) []byte {
 func ParseSocketFrame(frame []byte) (sequence, timestamp uint32, opus []byte, err error) {
 	if len(frame) <= SocketHeaderBytes || len(frame) > SocketHeaderBytes+maxOpusPayloadBytes ||
 		string(frame[:2]) != "MD" || frame[2] != 1 || frame[3] != 0 {
-		return 0, 0, nil, ErrInvalidRTP
+		return 0, 0, nil, ErrInvalidAudio
 	}
 	return binary.BigEndian.Uint32(frame[4:8]), binary.BigEndian.Uint32(frame[8:12]), frame[12:], nil
 }
 
-// OpenSocket uses precisely the same ownership, call lifetime and modem hub as
-// legacy peers. A failed prepare never leaves a reserved media owner behind.
+// OpenSocket attaches an authenticated WSS client to the shared call lifetime
+// and PCM hub. A failed prepare never leaves a reserved media owner behind.
 func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, transport SocketTransport) (*Session, error) {
 	if c == nil {
 		return nil, ErrCoreClosed
@@ -209,7 +208,7 @@ func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, 
 		if codec != nil {
 			_ = codec.Close()
 		}
-		return nil, fmt.Errorf("create socket codec: %w", err)
+		return nil, fmt.Errorf("create socket codec: %w", errors.Join(ErrCodec, err))
 	}
 	if codec == nil {
 		return nil, ErrCodec
@@ -232,8 +231,7 @@ func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, 
 			_ = subscription.Close()
 		}
 	}()
-	events := newPeerEvents()
-	session := newSession(owner.ctx, call.ID, format, hub, subscription, codec, nil, nil, nil, events, c.jitter, c.recoveryTime)
+	session := newSession(owner.ctx, call.ID, format, hub, subscription, codec)
 	session.socket = &socketAudio{transport: transport, firstPacket: make(chan struct{}), codecFactory: c.codecs}
 	session.reportStats = c.onAudioStats
 	if err := prepare.Err(); err != nil {
@@ -269,7 +267,7 @@ func (s *Session) socketReceiveLoop() error {
 		}
 		duration, err := s.codec.PacketDuration(payload)
 		if err != nil || duration != defaultFramePeriod {
-			return ErrInvalidRTP
+			return ErrInvalidAudio
 		}
 		now := time.Now()
 		previousGeneration := clock.generation
@@ -290,7 +288,7 @@ func (s *Session) socketReceiveLoop() error {
 		s.enqueueSocketPacket(packet)
 		if !initialized {
 			initialized = true
-			s.events.updateState(webrtc.PeerConnectionStateConnected)
+			s.events.markConnected()
 			close(s.socket.firstPacket)
 		}
 	}
@@ -582,7 +580,7 @@ func socketResample(pcm []byte, source, target int) []byte {
 }
 
 func (s *Session) waitSocketAudio() error {
-	timer := time.NewTimer(s.recoveryTime)
+	timer := time.NewTimer(15 * time.Second)
 	defer timer.Stop()
 	select {
 	case <-s.socket.firstPacket:
@@ -614,7 +612,7 @@ func (c *socketReceiveClock) accept(sequence, timestamp uint32, now time.Time) (
 	}
 	result, err := c.core.Accept(sequence, timestamp, now.Sub(c.origin))
 	if err != nil {
-		return false, ErrInvalidRTP
+		return false, ErrInvalidAudio
 	}
 	c.initialized = true
 	c.playAt, c.generation, c.age, c.sourceSamples = c.origin.Add(result.PlayAt), result.Generation, result.Age, result.SourceSamples

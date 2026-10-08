@@ -33,11 +33,10 @@ func TestMobileDiagnosticsAuthenticateValidateAndLog(t *testing.T) {
 	batch := mobileDiagnosticBatch{Schema: 1, AppVersion: "0.1.0", AppBuild: "24", OSVersion: "27.2", Dropped: 3}
 	for _, category := range strings.Fields("app network api pairing push callkit audio storage permissions") {
 		batch.Events = append(batch.Events, mobileDiagnosticEvent{ID: "03c40c39-beb7-49a2-b3f8-c8b50c092bec",
-			TimeMS: time.Now().UnixMilli(), Category: category, Name: "turn_gather_failed", Network: "cellular",
+			TimeMS: time.Now().UnixMilli(), Category: category, Name: "media_connect_failed", Network: "cellular",
 			CallID: "test-03c40c39-beb7-49a2-b3f8-c8b50c092bec",
-			Fields: map[string]string{"error_code": "701", "turn_transport": "tls", "turn_port": "443",
-				"turn_host": "cloudflare", "stage_elapsed_ms": "8001", "reason": "dns",
-				"route": "/api/v1/calls/:id/media/ice", "ipv6": "true"}})
+			Fields: map[string]string{"error_code": "701", "stage_elapsed_ms": "8001", "reason": "dns",
+				"route": "/api/v1/calls/:id/media/ws", "ipv6": "true"}})
 	}
 	send := func(method, bearer string, value any, expected int) {
 		t.Helper()
@@ -67,13 +66,13 @@ func TestMobileDiagnosticsAuthenticateValidateAndLog(t *testing.T) {
 		"microphone_dbfs": "-37", "received_packets": "250", "sent_packets": "240", "sent_bytes": "18000",
 		"input_route": "microphone", "output_route": "receiver", "input_available": "true",
 		"input_gain_settable": "false", "input_gain_percent": "100", "output_volume_percent": "60",
-		"audio_enabled": "true", "microphone_track_enabled": "true", "sample_rate": "48000", "channels": "1",
+		"audio_enabled": "true", "sample_rate": "48000", "channels": "1",
 		"http_protocol": "h3", "reused_connection": "true",
 	}
 	send(http.MethodPost, "", batch, http.StatusForbidden)
 	send(http.MethodGet, string(token), batch, http.StatusMethodNotAllowed)
 	send(http.MethodPost, string(token), batch, http.StatusNoContent)
-	if strings.Count(logs.String(), `"msg":"iOS turn_gather_failed"`) != 9 ||
+	if strings.Count(logs.String(), `"msg":"iOS media_connect_failed"`) != 9 ||
 		!strings.Contains(logs.String(), `"device_id":"paired-phone"`) ||
 		!strings.Contains(logs.String(), `"user_id":"owner"`) ||
 		!strings.Contains(logs.String(), `"error_code":"701"`) || strings.Contains(logs.String(), string(token)) {
@@ -224,5 +223,21 @@ func TestMobileDiagnosticsAcceptsSwiftWSSContract(t *testing.T) {
 			}
 			send(t, payload, http.StatusBadRequest)
 		})
+	}
+}
+
+func TestMobileDiagnosticsRejectRetiredTransportFields(t *testing.T) {
+	for _, key := range strings.Fields("candidates relay_candidates ice_state gathering_state signaling_state turn_port turn_index turn_transport turn_host microphone_track_enabled") {
+		if validMobileDiagnosticField(key, "1") {
+			t.Fatalf("retired field %s still accepted", key)
+		}
+	}
+	for _, stage := range strings.Fields("fetching_turn_configuration creating_offer setting_local_description gathering_candidates exchanging_offer applying_answer connecting_ice") {
+		if validMobileDiagnosticField("stage", stage) {
+			t.Fatalf("retired stage %s still accepted", stage)
+		}
+	}
+	if validMobileDiagnosticField("error_domain", "webrtc") {
+		t.Fatal("retired transport domain still accepted")
 	}
 }

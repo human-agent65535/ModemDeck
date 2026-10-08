@@ -74,6 +74,13 @@ exit 97
 EOF
 chmod 0755 "${test_root}/bin/"*
 
+# Invoke Git directly when available. On macOS /usr/bin/git is an xcrun shim
+# that creates its own cache in TMPDIR, unrelated to installer cleanup.
+git_binary="$(git --exec-path)/git"
+if [ -x "$git_binary" ]; then
+    ln -s "$git_binary" "${test_root}/bin/git"
+fi
+
 command_log="${test_root}/commands.log"
 : >"$command_log"
 state_dir="${test_root}/state/install"

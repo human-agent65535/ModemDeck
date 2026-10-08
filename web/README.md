@@ -24,7 +24,7 @@ Vite 服务器默认将 `/api` 代理到本地开发 API `http://127.0.0.1:8080`
     npm run build
 
 真实通话使用同源 Cookie 和现有通话租约，在 HTTPS 入口上建立 WSS 音频连接，
-无需 ICE 或 TURN。AudioWorklet 保留浏览器回声消除、自动增益和噪声抑制，
+连接复用 HTTPS 入口。AudioWorklet 保留浏览器回声消除、自动增益和噪声抑制，
 按 16 kHz 单声道、20 ms 分帧；独立 Worker 使用固定版本 `libopus-wasm` 编解码，
 支持没有原生 Opus WebCodecs 的浏览器。浏览器需要安全上下文、AudioWorklet、
 WebAssembly 和 Web Locks；不支持时会明确报告通话音频失败。
@@ -63,7 +63,7 @@ Fixture mode is visibly labelled in the application.
     npm run build
 
 Live call audio uses same-origin session cookies and the existing call lease,
-with WSS on the HTTPS ingress. ICE and TURN are not required. AudioWorklet keeps
+with WSS on the HTTPS ingress. AudioWorklet keeps
 browser echo cancellation, automatic gain and noise suppression, resamples to
 16 kHz mono and produces 20 ms frames. A lazily loaded, pinned `libopus-wasm`
 Worker handles raw Opus on browsers without native Opus WebCodecs support.

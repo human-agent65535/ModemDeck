@@ -34,7 +34,7 @@ import {
   rememberCallRecordingPreference,
   setCallRecordingEnabled
 } from '../state/recording'
-import type { CallRecordingSegment } from '../api/types'
+import type { CallRecordingSegment, CallSession } from '../api/types'
 import { playDTMFTone } from '../state/dtmfAudio'
 import {
   bootstrapResource,
@@ -49,13 +49,14 @@ import { phoneKeypad } from '../utils/phoneKeypad'
 import CommunicationAvatar from './CommunicationAvatar.vue'
 import LineTag from './LineTag.vue'
 
+const props = defineProps<{ session: CallSession }>()
 const { t } = useI18n()
 const now = ref(Date.now())
 const dtmfOpen = ref(false)
 const dtmfDisplay = ref<HTMLOutputElement>()
 let timer: number | undefined
 
-const session = computed(() => callState.session)
+const session = computed(() => props.session)
 const dtmfDigits = computed(() => callState.dtmfDigits)
 const line = computed(() => (session.value ? lineForKey(session.value.line_id) : undefined))
 const contact = computed(() =>
@@ -78,6 +79,8 @@ const contactNumber = computed(() => {
   return number && number !== contactName.value ? number : ''
 })
 const phaseLabel = computed(() => {
+  if (callState.pendingAction === 'hangup' || callState.pendingAction === 'reject') return t('calls.ending')
+  if (callState.endReason) return t(`calls.${callState.endReason}`)
   const labels = {
     unknown: t('calls.phaseUnknown'),
     dialing: t('calls.dialing'),
@@ -104,7 +107,7 @@ const duration = computed(() => {
 const incoming = computed(
   () =>
     session.value?.direction === 'incoming' &&
-    session.value.phase === 'ringing' &&
+    (session.value.phase === 'ringing' || callState.pendingAction === 'reject') &&
     session.value.control_state === 'available'
 )
 const terminal = computed(
@@ -163,6 +166,7 @@ const recordingControlReady = computed(
 const canHangup = computed(() => {
   const phase = session.value?.phase
   return (
+    callState.pendingAction === 'hangup' ||
     phase === 'unknown' ||
     phase === 'dialing' ||
     phase === 'ringing' ||
@@ -181,7 +185,7 @@ const bearerLabel = computed(() => {
 const answerUnavailable = computed(() => {
   if (lineSupports(line.value, 'answer') === false) return t('calls.answerUnsupported')
   if (
-    bootstrapResource.data?.capabilities.webrtc_audio !== true ||
+    bootstrapResource.data?.capabilities.wss_audio !== true ||
     lineSupports(line.value, 'media') !== true
   ) {
     return t('calls.answerAudioUnavailable')
@@ -326,8 +330,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Transition name="call-surface">
-    <section v-if="session" class="call-surface">
+    <section class="call-surface">
       <div class="call-surface__content" :class="{ 'is-dtmf-open': dtmfOpen }">
         <div class="call-surface__identity">
           <CommunicationAvatar
@@ -590,7 +593,7 @@ onBeforeUnmount(() => {
             :title="dtmfUnavailable || t('calls.keypad')"
             :aria-label="dtmfOpen ? t('calls.hideKeypad') : t('calls.keypad')"
             :aria-expanded="dtmfOpen"
-            :disabled="Boolean(dtmfUnavailable)"
+            :disabled="callState.busy || Boolean(dtmfUnavailable)"
             @click="dtmfOpen = !dtmfOpen"
           >
             <span class="call-footer-action__icon" aria-hidden="true">
@@ -616,7 +619,6 @@ onBeforeUnmount(() => {
         </span>
       </div>
     </section>
-  </Transition>
 </template>
 
 <style scoped>
@@ -1048,19 +1050,11 @@ onBeforeUnmount(() => {
   background: #e2e6e9;
 }
 
-.call-surface-enter-active,
-.call-surface-leave-active,
 .dtmf-enter-active,
 .dtmf-leave-active {
   transition:
     opacity var(--motion-base) var(--ease-standard),
     transform var(--motion-base) var(--ease-standard);
-}
-
-.call-surface-enter-from,
-.call-surface-leave-to {
-  opacity: 0;
-  transform: translateY(var(--space-2));
 }
 
 .dtmf-enter-from,
@@ -1136,8 +1130,6 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .call-surface-enter-active,
-  .call-surface-leave-active,
   .dtmf-enter-active,
   .dtmf-leave-active,
   .call-control__icon,

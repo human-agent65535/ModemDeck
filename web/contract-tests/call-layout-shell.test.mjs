@@ -15,7 +15,7 @@ test('calls replace the desktop dialer and share the mobile dialer height', asyn
     shell,
     /<DialerPanel[\s\S]*:permanent="permanentDialer"[\s\S]*:non-modal="nonModalDialer"/
   )
-  assert.match(dialer, /<CallSurface v-if="showingCall" \/>/)
+  assert.match(dialer, /<CallSurface v-if="showingCall && callState\.session" :session="callState\.session" \/>/)
   assert.match(dialer, /<div v-else class="dialer-panel__body">/)
   assert.match(styles, /--dialer-width: clamp\(360px, 28vw, 420px\);/)
   assert.match(

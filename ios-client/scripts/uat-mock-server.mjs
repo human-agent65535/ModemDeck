@@ -28,7 +28,7 @@ const bootstrap = {
     agent_connected: true,
     dial: true,
     message: true,
-    webrtc_audio: true,
+    wss_audio: true,
     device_control: false,
     volte_control: false,
     vowifi_control: false,

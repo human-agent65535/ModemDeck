@@ -1,5 +1,5 @@
 // Package callmedia bridges one active consumer call between an authenticated
-// WebSocket client (or legacy WebRTC peer) and a host-owned PCM media endpoint.
+// WebSocket client and a host-owned PCM media endpoint.
 //
 // Opus is the only network codec. Signed 16-bit little-endian PCM exists only
 // at the MediaEndpoint boundary and is never exposed as a browser transport.

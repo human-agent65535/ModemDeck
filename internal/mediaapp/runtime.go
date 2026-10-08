@@ -6,7 +6,6 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/calllifecycle"
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 )
 
 // Runtime wires the same media, ownership, and lifecycle services for hardware
@@ -23,7 +22,6 @@ type RuntimeOptions struct {
 	Refresher      Refresher
 	Controller     calllease.CallController
 	EndpointOpener callmedia.MediaEndpointOpener
-	RTCProvider    rtcconfig.Provider
 	LeaseOptions   calllease.Options
 	OnAudioStats   func(string, callmedia.AudioStatistics)
 }
@@ -47,7 +45,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	media, err := New(options.Refresher, options.Calls, core, Options{RTCProvider: options.RTCProvider})
+	media, err := New(options.Refresher, options.Calls, core)
 	if err != nil {
 		_ = core.Close(context.Background())
 		return nil, err

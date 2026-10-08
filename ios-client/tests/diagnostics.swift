@@ -114,12 +114,13 @@ private func eventually(_ predicate: () -> Bool) {
         let audioFields = ["microphone_dbfs": "-37", "sent_packets": "250", "received_packets": "240",
                            "input_route": "microphone", "output_route": "receiver", "input_available": "true",
                            "input_gain_settable": "false", "input_gain_percent": "100", "audio_enabled": "true",
-                           "microphone_track_enabled": "true", "http_protocol": "h3", "reused_connection": "true"]
+                           "http_protocol": "h3", "reused_connection": "true"]
         precondition(ModemDeckDiagnostics.sanitize(audioFields) == audioFields)
         precondition(ModemDeckDiagnostics.sanitize(["input_route": "private headset", "audio_samples": "private"]).isEmpty)
-        let turn = ModemDeckDiagnostics.turnFields("turns:user:secret@turn.cloudflare.com:443?transport=tcp")
-        precondition(turn == ["turn_transport": "tls", "turn_port": "443", "turn_host": "cloudflare"])
-        precondition(ModemDeckDiagnostics.turnFailureReason("DNS failed at 192.0.2.1 secret") == "dns")
+        precondition(ModemDeckDiagnostics.sanitize([
+            "turn_transport": "tls", "turn_port": "443", "turn_host": "cloudflare",
+            "ice_state": "2", "stage": "connecting_ice", "error_domain": "webrtc"
+        ]).isEmpty, "removed transport diagnostics must not remain an accepted upload path")
         precondition(ModemDeckDiagnostics.safeCallID("+12025550101") == nil)
         let realCall = "call_0123456789abcdef0123456789abcdef"
         precondition(ModemDeckDiagnostics.safeCallID(realCall) == realCall)

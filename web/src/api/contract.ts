@@ -4,8 +4,8 @@ import type {
   CallAction,
   CallControlState,
   CallDirection,
-  CallMediaICEConfiguration,
-  CallMediaICEServer,
+
+
   CallLeaseStatus,
   CallPhase,
   CallRecording,
@@ -648,10 +648,6 @@ export function callMediaPath(id: string): string {
   return `${communicationPaths.calls}/${encodeURIComponent(callID)}/media`
 }
 
-export function callMediaICEPath(id: string): string {
-  return `${callMediaPath(id)}/ice`
-}
-
 export function callLeasePath(id: string): string {
   const callID = id.trim()
   if (!callID) throw new Error('call id 不能为空')
@@ -1128,30 +1124,6 @@ export function diagnosticDeviceConfigurationContract(lineID: string): {
   }
 }
 
-export function callMediaContract(id: string): {
-  method: 'POST'
-  path: string
-  successStatus: 200
-} {
-  return {
-    method: 'POST',
-    path: callMediaPath(id),
-    successStatus: 200
-  }
-}
-
-export function callMediaICEContract(id: string): {
-  method: 'POST'
-  path: string
-  successStatus: 200
-} {
-  return {
-    method: 'POST',
-    path: callMediaICEPath(id),
-    successStatus: 200
-  }
-}
-
 export function callMediaReleaseContract(id: string): {
   method: 'DELETE'
   path: string
@@ -1289,23 +1261,6 @@ export function createDTMFPayload(
     ...(normalizedRequestID ? { request_id: normalizedRequestID } : {}),
     digits: normalizedDigits
   }
-}
-
-export function createCallMediaPayload(
-  ownerToken: string,
-  offerSDP: string
-): { owner_token: string; offer_sdp: string } {
-  const normalizedOwnerToken = ownerToken.trim()
-  if (!normalizedOwnerToken) throw new Error('owner_token 不能为空')
-  if (!offerSDP.trim()) throw new Error('offer_sdp 不能为空')
-  return {
-    owner_token: normalizedOwnerToken,
-    offer_sdp: offerSDP
-  }
-}
-
-export function createCallMediaICEPayload(): Record<string, never> {
-  return {}
 }
 
 export function createCallMediaReleasePayload(
@@ -2026,55 +1981,6 @@ export function parseCallSession(value: unknown): CallSession {
   }
 }
 
-export function parseCallMediaResponse(value: unknown): string {
-  const source = objectValue(value, 'response')
-  const answerSDP = source.answer_sdp
-  if (typeof answerSDP !== 'string' || !answerSDP.trim()) {
-    throw new Error('response 缺少 answer_sdp')
-  }
-  return answerSDP
-}
-
-function parseCallMediaICEServer(
-  value: unknown,
-  index: number
-): CallMediaICEServer {
-  const path = `call_media_ice.ice_servers[${index}]`
-  const source = objectValue(value, path)
-  const urls = optionalStringArray(source, path, 'urls')
-  if (!urls.length) throw new Error(`${path}.urls must not be empty`)
-  const username = optionalString(source, 'username')
-  const credential = optionalString(source, 'credential')
-  return {
-    urls,
-    ...(username ? { username } : {}),
-    ...(credential ? { credential } : {})
-  }
-}
-
-export function parseCallMediaICEConfiguration(
-  value: unknown
-): CallMediaICEConfiguration {
-  const source = objectValue(value, 'call_media_ice')
-  if (!Array.isArray(source.ice_servers)) {
-    throw new Error('call_media_ice.ice_servers must be an array')
-  }
-  const policy = requiredString(
-    source,
-    'call_media_ice',
-    'ice_transport_policy'
-  )
-  if (policy !== 'all' && policy !== 'relay') {
-    throw new Error('call_media_ice.ice_transport_policy is invalid')
-  }
-  const expiresAt = optionalString(source, 'expires_at')
-  return {
-    ice_servers: source.ice_servers.map(parseCallMediaICEServer),
-    ice_transport_policy: policy,
-    ...(expiresAt ? { expires_at: expiresAt } : {})
-  }
-}
-
 export function parseRecordingSettingsResponse(value: unknown): RecordingSettings {
   const response = objectValue(value, 'recording_settings_response')
   const source = objectValue(response.settings, 'recording_settings')
@@ -2387,14 +2293,6 @@ export function parseCloudflareOriginTLSResponse(
   return parseCloudflareOriginTLSStatus(response.origin_tls)
 }
 
-function parseTURNAvailabilityStatus(value: unknown) {
-  const turn = objectValue(value, 'turn')
-  return {
-    configured: requiredBoolean(turn, 'turn', 'configured'),
-    available: requiredBoolean(turn, 'turn', 'available')
-  }
-}
-
 function parseIOSPairingAvailability(value: unknown): IOSPairingAvailability {
   if (
     value === 'permission_required' ||
@@ -2500,7 +2398,6 @@ export function parseExternalAccessStatusResponse(
   const response = objectValue(value, 'external_access_status')
   return {
     cloudflare: parseCloudflareTunnelStatus(response.cloudflare),
-    turn: parseTURNAvailabilityStatus(response.turn),
     origin_tls: parseCloudflareOriginTLSStatus(response.origin_tls)
   }
 }

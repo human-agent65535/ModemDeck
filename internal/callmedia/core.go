@@ -5,23 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
-
-	"github.com/pion/webrtc/v4"
-)
-
-const (
-	defaultGatheringTimeout = 5 * time.Second
-	defaultRecoveryTimeout  = 15 * time.Second
 )
 
 type Options struct {
 	EndpointOpener     MediaEndpointOpener
 	CodecFactory       OpusCodecFactory
-	PeerConfiguration  webrtc.Configuration
-	GatheringTimeout   time.Duration
-	RecoveryTimeout    time.Duration
-	Jitter             JitterConfig
 	OnOwnerStateChange func(callID string, connected bool)
 	OnAudioStats       func(callID string, stats AudioStatistics)
 }
@@ -29,11 +17,6 @@ type Options struct {
 type Core struct {
 	opener             MediaEndpointOpener
 	codecs             OpusCodecFactory
-	api                *webrtc.API
-	configuration      webrtc.Configuration
-	gatherTimeout      time.Duration
-	recoveryTime       time.Duration
-	jitter             JitterConfig
 	onOwnerStateChange func(callID string, connected bool)
 	onAudioStats       func(callID string, stats AudioStatistics)
 
@@ -43,7 +26,6 @@ type Core struct {
 	mu             sync.Mutex
 	closed         bool
 	owners         map[string]*mediaOwner
-	exchanges      map[string]*exchangeAttempt
 	hubs           map[string]*hubEntry
 	lifetimes      map[string]*callLifetime
 	authority      map[string]struct{}
@@ -82,9 +64,7 @@ type hubEntry struct {
 }
 
 func New(options Options) (*Core, error) {
-	if options.EndpointOpener == nil ||
-		options.GatheringTimeout < 0 ||
-		options.RecoveryTimeout < 0 {
+	if options.EndpointOpener == nil {
 		return nil, fmt.Errorf("create call media core: %w", ErrInvalidArgument)
 	}
 	codecs := options.CodecFactory
@@ -95,200 +75,19 @@ func New(options Options) (*Core, error) {
 			return nil, err
 		}
 	}
-	jitter, err := options.Jitter.normalized()
-	if err != nil {
-		return nil, fmt.Errorf("create call media core: jitter: %w", err)
-	}
-	api, err := newWebRTCAPI()
-	if err != nil {
-		return nil, fmt.Errorf("create call media core: Pion: %w", ErrNegotiation)
-	}
-	timeout := options.GatheringTimeout
-	if timeout == 0 {
-		timeout = defaultGatheringTimeout
-	}
-	recoveryTime := options.RecoveryTimeout
-	if recoveryTime == 0 {
-		recoveryTime = defaultRecoveryTimeout
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{
 		opener:             options.EndpointOpener,
 		codecs:             codecs,
-		api:                api,
-		configuration:      clonePeerConfiguration(options.PeerConfiguration),
-		gatherTimeout:      timeout,
-		recoveryTime:       recoveryTime,
-		jitter:             jitter,
 		onOwnerStateChange: options.OnOwnerStateChange,
 		onAudioStats:       options.OnAudioStats,
 		ctx:                ctx,
 		cancel:             cancel,
 		owners:             make(map[string]*mediaOwner),
 		finalStats:         make(map[string]AudioStatistics),
-		exchanges:          make(map[string]*exchangeAttempt),
 		hubs:               make(map[string]*hubEntry),
 		lifetimes:          make(map[string]*callLifetime),
 		authority:          make(map[string]struct{}),
-	}, nil
-}
-
-func (c *Core) exchangeOnce(ctx context.Context, offer Offer) (ExchangeResult, error) {
-	if c == nil {
-		return ExchangeResult{}, ErrCoreClosed
-	}
-	ctx = normalizeContext(ctx)
-	call, err := normalizeActiveCall(offer.Call)
-	if err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
-	}
-	ownerToken, err := normalizeOwnerToken(offer.OwnerToken)
-	if err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: owner token: %w", err)
-	}
-	if err := validateOfferSDP(offer.SDP); err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
-	}
-	lifetime, owner, err := c.reserve(call.ID, ownerToken)
-	if err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
-	}
-	defer c.prepares.Done()
-	committed := false
-	defer func() {
-		if !committed {
-			c.releaseReservation(call.ID, owner)
-		}
-	}()
-
-	prepareContext, cancel := context.WithCancel(ctx)
-	stopCallCancel := context.AfterFunc(lifetime.ctx, cancel)
-	stopOwnerCancel := context.AfterFunc(owner.ctx, cancel)
-	defer func() {
-		stopCallCancel()
-		stopOwnerCancel()
-		cancel()
-	}()
-
-	peer, localTrack, sender, events, err := c.preparePeer(
-		offer.RTCConfiguration,
-	)
-	if err != nil {
-		return ExchangeResult{}, err
-	}
-	keepPeer := false
-	defer func() {
-		if !keepPeer {
-			_ = peer.Close()
-		}
-	}()
-
-	if err := peer.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDPTypeOffer,
-		SDP:  offer.SDP,
-	}); err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: set remote description: %w", ErrNegotiation)
-	}
-
-	hub, err := c.acquireHub(prepareContext, call, lifetime)
-	if err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
-	}
-	format := hub.format
-
-	codec, codecErr := c.codecs.New(format)
-	keepCodec := false
-	defer func() {
-		if codec != nil && !keepCodec {
-			_ = codec.Close()
-		}
-	}()
-	if codecErr != nil {
-		return ExchangeResult{}, fmt.Errorf(
-			"exchange WebRTC offer: create Opus codec: %w",
-			errors.Join(ErrCodec, codecErr),
-		)
-	}
-	if codec == nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: create Opus codec: %w", ErrCodec)
-	}
-	if codec.Format() != format {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: codec PCM format: %w", ErrCodec)
-	}
-	subscription, err := hub.Subscribe(defaultBrowserQueueCapacity)
-	if err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: subscribe PCM hub: %w", err)
-	}
-	keepSubscription := false
-	defer func() {
-		if !keepSubscription {
-			_ = subscription.Close()
-		}
-	}()
-
-	answer, err := peer.CreateAnswer(nil)
-	if err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: create answer: %w", ErrNegotiation)
-	}
-	gatheringComplete := webrtc.GatheringCompletePromise(peer)
-	if err := peer.SetLocalDescription(answer); err != nil {
-		return ExchangeResult{}, fmt.Errorf(
-			"exchange WebRTC offer: set local description: %v: %w",
-			err,
-			ErrNegotiation,
-		)
-	}
-	timer := time.NewTimer(c.gatherTimeout)
-	defer timer.Stop()
-	select {
-	case <-gatheringComplete:
-	case <-prepareContext.Done():
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", ErrCanceled)
-	case <-timer.C:
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", ErrGatheringTimeout)
-	}
-	localDescription := peer.LocalDescription()
-	if localDescription == nil || localDescription.Type != webrtc.SDPTypeAnswer || localDescription.SDP == "" {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: local description: %w", ErrNegotiation)
-	}
-	browserAnswer, err := setAnswerPacketTime(*localDescription, format.FrameDuration)
-	if err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: packet time: %w", err)
-	}
-	if err := validateAnswerSDP(browserAnswer.SDP); err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
-	}
-	if err := prepareContext.Err(); err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", ErrCanceled)
-	}
-
-	session := newSession(
-		owner.ctx,
-		call.ID,
-		format,
-		hub,
-		subscription,
-		codec,
-		peer,
-		localTrack,
-		sender,
-		events,
-		c.jitter,
-		c.recoveryTime,
-	)
-	session.reportStats = c.onAudioStats
-	if err := c.commit(call.ID, lifetime, owner, session); err != nil {
-		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
-	}
-	committed = true
-	keepPeer = true
-	keepCodec = true
-	keepSubscription = true
-	session.start()
-	go c.releaseWhenDone(call.ID, owner, session)
-	return ExchangeResult{
-		AnswerSDP: browserAnswer.SDP,
-		Session:   session,
 	}, nil
 }
 
@@ -346,7 +145,7 @@ func (c *Core) CloseCall(ctx context.Context, callID string) error {
 	return closeErr
 }
 
-// ReleaseOwner releases only the matching browser media owner. The call
+// ReleaseOwner releases only the matching WSS media owner. The call
 // lifetime and shared PCM hub remain available to recording and a later owner.
 func (c *Core) ReleaseOwner(ctx context.Context, callID, ownerToken string) error {
 	if c == nil {
@@ -511,7 +310,6 @@ func (c *Core) Close(ctx context.Context) error {
 	}
 	c.mu.Lock()
 	clear(c.owners)
-	clear(c.exchanges)
 	clear(c.hubs)
 	clear(c.lifetimes)
 	clear(c.authority)
@@ -788,9 +586,6 @@ func (c *Core) releaseWhenDone(
 		delete(c.owners, callID)
 		owner.cancel()
 		owner.finish()
-		if attempt := c.exchanges[callID]; attempt != nil && attempt.result.Session == session {
-			delete(c.exchanges, callID)
-		}
 	}
 	c.mu.Unlock()
 }
@@ -807,11 +602,4 @@ func normalizeCallID(value string) (string, error) {
 		return "", ErrInvalidArgument
 	}
 	return call.ID, nil
-}
-
-func clonePeerConfiguration(configuration webrtc.Configuration) webrtc.Configuration {
-	cloned := configuration
-	cloned.ICEServers = append([]webrtc.ICEServer(nil), configuration.ICEServers...)
-	cloned.Certificates = append([]webrtc.Certificate(nil), configuration.Certificates...)
-	return cloned
 }

@@ -234,3 +234,25 @@ func operation(id string) updatecheck.Operation {
 		StartedAt: "2026-08-02T00:00:00Z",
 	}
 }
+
+func TestDockerRuntimeIgnoresRetiredTURNOverride(t *testing.T) {
+	runner := &recordingRunner{}
+	directory := t.TempDir()
+	runtime := newDockerRuntimeForTest(t, runner, directory)
+	environment := []byte("MODEMDECK_HARDWARE_MODE=advanced\nMODEMDECK_CLOUDFLARE_ENABLED=true\nMODEMDECK_CLOUDFLARE_TURN_KEY_ID=legacy\nMODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE=unused\n")
+	if err := runtime.composeUp(context.Background(), environment, []Target{{Service: "api", Changed: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 1 {
+		t.Fatal("missing Compose operation")
+	}
+	command := runner.commands[0]
+	if !slices.Contains(command, filepath.Join(directory, "docker-compose.cloudflare.yml")) || !slices.Contains(command, filepath.Join(directory, "docker-compose.advanced.yml")) {
+		t.Fatalf("lost active overlays: %q", command)
+	}
+	for _, argument := range command {
+		if argument == filepath.Join(directory, "docker-compose.cloudflare-turn.yml") {
+			t.Fatal("retired relay override still selected")
+		}
+	}
+}

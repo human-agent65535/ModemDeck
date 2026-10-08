@@ -4,7 +4,7 @@ import type {
   AboutInfo,
   BootstrapResponse,
   CallFilter,
-  CallMediaICEConfiguration,
+
   CallRecordingSegment,
   CallRecordingState,
   CallRecord,
@@ -1046,10 +1046,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         fingerprint_sha256: '',
         expired: false
       }
-  const turnStatus = {
-    configured: true,
-    available: true
-  }
   const iosPairingDeviceLimit = IOS_PAIRING_DEVICE_LIMIT
   let iosPairingDevices: IOSPairingDevice[] = [
     {
@@ -1753,7 +1749,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           agent_connected: true,
           dial: true,
           message: true,
-          webrtc_audio: true,
+          wss_audio: true,
           device_control: true,
           volte_control: true,
           vowifi_control: true,
@@ -1876,7 +1872,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async getExternalAccessStatus() {
       return {
         cloudflare: clone(cloudflareStatus),
-        turn: clone(turnStatus),
         origin_tls: clone(cloudflareOriginTLS)
       }
     },
@@ -1884,7 +1879,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async refreshExternalAccess() {
       return {
         cloudflare: clone(cloudflareStatus),
-        turn: clone(turnStatus),
         origin_tls: clone(cloudflareOriginTLS)
       }
     },
@@ -2011,13 +2005,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return {
         id: globalThis.crypto.randomUUID(),
         accepted_at: new Date().toISOString()
-      }
-    },
-
-    async getCallMediaICEConfiguration(): Promise<CallMediaICEConfiguration> {
-      return {
-        ice_servers: [],
-        ice_transport_policy: 'all'
       }
     },
 
@@ -2307,7 +2294,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         if (activeCall.phase === 'dialing' && callPolls >= 1) activeCall.phase = 'ringing'
         else if (activeCall.phase === 'ringing' && callPolls >= 2) {
           activeCall.phase = 'active'
-          activeCall.active_at = '2026-07-23T12:05:04Z'
+          activeCall.active_at = new Date().toISOString()
           activeCall.bearer = 'volte'
           if (activeCallRecording?.enabled) {
             startFixtureRecordingSegment()
@@ -2356,7 +2343,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         phase: 'dialing',
         control_state: 'owned',
         media_available: false,
-        created_at: '2026-07-23T12:05:00Z'
+        created_at: new Date().toISOString()
       }
       activeCallRecording = {
         call_id: activeCall.id,
@@ -2392,7 +2379,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         }
         activeCall.phase = 'active'
         activeCall.control_state = 'owned'
-        activeCall.active_at = '2026-07-23T12:05:04Z'
+        activeCall.active_at = new Date().toISOString()
         activeCall.bearer = 'volte'
         if (activeCallRecording?.enabled) {
           startFixtureRecordingSegment()
@@ -2400,7 +2387,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       } else {
         finishFixtureRecordingSegment()
         activeCall.phase = 'ended'
-        activeCall.ended_at = '2026-07-23T12:08:00Z'
+        activeCall.ended_at = new Date().toISOString()
       }
       appendDiagnosticLog('info', 'calls', 'call state changed', {
         call_id: activeCall.id,
@@ -2425,10 +2412,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         call_id: id,
         expires_at: new Date(Date.now() + 15_000).toISOString()
       }
-    },
-
-    async exchangeCallMedia(): Promise<string> {
-      throw new ApiError('测试数据未连接音频设备', 503)
     },
 
     async releaseCallMedia(): Promise<void> {

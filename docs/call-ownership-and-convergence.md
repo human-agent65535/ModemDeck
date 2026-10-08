@@ -16,7 +16,7 @@ multi-application high availability, or distributed locking.
 - The first session that successfully reserves or claims a call owns it until
   the authoritative call reaches a terminal state.
 - Ownership is never transferred to another session. Losing HTTP, SSE, or
-  WebRTC connectivity does not make a call available to another session.
+  WSS connectivity does not make a call available to another session.
 - If the holder becomes an orphan, ModemDeck ends the call after a bounded
   recovery window. It does not release the call for takeover.
 - Different holders may control different lines concurrently. One holder may
@@ -67,7 +67,7 @@ Call control uses distinct identities for distinct purposes:
 | request ID | idempotent command execution and replay |
 | call ID | one hardware call lifecycle |
 | line ID | physical/logical line exclusion |
-| media owner token | one WebRTC peer for an already-owned call |
+| media owner token | one WSS session for an already-owned call |
 
 For Web, the holder is derived from the authenticated session token already
 validated by the HTTP authentication middleware. For paired mobile clients,
@@ -121,7 +121,7 @@ type record struct {
     subjectID string    // authenticated user; used only for explicit revocation
     createdAt time.Time
     orphanAt  time.Time // cleanup deadline, never a transfer deadline
-    mediaAlive bool     // observed server-side WebRTC liveness
+    mediaAlive bool     // observed server-side WSS liveness
     ending    bool
 }
 ```
@@ -202,7 +202,7 @@ runtime notifies the ownership manager and starts the orphan deadline. The
 same holder may establish a new media session before that deadline.
 
 The media owner token remains a separate technical boundary. It prevents two
-simultaneous WSS or legacy WebRTC sessions for one call; it neither grants nor transfers
+simultaneous WSS sessions for one call; it neither grants nor transfers
 business call ownership.
 
 ### Control liveness
@@ -214,7 +214,7 @@ heartbeat and authoritative GET after reconnect, `online`, `pageshow`, or
 becoming visible.
 
 The product constant is one 15-second orphan grace. The existing
-15-second WebRTC transport recovery happens before this ownership grace. The
+bounded WSS transport recovery happens before this ownership grace. The
 constant is not a user setting and there is no adaptive retry state.
 
 If neither media nor control liveness returns before `orphanAt`, the record is
@@ -307,7 +307,7 @@ SQLite persists:
 
 SQLite does not persist active call ownership or heartbeat updates. Persisting
 ownership would leave a zombie holder after application restart without being
-able to restore the WebRTC session.
+able to restore the WSS session.
 
 If a future design requires several application replicas or ownership recovery
 across application restart, it must add database compare-and-swap, a database

@@ -3,7 +3,7 @@
 Real calls use `GET /api/v1/calls/{id}/media/ws`. iOS audio tests use
 `GET /api/v1/mobile/call-tests/{id}/media/ws`. Both enter the same media runtime,
 call lease, single media owner, and shared PCM hub. Hardware access remains
-behind the Agent Unix socket. Existing WebRTC endpoints remain during rollout.
+behind the Agent Unix socket. WSS is the only call-media transport; SDP/ICE and TURN endpoints are removed.
 
 Use WSS on the existing HTTPS ingress (443). Authenticate the upgrade with the
 existing iOS Bearer header or same-origin browser session cookies. Credentials

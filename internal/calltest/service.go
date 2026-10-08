@@ -12,7 +12,6 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 )
 
 var (
@@ -38,19 +37,18 @@ type Service struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 	push     PushSender
-	rtc      rtcconfig.Provider
 	logger   *slog.Logger
 	ctx      context.Context
 	cancel   context.CancelFunc
 	workers  sync.WaitGroup
 }
 
-func New(push PushSender, rtc rtcconfig.Provider, logger *slog.Logger) *Service {
+func New(push PushSender, logger *slog.Logger) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{sessions: make(map[string]*session), push: push, rtc: rtc, logger: logger, ctx: ctx, cancel: cancel}
+	return &Service{sessions: make(map[string]*session), push: push, logger: logger, ctx: ctx, cancel: cancel}
 }
 
 func (s *Service) Start(userID, credentialID string, language ...string) (Status, error) {
@@ -81,7 +79,7 @@ func (s *Service) Start(userID, credentialID string, language ...string) (Status
 	now := time.Now().UTC()
 	entry := &session{status: Status{ID: id, AcceptedAt: now, ExpiresAt: now.Add(35 * time.Second), Phase: "scheduled", TestPhase: "scheduled"}, owner: owner, ctx: ctx, cancel: cancel, audio: newAudioEndpoint(language...)}
 	runtime, err := mediaapp.NewRuntime(mediaapp.RuntimeOptions{
-		Calls: entry, Refresher: entry, Controller: entry, EndpointOpener: entry.audio, RTCProvider: s.rtc,
+		Calls: entry, Refresher: entry, Controller: entry, EndpointOpener: entry.audio,
 		OnAudioStats: callmedia.AudioStatsLogger(s.logger),
 		LeaseOptions: calllease.Options{Report: func(err error) { s.logger.Warn("test call ownership cleanup failed", "call_id", id, "error", err) }},
 	})
@@ -273,28 +271,6 @@ func (s *Service) Renew(ctx context.Context, id, owner string) (calllease.Status
 		return calllease.Status{}, err
 	}
 	return entry.runtime.Leases.Renew(ctx, id, owner)
-}
-
-func (s *Service) Configuration(ctx context.Context, id, owner string) (rtcconfig.Configuration, error) {
-	entry, err := s.lookup(id, owner)
-	if err != nil {
-		return rtcconfig.Configuration{}, err
-	}
-	if err := entry.runtime.Leases.Require(ctx, id, owner); err != nil {
-		return rtcconfig.Configuration{}, err
-	}
-	return entry.runtime.Media.Configuration(ctx, true)
-}
-
-func (s *Service) Exchange(ctx context.Context, id, owner, token, offer string) (string, error) {
-	entry, err := s.lookup(id, owner)
-	if err != nil {
-		return "", err
-	}
-	if err := entry.runtime.Leases.Require(ctx, id, owner); err != nil {
-		return "", err
-	}
-	return entry.runtime.Media.Exchange(ctx, id, token, offer, true)
 }
 
 func (s *Service) RequireMedia(ctx context.Context, id, owner string) error {

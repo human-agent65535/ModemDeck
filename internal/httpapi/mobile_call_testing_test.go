@@ -13,7 +13,6 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/calltest"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 )
 
 type localAudioTestPush chan string
@@ -23,15 +22,9 @@ func (p localAudioTestPush) SendAudioTestCall(_ context.Context, _, _, id string
 	return nil
 }
 
-type localAudioTestRTC struct{}
-
-func (localAudioTestRTC) Generate(context.Context) (rtcconfig.Configuration, error) {
-	return rtcconfig.Configuration{}, nil
-}
-
 func TestMobileAudioTestUsesSharedActiveAndLeaseContracts(t *testing.T) {
 	push := make(localAudioTestPush, 1)
-	service := calltest.New(push, localAudioTestRTC{}, nil)
+	service := calltest.New(push, nil)
 	t.Cleanup(service.Close)
 	repository := &fakeRepository{
 		mobileFound:            true,
@@ -96,6 +89,8 @@ func TestMobileAudioTestUsesSharedActiveAndLeaseContracts(t *testing.T) {
 	if lease.CallID != started.ID || !lease.ExpiresAt.After(time.Now()) {
 		t.Fatalf("shared lease response = %+v", lease)
 	}
+	send(http.MethodGet, path+"/ice-servers", string(token), http.StatusNotFound)
+	send(http.MethodPost, path+"/media", string(token), http.StatusMethodNotAllowed)
 	send(http.MethodGet, path+"/lease", string(token), http.StatusMethodNotAllowed)
 	send(http.MethodDelete, path+"/media", string(token), http.StatusBadRequest)
 	repository.iosCurrentCredentialID = "other-phone"

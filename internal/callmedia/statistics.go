@@ -126,13 +126,11 @@ func (s *Session) Statistics() AudioStatistics {
 	stats.PlayoutUnderruns = s.baseStats.PlayoutUnderruns + s.stats.playoutUnderruns.Load()
 	stats.PlayoutSilenceFrames = s.baseStats.PlayoutSilenceFrames + s.stats.playoutSilenceFrames.Load()
 	stats.PlayoutMissedTicks = s.baseStats.PlayoutMissedTicks + s.stats.playoutMissedTicks.Load()
-	stats.Transport = "webrtc"
-	if s.socket != nil {
-		stats.Transport = "websocket"
-		// Derive the public total from the same category snapshot, so concurrent
-		// updates cannot make telemetry disagree with its own six-way breakdown.
-		stats.DroppedPackets = stats.DroppedSourceEarlyPackets + stats.DroppedSourceLatePackets + stats.DroppedQueueOverflowPackets + stats.DroppedReanchorPackets + stats.DroppedPlayoutPackets + stats.DroppedRebufferPackets
-	}
+	stats.Transport = "websocket"
+	stats.Transport = "websocket"
+	// Derive the public total from the same category snapshot, so concurrent
+	// updates cannot make telemetry disagree with its own six-way breakdown.
+	stats.DroppedPackets = stats.DroppedSourceEarlyPackets + stats.DroppedSourceLatePackets + stats.DroppedQueueOverflowPackets + stats.DroppedReanchorPackets + stats.DroppedPlayoutPackets + stats.DroppedRebufferPackets
 	stats.State = "connecting"
 	if s.events != nil {
 		select {
@@ -163,7 +161,7 @@ func (c *Core) Statistics(callID string) AudioStatistics {
 }
 
 // AudioFailureCode keeps diagnostics useful without exposing transport errors,
-// addresses, authentication material, SDP, or any audio content.
+// addresses, authentication material, or any audio content.
 func AudioFailureCode(err error) string {
 	if err == nil {
 		return ""
@@ -172,11 +170,11 @@ func AudioFailureCode(err error) string {
 		return "cancelled"
 	}
 	var network net.Error
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrTransportTimeout) || errors.Is(err, ErrGatheringTimeout) || (errors.As(err, &network) && network.Timeout()) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrTransportTimeout) || (errors.As(err, &network) && network.Timeout()) {
 		return "transport_timeout"
 	}
 	switch {
-	case errors.Is(err, ErrInvalidRTP):
+	case errors.Is(err, ErrInvalidAudio):
 		return "invalid_audio"
 	case errors.Is(err, ErrEndpointIO), errors.Is(err, ErrEndpointUnavailable), errors.Is(err, ErrEndpointNotStarted):
 		return "endpoint_failed"

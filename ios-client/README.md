@@ -33,8 +33,8 @@ call audio remain native platform services.
   probes back off from one to thirty seconds, coalesce concurrent refreshes,
   and retry immediately on a restored network path or app activation. SMS,
   call, and other business writes are never replayed automatically. Media
-  negotiation can retry one transient transport failure using its unchanged
-  offer and owner token; the server returns the original answer for duplicates.
+  recovery reopens authenticated WSS using the existing call lease and media
+  owner; the Opus source clock and bounded queues are shared with Web and Go.
 - Recents is a quick view of line status, call shortcuts and dated activity, sharing
   message, call, recording, and contact stores with the dedicated pages.
   Native swipe actions and copy/action menus remain available; search,

@@ -465,7 +465,7 @@ func TestBootstrapGatesCapabilitiesUntilAgentConnected(t *testing.T) {
 		AgentConnected: false,
 		Dial:           true,
 		Message:        true,
-		WebRTCAudio:    true,
+		WSSAudio:       true,
 		DeviceControl:  true,
 		VoLTEControl:   true,
 		VoWiFiControl:  true,
@@ -484,7 +484,7 @@ func TestBootstrapGatesCapabilitiesUntilAgentConnected(t *testing.T) {
 		t.Fatalf("decode bootstrap: %v", err)
 	}
 	if body.Capabilities.AgentConnected || body.Capabilities.Dial || body.Capabilities.Message ||
-		body.Capabilities.WebRTCAudio ||
+		body.Capabilities.WSSAudio ||
 		body.Capabilities.DeviceControl || body.Capabilities.VoLTEControl || body.Capabilities.VoWiFiControl {
 		t.Fatalf("capabilities = %+v, want all capability flags false", body.Capabilities)
 	}
@@ -501,7 +501,7 @@ func TestBootstrapPreservesConnectedCapabilities(t *testing.T) {
 		AgentConnected: true,
 		Dial:           true,
 		Message:        true,
-		WebRTCAudio:    true,
+		WSSAudio:       true,
 		DeviceControl:  true,
 		VoLTEControl:   true,
 		VoWiFiControl:  false,
@@ -528,7 +528,7 @@ func TestBootstrapPreservesConnectedCapabilities(t *testing.T) {
 		t.Fatalf("decode bootstrap: %v", err)
 	}
 	if !body.Capabilities.AgentConnected || !body.Capabilities.Dial || !body.Capabilities.Message ||
-		!body.Capabilities.WebRTCAudio || !body.Capabilities.DeviceControl ||
+		!body.Capabilities.WSSAudio || !body.Capabilities.DeviceControl ||
 		!body.Capabilities.VoLTEControl || body.Capabilities.VoWiFiControl {
 		t.Fatalf("capabilities = %+v, want connected source values", body.Capabilities)
 	}
@@ -541,39 +541,39 @@ func TestBootstrapRequiresHostMediaCapabilityAndCallMediaService(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name            string
-		lineMedia       bool
-		hostMedia       bool
-		callMedia       CallMediaService
-		wantWebRTCAudio bool
+		name         string
+		lineMedia    bool
+		hostMedia    bool
+		callMedia    CallMediaService
+		wantWSSAudio bool
 	}{
 		{
-			name:            "no host binding",
-			lineMedia:       true,
-			hostMedia:       false,
-			callMedia:       &fakeCallMedia{},
-			wantWebRTCAudio: false,
+			name:         "no host binding",
+			lineMedia:    true,
+			hostMedia:    false,
+			callMedia:    &fakeCallMedia{},
+			wantWSSAudio: false,
 		},
 		{
-			name:            "no line binding",
-			lineMedia:       false,
-			hostMedia:       true,
-			callMedia:       &fakeCallMedia{},
-			wantWebRTCAudio: false,
+			name:         "no line binding",
+			lineMedia:    false,
+			hostMedia:    true,
+			callMedia:    &fakeCallMedia{},
+			wantWSSAudio: false,
 		},
 		{
-			name:            "no application media service",
-			lineMedia:       true,
-			hostMedia:       true,
-			callMedia:       nil,
-			wantWebRTCAudio: false,
+			name:         "no application media service",
+			lineMedia:    true,
+			hostMedia:    true,
+			callMedia:    nil,
+			wantWSSAudio: false,
 		},
 		{
-			name:            "both sides available",
-			lineMedia:       true,
-			hostMedia:       true,
-			callMedia:       &fakeCallMedia{},
-			wantWebRTCAudio: true,
+			name:         "both sides available",
+			lineMedia:    true,
+			hostMedia:    true,
+			callMedia:    &fakeCallMedia{},
+			wantWSSAudio: true,
 		},
 	} {
 		test := test
@@ -608,11 +608,11 @@ func TestBootstrapRequiresHostMediaCapabilityAndCallMediaService(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 				t.Fatalf("decode bootstrap: %v", err)
 			}
-			if body.Capabilities.WebRTCAudio != test.wantWebRTCAudio {
+			if body.Capabilities.WSSAudio != test.wantWSSAudio {
 				t.Fatalf(
-					"WebRTCAudio = %v, want %v",
-					body.Capabilities.WebRTCAudio,
-					test.wantWebRTCAudio,
+					"WSSAudio = %v, want %v",
+					body.Capabilities.WSSAudio,
+					test.wantWSSAudio,
 				)
 			}
 		})

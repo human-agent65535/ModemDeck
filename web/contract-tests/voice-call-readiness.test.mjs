@@ -30,7 +30,7 @@ test('global dial availability rejects control-only and media-only lines', () =>
         agent_connected: true,
         dial: true,
         message: true,
-        webrtc_audio: true,
+        wss_audio: true,
         device_control: false,
         volte_control: false,
         vowifi_control: false
@@ -51,7 +51,7 @@ test('global dial availability rejects control-only and media-only lines', () =>
     bootstrapResource.data.lines = [line(true, true)]
     assert.equal(capabilityReason('dial'), '')
 
-    bootstrapResource.data.capabilities.webrtc_audio = false
+    bootstrapResource.data.capabilities.wss_audio = false
     assert.equal(
       capabilityReason('dial'),
       'Call control is available, but browser audio is unavailable'
@@ -69,7 +69,7 @@ test('control-only incoming calls keep reject available and disable answer in pa
 
   assert.match(
     surface,
-    /bootstrapResource\.data\?\.capabilities\.webrtc_audio !== true[\s\S]*?lineSupports\(line\.value, 'media'\) !== true[\s\S]*?t\('calls\.answerAudioUnavailable'\)/
+    /bootstrapResource\.data\?\.capabilities\.wss_audio !== true[\s\S]*?lineSupports\(line\.value, 'media'\) !== true[\s\S]*?t\('calls\.answerAudioUnavailable'\)/
   )
   assert.match(
     surface,
@@ -98,7 +98,7 @@ test('dialer keeps assigned lines visible while disabling lines without browser 
   )
   assert.match(
     dialer,
-    /const voiceCallingAvailable = computed\([\s\S]*?capabilities\.dial === true[\s\S]*?capabilities\.webrtc_audio === true/
+    /const voiceCallingAvailable = computed\([\s\S]*?capabilities\.dial === true[\s\S]*?capabilities\.wss_audio === true/
   )
   assert.match(dialer, /<LineSelector[\s\S]*?:lines="lines"/)
   assert.match(dialer, /:disabled-values="unavailableDialLineIDs"/)

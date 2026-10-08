@@ -4,222 +4,53 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
-
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
-	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 )
 
-type peerEvents struct {
-	track       chan *webrtc.TrackRemote
-	failure     chan error
+type sessionEvents struct {
 	connected   chan struct{}
-	state       chan webrtc.PeerConnectionState
-	trackSeen   atomic.Bool
 	connectOnce sync.Once
 }
 
-func newPeerEvents() *peerEvents {
-	return &peerEvents{
-		track:     make(chan *webrtc.TrackRemote, 1),
-		failure:   make(chan error, 1),
-		connected: make(chan struct{}),
-		state:     make(chan webrtc.PeerConnectionState, 1),
-	}
-}
+func newSessionEvents() *sessionEvents  { return &sessionEvents{connected: make(chan struct{})} }
+func (e *sessionEvents) markConnected() { e.connectOnce.Do(func() { close(e.connected) }) }
 
-func (e *peerEvents) acceptTrack(track *webrtc.TrackRemote) {
-	if track == nil || !e.trackSeen.CompareAndSwap(false, true) {
-		e.fail(ErrInvalidRTP)
-		return
-	}
-	select {
-	case e.track <- track:
-	default:
-		e.fail(ErrBackpressure)
-	}
-}
-
-func (e *peerEvents) updateState(state webrtc.PeerConnectionState) {
-	switch state {
-	case webrtc.PeerConnectionStateConnected:
-		e.connectOnce.Do(func() { close(e.connected) })
-		e.publishState(state)
-	case webrtc.PeerConnectionStateDisconnected,
-		webrtc.PeerConnectionStateFailed:
-		e.publishState(state)
-	case webrtc.PeerConnectionStateClosed:
-		e.fail(ErrTransportClosed)
-	}
-}
-
-func (e *peerEvents) publishState(state webrtc.PeerConnectionState) {
-	select {
-	case e.state <- state:
-		return
-	default:
-	}
-	select {
-	case <-e.state:
-	default:
-	}
-	select {
-	case e.state <- state:
-	default:
-	}
-}
-
-func (e *peerEvents) fail(err error) {
-	select {
-	case e.failure <- err:
-	default:
-	}
-}
-
-func (c *Core) preparePeer(configuration rtcconfig.Configuration) (
-	*webrtc.PeerConnection,
-	*webrtc.TrackLocalStaticSample,
-	*webrtc.RTPSender,
-	*peerEvents,
-	error,
-) {
-	peerConfiguration := clonePeerConfiguration(c.configuration)
-	if len(configuration.ICEServers) > 0 {
-		peerConfiguration.ICEServers = make(
-			[]webrtc.ICEServer,
-			0,
-			len(configuration.ICEServers),
-		)
-		for _, server := range configuration.ICEServers {
-			peerConfiguration.ICEServers = append(
-				peerConfiguration.ICEServers,
-				webrtc.ICEServer{
-					URLs:       append([]string(nil), server.URLs...),
-					Username:   server.Username,
-					Credential: server.Credential,
-				},
-			)
-		}
-	}
-	if configuration.RelayOnly {
-		peerConfiguration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
-	}
-	peer, err := c.api.NewPeerConnection(peerConfiguration)
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("exchange WebRTC offer: create peer: %w", ErrNegotiation)
-	}
-	track, err := webrtc.NewTrackLocalStaticSample(
-		opusRTPParameters().RTPCodecCapability,
-		"audio",
-		"modemdeck",
-	)
-	if err != nil {
-		_ = peer.Close()
-		return nil, nil, nil, nil, fmt.Errorf("exchange WebRTC offer: create audio track: %w", ErrNegotiation)
-	}
-	sender, err := peer.AddTrack(track)
-	if err != nil {
-		_ = peer.Close()
-		return nil, nil, nil, nil, fmt.Errorf("exchange WebRTC offer: add audio track: %w", ErrNegotiation)
-	}
-	events := newPeerEvents()
-	peer.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		events.acceptTrack(remote)
-	})
-	peer.OnConnectionStateChange(events.updateState)
-	return peer, track, sender, events, nil
-}
-
-// Session owns one browser peer and its codec. The per-call media hub owns the
-// modem endpoint independently so recording can continue without this peer.
+// Session owns one authenticated WSS client and its codec. The shared PCM hub
+// owns the host endpoint independently so recording can outlive the client.
 type Session struct {
 	callID       string
 	format       PCMFormat
 	hub          *mediaHub
 	subscription *DuplexSubscription
 	codec        OpusCodec
-	peer         *webrtc.PeerConnection
-	local        *webrtc.TrackLocalStaticSample
-	sender       *webrtc.RTPSender
-	events       *peerEvents
-	jitter       *jitterBuffer
-	playout      *rtpPlayout
-	recoveryTime time.Duration
+	events       *sessionEvents
 	stats        audioCounters
 	baseStats    AudioStatistics
 	reportStats  func(string, AudioStatistics)
 	socket       *socketAudio
-
-	ctx    context.Context
-	cancel context.CancelFunc
-
-	startOnce sync.Once
-	stopOnce  sync.Once
-	done      chan struct{}
-	workers   sync.WaitGroup
-
-	reasonMu sync.Mutex
-	reason   error
+	ctx          context.Context
+	cancel       context.CancelFunc
+	startOnce    sync.Once
+	stopOnce     sync.Once
+	done         chan struct{}
+	workers      sync.WaitGroup
+	reasonMu     sync.Mutex
+	reason       error
 }
 
-func newSession(
-	parent context.Context,
-	callID string,
-	format PCMFormat,
-	hub *mediaHub,
-	subscription *DuplexSubscription,
-	codec OpusCodec,
-	peer *webrtc.PeerConnection,
-	local *webrtc.TrackLocalStaticSample,
-	sender *webrtc.RTPSender,
-	events *peerEvents,
-	jitterConfig JitterConfig,
-	recoveryTime time.Duration,
-) *Session {
+func newSession(parent context.Context, callID string, format PCMFormat, hub *mediaHub, subscription *DuplexSubscription, codec OpusCodec) *Session {
 	ctx, cancel := context.WithCancel(parent)
-	jitter := newJitterBuffer(jitterConfig.PacketCapacity)
-	return &Session{
-		callID:       callID,
-		format:       format,
-		hub:          hub,
-		subscription: subscription,
-		codec:        codec,
-		peer:         peer,
-		local:        local,
-		sender:       sender,
-		events:       events,
-		jitter:       jitter,
-		playout:      newRTPPlayout(format, codec, jitter, jitterConfig),
-		recoveryTime: recoveryTime,
-		ctx:          ctx,
-		cancel:       cancel,
-		done:         make(chan struct{}),
-	}
+	return &Session{callID: callID, format: format, hub: hub, subscription: subscription, codec: codec, events: newSessionEvents(), ctx: ctx, cancel: cancel, done: make(chan struct{})}
 }
-
 func (s *Session) start() {
 	s.startOnce.Do(func() {
 		s.stats.inputDBFS.Store(-96)
 		s.stats.inputPeakDBFS.Store(-96)
 		s.stats.outputDBFS.Store(-96)
-		if s.socket != nil {
-			s.workers.Add(3)
-			go s.runWorker(s.socketCaptureLoop)
-			go s.runWorker(s.socketReceiveLoop)
-			go s.runWorker(s.socketPlaybackLoop)
-			go s.cleanup()
-			return
-		}
-		s.workers.Add(5)
-		go s.runWorker(s.captureLoop)
-		go s.runWorker(s.receiveLoop)
-		go s.runWorker(s.playbackLoop)
-		go s.runWorker(s.rtcpLoop)
-		go s.runWorker(s.connectionLoop)
+		s.workers.Add(3)
+		go s.runWorker(s.socketCaptureLoop)
+		go s.runWorker(s.socketReceiveLoop)
+		go s.runWorker(s.socketPlaybackLoop)
 		go s.cleanup()
 	})
 }
@@ -243,20 +74,14 @@ func (s *Session) stop(reason error) {
 func (s *Session) cleanup() {
 	<-s.ctx.Done()
 	var cleanupError error
-	if s.socket != nil {
-		s.socket.transport.InterruptRead()
-	} else if err := s.peer.Close(); err != nil {
-		cleanupError = errors.Join(cleanupError, fmt.Errorf("close WebRTC peer: %w", err))
-	}
+	s.socket.transport.InterruptRead()
 	if err := s.subscription.Close(); err != nil {
 		cleanupError = errors.Join(cleanupError, fmt.Errorf("close PCM subscription: %w", err))
 	}
 	s.workers.Wait()
-	if s.socket != nil {
-		s.socket.transport.Finish(s.Err(), s.Statistics())
-		_ = s.socket.transport.Close()
-	}
-	if s.socket != nil && s.reportStats != nil {
+	s.socket.transport.Finish(s.Err(), s.Statistics())
+	_ = s.socket.transport.Close()
+	if s.reportStats != nil {
 		s.reportStats(s.callID, s.Statistics())
 	}
 	if err := s.codec.Close(); err != nil {
@@ -319,207 +144,6 @@ func (s *Session) CallID() string {
 		return ""
 	}
 	return s.callID
-}
-
-func (s *Session) captureLoop() error {
-	if err := s.waitConnected(); err != nil {
-		return err
-	}
-	if err := s.subscription.Start(s.ctx); err != nil {
-		if s.ctx.Err() != nil {
-			return nil
-		}
-		return fmt.Errorf("start PCM hub: %w", err)
-	}
-	for {
-		frame, err := s.subscription.Next(s.ctx)
-		if err != nil {
-			if s.ctx.Err() != nil || errors.Is(err, context.Canceled) {
-				return nil
-			}
-			return fmt.Errorf("read PCM subscription: %w", err)
-		}
-		encoded, err := s.codec.Encode(frame.DownlinkPCM)
-		if err != nil {
-			return fmt.Errorf("encode endpoint PCM: %w", err)
-		}
-		if len(encoded) == 0 || len(encoded) > maxOpusPayloadBytes {
-			return fmt.Errorf("encode endpoint PCM: payload size: %w", ErrCodec)
-		}
-		if err := s.local.WriteSample(media.Sample{
-			Data:     encoded,
-			Duration: s.format.FrameDuration,
-		}); err != nil {
-			if s.ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("write browser RTP: %w", ErrTransportClosed)
-		}
-		level, _ := PCMLevels(frame.DownlinkPCM)
-		s.stats.outputDBFS.Store(int64(level))
-		s.stats.sentPackets.Add(1)
-	}
-}
-
-func (s *Session) receiveLoop() error {
-	if err := s.waitConnected(); err != nil {
-		return err
-	}
-	var track *webrtc.TrackRemote
-	select {
-	case track = <-s.events.track:
-	case <-s.ctx.Done():
-		return nil
-	}
-	codec := track.Codec()
-	if !strings.EqualFold(codec.MimeType, webrtc.MimeTypeOpus) ||
-		codec.ClockRate != RTPClockRate ||
-		codec.Channels != 2 {
-		return ErrUnsupportedCodec
-	}
-	for {
-		packet, _, err := track.ReadRTP()
-		if err != nil {
-			if s.ctx.Err() != nil {
-				return nil
-			}
-			return ErrTransportClosed
-		}
-		if err := s.jitter.push(packet); err != nil {
-			return err
-		}
-		s.stats.receivedPackets.Add(1)
-		s.stats.receivedBytes.Add(uint64(len(packet.Payload)))
-	}
-}
-
-func (s *Session) playbackLoop() error {
-	if err := s.waitConnected(); err != nil {
-		return err
-	}
-	if err := s.subscription.Start(s.ctx); err != nil {
-		if s.ctx.Err() != nil {
-			return nil
-		}
-		return fmt.Errorf("start PCM hub: %w", err)
-	}
-	select {
-	case <-s.jitter.ready:
-	case <-s.ctx.Done():
-		return nil
-	}
-	startup := time.NewTimer(s.playout.config.StartupDelay)
-	defer startup.Stop()
-	select {
-	case <-startup.C:
-	case <-s.ctx.Done():
-		return nil
-	}
-	if !s.jitter.start() {
-		return ErrInvalidRTP
-	}
-
-	frame := make([]byte, s.format.FrameBytes())
-	ticker := time.NewTicker(s.format.FrameDuration)
-	defer ticker.Stop()
-	for {
-		if err := s.playout.nextFrame(frame); err != nil {
-			return err
-		}
-		level, peak := PCMLevels(frame)
-		s.stats.inputDBFS.Store(int64(level))
-		s.stats.inputPeakDBFS.Store(int64(peak))
-		if err := s.hub.WritePCM(s.ctx, frame); err != nil {
-			if s.ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("write PCM hub: %w", err)
-		}
-		select {
-		case <-ticker.C:
-		case <-s.ctx.Done():
-			return nil
-		}
-	}
-}
-
-func (s *Session) rtcpLoop() error {
-	if err := s.waitConnected(); err != nil {
-		return err
-	}
-	buffer := make([]byte, 1500)
-	for {
-		if _, _, err := s.sender.Read(buffer); err != nil {
-			if s.ctx.Err() != nil {
-				return nil
-			}
-			return ErrTransportClosed
-		}
-	}
-}
-
-func (s *Session) connectionLoop() error {
-	statsTimer := time.NewTicker(5 * time.Second)
-	defer statsTimer.Stop()
-	report := func() {
-		if s.reportStats != nil {
-			s.reportStats(s.callID, s.Statistics())
-		}
-	}
-	defer report()
-	var (
-		recoveryTimer *time.Timer
-		recovery      <-chan time.Time
-	)
-	stopRecovery := func() {
-		if recoveryTimer == nil {
-			return
-		}
-		if !recoveryTimer.Stop() {
-			select {
-			case <-recoveryTimer.C:
-			default:
-			}
-		}
-		recoveryTimer = nil
-		recovery = nil
-	}
-	defer stopRecovery()
-
-	for {
-		select {
-		case <-statsTimer.C:
-			report()
-		case state := <-s.events.state:
-			switch state {
-			case webrtc.PeerConnectionStateConnected:
-				stopRecovery()
-			case webrtc.PeerConnectionStateDisconnected,
-				webrtc.PeerConnectionStateFailed:
-				if recoveryTimer == nil {
-					recoveryTimer = time.NewTimer(s.recoveryTime)
-					recovery = recoveryTimer.C
-				}
-			}
-		case <-recovery:
-			return errors.Join(ErrTransportTimeout, ErrTransportClosed)
-		case err := <-s.events.failure:
-			return err
-		case <-s.ctx.Done():
-			return nil
-		}
-	}
-}
-
-func (s *Session) waitConnected() error {
-	select {
-	case <-s.events.connected:
-		return nil
-	case err := <-s.events.failure:
-		return err
-	case <-s.ctx.Done():
-		return nil
-	}
 }
 
 func (s *Session) setReasonIfNil(err error) {

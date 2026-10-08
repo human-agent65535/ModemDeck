@@ -8,14 +8,23 @@ struct ModemDeckContactsResponse: Decodable { let contacts: [Item]; let meta: Mo
 struct ModemDeckCallsResponse: Decodable { let calls: [Item]; let meta: ModemDeckPageMeta }
 struct RecordingItem: Decodable { let segment: Item; let call: Item; let playable: Bool; let favorite: Bool }
 struct ModemDeckRecordingsResponse: Decodable { let recordings: [RecordingItem]; let meta: ModemDeckPageMeta }
-enum ModemDeckAPIError: Error { case invalidResponse }
-final class Cache { var writes = 0; func write<T>(_ value: T, key: String) { writes += 1 } }
+struct ModemDeckCredential { let serverURL: String; let token: String }
+final class CredentialStore {
+ var value = ModemDeckCredential(serverURL: "https://example.invalid", token: "old")
+ func load() throws -> ModemDeckCredential? { value }
+}
+enum ModemDeckAPIError: Error { case invalidResponse, notPaired }
+final class Cache { var writes = 0; var tokens: [String] = []; func write<T>(_ value: T, key: String, credential: ModemDeckCredential? = nil) { writes += 1; tokens.append(credential!.token) } }
 final class API {
  let offlineCache = Cache()
+ let credentialStore = CredentialStore()
+ var switchAfterPage = 0
+ var requestedTokens: [String] = []
  var paths: [String] = []
  var repeatCursor = false
  var failSecondPage = false
- func decode<T: Decodable>(_ type: T.Type, path: String) async throws -> T {
+ func decode<T: Decodable>(_ type: T.Type, path: String, credential: ModemDeckCredential? = nil) async throws -> T {
+  requestedTokens.append(credential!.token)
   paths.append(path)
   let paged = path.contains("cursor=")
   if paged && failSecondPage { throw ModemDeckAPIError.invalidResponse }
@@ -25,6 +34,7 @@ final class API {
   }
   let name=path.contains("contacts") ? "contacts" : (path.contains("recordings") ? "recordings" : "calls")
   let data=try JSONSerialization.data(withJSONObject:[name:items,"meta":["limit":100,"nextCursor":(paged && !repeatCursor) ? "" : "page2","hasMore":(!paged || repeatCursor)]])
+  if paths.count == switchAfterPage { credentialStore.value = ModemDeckCredential(serverURL: "https://example.invalid", token: "new") }
   let decoder=JSONDecoder()
   return try decoder.decode(type,from:data)
  }
@@ -53,6 +63,18 @@ final class API {
   do { _ = try await unavailable.contacts(); preconditionFailure("partial result accepted") }
   catch ModemDeckAPIError.invalidResponse {}
   precondition(unavailable.offlineCache.writes == 0)
+  precondition(api.requestedTokens.allSatisfy { $0 == "old" } && api.offlineCache.tokens.allSatisfy { $0 == "old" })
+  for page in [1, 2] {
+   let replaced = API()
+   replaced.switchAfterPage = page
+   do { _ = try await replaced.calls(); preconditionFailure("replacement pairing received an old/partial collection") }
+   catch is CancellationError {}
+   precondition(replaced.paths.count == page && replaced.offlineCache.writes == 0)
+   precondition(replaced.requestedTokens.allSatisfy { $0 == "old" }, "pagination must never adopt a replacement token")
+   replaced.switchAfterPage = 0
+   let fresh = try await replaced.recordings()
+   precondition(fresh.count == 101 && replaced.offlineCache.tokens == ["new"])
+  }
   print("pagination, query preservation, and incomplete-page rejection passed")
  }
 }

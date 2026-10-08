@@ -2,11 +2,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
-  callMediaICEContract,
-  createCallMediaICEPayload,
+
   externalAccessContract,
   iosPairingContract,
-  parseCallMediaICEConfiguration,
+
   parseExternalAccessStatusResponse,
   parseIOSPairingResponse,
   parseIOSTestCallResponse
@@ -123,10 +122,6 @@ test('pairing exposes only verified selectable API addresses', () => {
         }
       ]
     },
-    turn: {
-      configured: true,
-      available: true
-    },
     origin_tls: {
       enabled: false,
       covers_routes: false,
@@ -151,10 +146,7 @@ test('pairing exposes only verified selectable API addresses', () => {
       tls_verification: true
     }
   ])
-  assert.deepEqual(external.turn, {
-    configured: true,
-    available: true
-  })
+  assert.equal('turn' in external, false)
 
   const created = parseIOSPairingResponse({
     pairing: status.pairing,
@@ -254,39 +246,6 @@ test('fixture can preview a missing Origin SNI diagnosis', async () => {
   )
 })
 
-test('Cloudflare Web call media accepts relay-only ICE configuration', () => {
-  assert.deepEqual(callMediaICEContract('call-1'), {
-    method: 'POST',
-    path: '/api/v1/calls/call-1/media/ice',
-    successStatus: 200
-  })
-  assert.deepEqual(createCallMediaICEPayload(), {})
-  assert.deepEqual(
-    parseCallMediaICEConfiguration({
-      ice_servers: [
-        {
-          urls: ['turns:turn.example.test:443?transport=tcp'],
-          username: 'relay-user',
-          credential: 'relay-credential'
-        }
-      ],
-      ice_transport_policy: 'relay',
-      expires_at: '2026-08-01T00:00:00Z'
-    }),
-    {
-      ice_servers: [
-        {
-          urls: ['turns:turn.example.test:443?transport=tcp'],
-          username: 'relay-user',
-          credential: 'relay-credential'
-        }
-      ],
-      ice_transport_policy: 'relay',
-      expires_at: '2026-08-01T00:00:00Z'
-    }
-  )
-})
-
 test('settings separate administrator infrastructure from self-service pairing', async () => {
   const [settingsView, settingsNavigation, userPanel, pairingPanel, connectivityPanel, externalAccessPanel, callMedia] =
     await Promise.all([
@@ -360,14 +319,12 @@ test('settings separate administrator infrastructure from self-service pairing',
     externalAccessPanel,
     /<div class="ios-tunnel-status">[\s\S]*?ios-refresh-button[\s\S]*?<span[\s\S]*?class="ios-status"/
   )
-  assert.match(externalAccessPanel, /externalAccess\.turn\.configured/)
-  assert.match(externalAccessPanel, /externalAccess\.turn\.available/)
   assert.match(externalAccessPanel, /pairing\.value\.availability === 'ready'/)
   assert.match(externalAccessPanel, /v-for="device in pairing\.devices"/)
   assert.match(externalAccessPanel, /<SettingsControlRow/)
   assert.doesNotMatch(externalAccessPanel, /device_model_identifier/)
   assert.doesNotMatch(externalAccessPanel, /device\?\.app_build/)
-  assert.match(externalAccessPanel, /turnCallUnavailable/)
+  assert.doesNotMatch(externalAccessPanel, /externalAccess\.turn|turnCallUnavailable/)
   assert.doesNotMatch(externalAccessPanel, /turnReady/)
   assert.match(externalAccessPanel, /window\.setInterval/)
   assert.match(

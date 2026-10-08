@@ -19,6 +19,8 @@ test('incoming-call preview remains ringing until the user acts', async () => {
   await gateway.callAction('call-fixture-incoming', 'answer')
   const { calls: [answered] } = await gateway.getActiveCallSnapshot()
   assert.equal(answered.phase, 'active')
+  assert.ok(Math.abs(Date.now() - Date.parse(answered.active_at)) < 1000)
+  assert.ok(Date.parse(answered.active_at) >= Date.parse(answered.created_at))
 })
 
 test('incoming-call preview can show a call claimed by another browser', async () => {

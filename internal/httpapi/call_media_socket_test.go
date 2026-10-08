@@ -223,11 +223,11 @@ func TestMediaSocketOriginAllowsNativeOnlyWithoutOrigin(t *testing.T) {
 
 func TestMobileTestSocketUsesSharedRuntimeWithoutTURN(t *testing.T) {
 	push := make(localAudioTestPush, 1)
-	service := calltest.New(push, nil, nil)
+	service := calltest.New(push, nil)
 	defer service.Close()
 	started, err := service.Start("user", "phone")
 	if err != nil {
-		t.Fatalf("WSS test incorrectly requires TURN: %v", err)
+		t.Fatalf("WSS test failed to start: %v", err)
 	}
 	select {
 	case <-push:

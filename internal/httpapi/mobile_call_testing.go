@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
@@ -64,15 +63,19 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	id, action := parts[0], strings.Join(parts[1:], "/")
-	method := http.MethodPost
-	if action == "status" || action == "active" || action == "media/ws" {
+	var method string
+	switch action {
+	case "status", "active", "media/ws":
 		method = http.MethodGet
-	}
-	if action == "lease" {
+	case "lease":
 		method = http.MethodPut
-	}
-	if action == "media" && request.Method == http.MethodDelete {
+	case "media":
 		method = http.MethodDelete
+	case "answer", "hangup", "reject":
+		method = http.MethodPost
+	default:
+		api.writeCallTestError(response, request, calltest.ErrNotFound)
+		return
 	}
 	if request.Method != method {
 		response.Header().Set("Allow", method)
@@ -135,13 +138,6 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 		api.serveMediaSocket(response, request, func(token string, transport callmedia.SocketTransport) (*callmedia.Session, error) {
 			return api.callTests.OpenSocket(request.Context(), id, owner, token, transport)
 		}, func() error { return api.callTests.RequireMedia(request.Context(), id, owner) })
-	case "media/ice":
-		configuration, err := api.callTests.Configuration(request.Context(), id, owner)
-		if err != nil {
-			api.writeCallTestError(response, request, err)
-			return
-		}
-		writeJSON(response, http.StatusOK, callMediaICEConfigurationResponse{ICEServers: configuration.ICEServers, ICETransportPolicy: "relay", ExpiresAt: configuration.ExpiresAt.UTC().Format(time.RFC3339)})
 	case "media":
 		if request.Method == http.MethodDelete {
 			var input callMediaReleaseRequest
@@ -155,16 +151,6 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 			response.WriteHeader(http.StatusNoContent)
 			return
 		}
-		var input callMediaRequest
-		if !decodeJSONBody(response, request, &input) {
-			return
-		}
-		answer, err := api.callTests.Exchange(request.Context(), id, owner, input.OwnerToken, input.OfferSDP)
-		if err != nil {
-			api.writeCallTestError(response, request, err)
-			return
-		}
-		writeJSON(response, http.StatusOK, callMediaResponse{AnswerSDP: answer})
 	default:
 		api.writeCallTestError(response, request, calltest.ErrNotFound)
 	}
@@ -182,7 +168,7 @@ func (api *API) writeCallTestError(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusServiceUnavailable, "test_call_unavailable", "Call tests require configured Apple push", "")
 	case errors.Is(err, calllease.ErrInvalidArgument), errors.Is(err, calllease.ErrCallNotFound), errors.Is(err, calllease.ErrCallNotActive), errors.Is(err, calllease.ErrCallOwned), errors.Is(err, calllease.ErrHolderBusy), errors.Is(err, calllease.ErrNotOwner):
 		api.writeCallLeaseError(response, request, "control test call owner", err)
-	case errors.Is(err, mediaapp.ErrInvalidArgument), errors.Is(err, mediaapp.ErrNotFound), errors.Is(err, mediaapp.ErrNotActive), errors.Is(err, mediaapp.ErrUnavailable), errors.Is(err, mediaapp.ErrConflict), errors.Is(err, mediaapp.ErrNegotiation):
+	case errors.Is(err, mediaapp.ErrInvalidArgument), errors.Is(err, mediaapp.ErrNotFound), errors.Is(err, mediaapp.ErrNotActive), errors.Is(err, mediaapp.ErrUnavailable), errors.Is(err, mediaapp.ErrConflict):
 		api.logger.Warn("test call media failed", "path", request.URL.Path, "error", err)
 		api.writeCallMediaError(response, request, err)
 	default:

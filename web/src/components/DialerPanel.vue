@@ -84,7 +84,7 @@ const lines = computed(() => bootstrapResource.data?.lines || [])
 const voiceCallingAvailable = computed(
   () =>
     bootstrapResource.data?.capabilities.dial === true &&
-    bootstrapResource.data?.capabilities.webrtc_audio === true
+    bootstrapResource.data?.capabilities.wss_audio === true
 )
 const dialLines = computed(() =>
   voiceCallingAvailable.value
@@ -284,27 +284,20 @@ watch(
     [showing, permanent, nonModal],
     [previous, wasPermanent, wasNonModal]
   ) => {
-    if (
-      showing &&
-      !permanent &&
-      !nonModal &&
-      (!previous || wasPermanent || wasNonModal)
-    ) {
+    if (showing && (!previous || wasPermanent || wasNonModal)) {
       callReturnFocus =
         dialerReturnFocus?.isConnected
           ? dialerReturnFocus
-          : document.activeElement instanceof HTMLElement
+          : document.activeElement instanceof HTMLElement && document.activeElement !== document.body
             ? document.activeElement
             : null
-      await nextTick()
-      panelRef.value?.focus()
+      if (!permanent && !nonModal) {
+        await nextTick()
+        panelRef.value?.focus()
+      }
       return
     }
-    if (!showing && previous && !nonModal) restoreDialogFocus()
-    if (permanent || nonModal) {
-      callReturnFocus = null
-      dialerReturnFocus = null
-    }
+    if (!showing && previous) restoreDialogFocus()
   }
 )
 
@@ -443,7 +436,8 @@ function restoreDialogFocus(): void {
     ? callReturnFocus
     : dialerReturnFocus?.isConnected
       ? dialerReturnFocus
-      : null
+      : props.permanent ? panelRef.value
+        : Array.from(document.querySelectorAll<HTMLElement>('.mobile-nav__dial, .rail__primary a')).find(element => element.getClientRects().length > 0)
   callReturnFocus = null
   dialerReturnFocus = null
   target?.focus()
@@ -521,7 +515,7 @@ onBeforeUnmount(() => {
           :role="permanent ? undefined : nonModal ? 'complementary' : 'dialog'"
           :aria-modal="!permanent && !nonModal ? true : undefined"
           :aria-label="showingCall ? t('shell.calls') : t('dialer.title')"
-          :tabindex="!permanent && !nonModal && callSurfaceVisible ? -1 : undefined"
+          :tabindex="-1"
           @keydown="trapCallFocus"
           @keydown.esc="
             !permanent && (showingCall ? minimizeCallSurface() : closeDialer())
@@ -583,7 +577,8 @@ onBeforeUnmount(() => {
             />
           </div>
 
-          <CallSurface v-if="showingCall" />
+          <Transition name="call-presentation" mode="out-in">
+          <CallSurface v-if="showingCall && callState.session" :session="callState.session" />
 
           <div v-else class="dialer-panel__body">
             <div class="dialer-panel__scroll">
@@ -702,6 +697,7 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
+          </Transition>
         </aside>
       </div>
     </Transition>
@@ -709,6 +705,17 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.call-presentation-enter-active,
+.call-presentation-leave-active {
+  transition: opacity var(--motion-base) var(--ease-standard);
+}
+.call-presentation-enter-from,
+.call-presentation-leave-to { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .call-presentation-enter-active,
+  .call-presentation-leave-active { transition: none; }
+}
+
 .dialer-surface-enter-active,
 .dialer-surface-leave-active {
   transition: opacity var(--motion-base) var(--ease-standard);

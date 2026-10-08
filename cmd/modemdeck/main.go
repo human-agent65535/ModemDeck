@@ -135,10 +135,6 @@ func run(
 	if err != nil {
 		return fmt.Errorf("configure Cloudflare Tunnel: %w", err)
 	}
-	turnProvider, err := cloudflareTURNProvider()
-	if err != nil {
-		return fmt.Errorf("configure call relay: %w", err)
-	}
 	db, err := database.Open(ctx, database.Config{
 		TargetPath: databasePath,
 	})
@@ -217,8 +213,8 @@ func run(
 	}
 	mediaRuntime, err := mediaapp.NewRuntime(mediaapp.RuntimeOptions{
 		Calls: repository, Refresher: communications, Controller: communications,
-		EndpointOpener: mediaOpener, RTCProvider: turnProvider,
-		OnAudioStats: callmedia.AudioStatsLogger(logger),
+		EndpointOpener: mediaOpener,
+		OnAudioStats:   callmedia.AudioStatsLogger(logger),
 		LeaseOptions: calllease.Options{Report: func(err error) {
 			logger.Warn("call ownership cleanup failed", "component", "calls", "error", err)
 		}},
@@ -323,7 +319,7 @@ func run(
 	}
 	var callTests *calltest.Service
 	if applePushRuntime != nil {
-		callTests = calltest.New(applePushRuntime, turnProvider, logger.With("component", "call_test"))
+		callTests = calltest.New(applePushRuntime, logger.With("component", "call_test"))
 		defer callTests.Close()
 	}
 	api, err := httpapi.New(repository, httpapi.Options{
@@ -347,7 +343,6 @@ func run(
 		IOSCallTests:       applePushRuntime,
 		CallTests:          callTests,
 		MessageBadgeSync:   applePushRuntime,
-		RTCConfiguration:   turnProvider,
 		Authenticator:      authenticator,
 		SecureCookies:      secureCookies,
 		Logger:             logger.With("component", "http"),

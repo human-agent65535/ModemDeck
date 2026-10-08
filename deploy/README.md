@@ -78,7 +78,7 @@ For `--git` deployments, `install.sh` compares the previously deployed Git
 revision, resolved Compose service hashes, and fingerprints of external
 assignment/media-binding files. It builds and replaces only affected services,
 using independent image tags for API, Web, and Hardware. API, Web,
-cloudflared, or TURN-only changes retain the running Hardware/ModemManager
+or cloudflared changes retain the running Hardware/ModemManager
 container. Agent/Hardware inputs, Hardware mode, device assignments, and media
 bindings select Hardware for replacement. `--rebuild-all` is the explicit
 escape hatch that rebuilds every image and force-recreates the complete stack.
@@ -194,9 +194,9 @@ origins or appear in an iOS QR payload. To use HTTP/3 outside the host, allow
 the selected port over both TCP and UDP in the host firewall; the installer
 does not modify firewall policy.
 
-## Cloudflare Tunnel and Realtime TURN
+## Cloudflare Tunnel and WSS audio
 
-Cloudflare Tunnel and Realtime TURN are installer options. Create a
+Cloudflare Tunnel is an installer option. Create a
 remotely-managed Tunnel and configure its public hostnames as needed. The
 default origins are the API-only `http://modemdeck:7575` listener and the Web
 `http://modemdeck:7576` listener. The connector requires only a Tunnel token:
@@ -211,19 +211,8 @@ with binary Opus frames and no TURN requirement. Deploy the API and Web proxy
 together: the proxy must forward WebSocket upgrades on `/api/`. See the
 [audio protocol](../docs/call-audio-websocket.md) for framing and recovery.
 
-During an upgrade from older WebRTC clients, retain the existing Realtime TURN
-key. Its optional compatibility configuration is:
-
-```sh
-sudo ./install.sh \
-  --cloudflare-token-file /root/modemdeck-cloudflare.token \
-  --cloudflare-turn-key-id REPLACE_WITH_TURN_KEY_ID \
-  --cloudflare-turn-token-file /root/modemdeck-cloudflare-turn.token
-```
-
-The installer enables `docker-compose.cloudflare.yml` and, when TURN is
-configured, `docker-compose.cloudflare-turn.yml`. Credentials are copied into
-restricted file secrets. Both Tunnel origins are reachable from the connector;
+The installer enables `docker-compose.cloudflare.yml` and copies its Tunnel
+token into a restricted file secret. Both Tunnel origins are reachable from the connector;
 the user decides which ingress rules Cloudflare publishes. The Go API
 discovers every pathless ingress for the HTTP or HTTPS forms of the built-in
 `7575` and `7576` origins and verifies each public API route. Pairing uses one
@@ -243,16 +232,13 @@ Origin TLS card. Reverse those Tunnel changes before removing the certificate.
 The installer and Web application do not request a broader Tunnel-edit API
 credential.
 
-Legacy clients receive short-lived relay-only ICE configurations, while the
-long-lived TURN API token remains available only to the API container. Current
-WSS clients do not request ICE credentials or fall back to TURN. Keep TURN until
-the deployed Web bundle and all paired iOS devices have upgraded and both-way
-audio, receiver/speaker routing, lock-screen calls and recovery have been checked.
-`--disable-cloudflare-turn` removes TURN from the running stack while retaining
-the Tunnel connector and persisted credentials. Once that transition is verified,
-revoke the dedicated TURN key with its provider and remove its local secret; do
-not revoke the separate Tunnel token. `--disable-cloudflare` removes
-the connector and disables new iOS pairing while retaining application data.
+All call media uses WSS; ICE, SDP negotiation and TURN credentials are removed.
+Upgrading removes the retired `MODEMDECK_CLOUDFLARE_TURN_KEY_ID` and
+`MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE` entries and stops selecting the old
+TURN Compose override. User-owned token files and provider resources are not
+deleted automatically. The separate Tunnel token and connector remain intact.
+`--disable-cloudflare` removes the connector and disables new iOS pairing while
+retaining application data.
 
 There is no LAN discovery or LAN endpoint in an iOS QR payload. Every iOS
 pairing code contains one selected Cloudflare API HTTPS origin, while multiple

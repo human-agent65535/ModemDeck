@@ -27,7 +27,7 @@ func TestAudioFailureCodesPreserveBoundedDiagnosticReason(t *testing.T) {
 	for _, value := range []struct {
 		err  error
 		code string
-	}{{nil, ""}, {ErrInvalidRTP, "invalid_audio"}, {ErrCodec, "codec_failed"}, {ErrEndpointIO, "endpoint_failed"}, {ErrBackpressure, "backpressure"}, {ErrTransportClosed, "transport_closed"}, {errors.Join(ErrTransportClosed, context.DeadlineExceeded), "transport_timeout"}, {context.Canceled, "cancelled"}, {errors.New("private detail"), "media_failed"}} {
+	}{{nil, ""}, {ErrInvalidAudio, "invalid_audio"}, {ErrCodec, "codec_failed"}, {ErrEndpointIO, "endpoint_failed"}, {ErrBackpressure, "backpressure"}, {ErrTransportClosed, "transport_closed"}, {errors.Join(ErrTransportClosed, context.DeadlineExceeded), "transport_timeout"}, {context.Canceled, "cancelled"}, {errors.New("private detail"), "media_failed"}} {
 		if got := AudioFailureCode(value.err); got != value.code {
 			t.Fatalf("failure code=%s want=%s", got, value.code)
 		}

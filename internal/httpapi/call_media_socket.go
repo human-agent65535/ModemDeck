@@ -165,7 +165,7 @@ func (t *mediaSocketTransport) Read(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	if kind != websocket.BinaryMessage {
-		return nil, callmedia.ErrInvalidRTP
+		return nil, callmedia.ErrInvalidAudio
 	}
 	_ = t.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	return data, nil

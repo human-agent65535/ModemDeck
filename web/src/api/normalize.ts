@@ -458,7 +458,7 @@ export function parseRuntimeCapabilities(
     'agent_connected',
     'dial',
     'message',
-    'webrtc_audio',
+    'wss_audio',
     'device_control',
     'volte_control',
     'vowifi_control'
@@ -476,7 +476,7 @@ export function parseRuntimeCapabilities(
     agent_connected: capabilities.agent_connected as boolean,
     dial: capabilities.dial as boolean,
     message: capabilities.message as boolean,
-    webrtc_audio: capabilities.webrtc_audio as boolean,
+    wss_audio: capabilities.wss_audio as boolean,
     device_control: capabilities.device_control as boolean,
     volte_control: capabilities.volte_control as boolean,
     vowifi_control: capabilities.vowifi_control as boolean,

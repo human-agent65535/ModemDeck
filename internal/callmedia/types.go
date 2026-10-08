@@ -6,13 +6,10 @@ import (
 	"strings"
 	"time"
 	"unicode"
-
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 )
 
 const (
-	RTPClockRate       = 48000
-	OpusPayloadType    = 111
+	OpusClockRate      = 48000
 	maxCallIDBytes     = 256
 	maxOwnerTokenBytes = 128
 	bitsPerPCMSample   = 16
@@ -60,7 +57,7 @@ func (f PCMFormat) Validate() error {
 	if f.FrameDuration != 10*time.Millisecond && f.FrameDuration != defaultFramePeriod {
 		return fmt.Errorf("validate PCM format: frame duration: %w", ErrInvalidArgument)
 	}
-	if f.samples(f.FrameDuration) <= 0 || f.rtpSamples(f.FrameDuration) <= 0 {
+	if f.samples(f.FrameDuration) <= 0 || f.opusSamples(f.FrameDuration) <= 0 {
 		return fmt.Errorf("validate PCM format: frame size: %w", ErrInvalidArgument)
 	}
 	return nil
@@ -74,16 +71,16 @@ func (f PCMFormat) FrameBytes() int {
 	return f.FrameSamples() * f.Channels * bytesPerPCMSample
 }
 
-func (f PCMFormat) RTPFrameSamples() uint32 {
-	return uint32(f.rtpSamples(f.FrameDuration))
+func (f PCMFormat) OpusFrameSamples() uint32 {
+	return uint32(f.opusSamples(f.FrameDuration))
 }
 
 func (f PCMFormat) samples(duration time.Duration) int {
 	return int(int64(f.SampleRate) * int64(duration) / int64(time.Second))
 }
 
-func (f PCMFormat) rtpSamples(duration time.Duration) int {
-	return int(int64(RTPClockRate) * int64(duration) / int64(time.Second))
+func (f PCMFormat) opusSamples(duration time.Duration) int {
+	return int(int64(OpusClockRate) * int64(duration) / int64(time.Second))
 }
 
 // MediaEndpoint is a full-duplex, fixed-frame PCM stream owned by the
@@ -103,18 +100,6 @@ type MediaEndpoint interface {
 // call. Implementations must not perform call control or choose another call.
 type MediaEndpointOpener interface {
 	Open(context.Context, ActiveCall) (MediaEndpoint, error)
-}
-
-type Offer struct {
-	Call             ActiveCall
-	OwnerToken       string
-	SDP              string
-	RTCConfiguration rtcconfig.Configuration
-}
-
-type ExchangeResult struct {
-	AnswerSDP string
-	Session   *Session
 }
 
 func normalizeActiveCall(call ActiveCall) (ActiveCall, error) {

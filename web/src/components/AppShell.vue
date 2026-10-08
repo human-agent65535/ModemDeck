@@ -18,11 +18,10 @@ import {
   UsersRound,
   X
 } from '@lucide/vue'
-import { fixtureMode } from '../api/client'
+import { fixtureCallMediaPreview, fixtureMode } from '../api/client'
 import {
   callState,
   initializeCallRuntime,
-  isLiveCallSession,
   occupiedLineIDs,
   shutdownCallRuntime
 } from '../state/call'
@@ -74,7 +73,7 @@ const nonModalDialer = ref(false)
 const mobileMoreOpen = ref(false)
 const occupiedLineCount = computed(() => occupiedLineIDs().size)
 const activeCallPresent = computed(() =>
-  callState.sessions.some(isLiveCallSession)
+  Boolean(callState.session)
 )
 const incomingCallRinging = computed(
   () =>
@@ -365,7 +364,7 @@ function handleMobileBack(): void {
 onMounted(() => {
   mountGeneration += 1
   const currentGeneration = mountGeneration
-  void initializeBrowserAudio()
+  if (!fixtureCallMediaPreview) void initializeBrowserAudio()
   initializeBrowserNotifications()
   initializeBrowserSounds()
   initializeCallRuntime(router)

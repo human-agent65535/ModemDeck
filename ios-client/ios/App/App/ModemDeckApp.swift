@@ -382,10 +382,10 @@ struct ModemDeckRootView: View {
     var body: some View {
         ZStack {
             content
-                .allowsHitTesting(callController.call == nil || !callExpanded)
-                .accessibilityHidden(callController.call != nil && callExpanded)
+                .allowsHitTesting(!callController.endedCallClosing && (callController.visibleCall == nil || !callExpanded))
+                .accessibilityHidden(callController.visibleCall != nil && callExpanded)
 
-            if let call = callController.call {
+            if let call = callController.visibleCall {
                 ModemDeckActiveCallView(
                     call: call,
                     controller: controller,
@@ -394,8 +394,9 @@ struct ModemDeckRootView: View {
                 )
                 .accessibilityElement(children: .contain)
                 .accessibilityAddTraits(callExpanded ? .isModal : [])
-                .opacity(callExpanded ? 1 : 0)
-                .allowsHitTesting(callExpanded)
+                .opacity(callExpanded && !callController.endedCallClosing ? 1 : 0)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: callController.endedCallClosing)
+                .allowsHitTesting(callExpanded && !callController.endedCallClosing)
                 .accessibilityHidden(!callExpanded)
                 .transition(reduceMotion ? .identity : .opacity)
                 .zIndex(20)
@@ -446,8 +447,8 @@ struct ModemDeckRootView: View {
             Task { await controller.handleAuthenticationFailure() }
         }
         .onChange(of: callController.call?.id) { callID in
-            callExpanded = callID != nil
             guard callID != nil else { return }
+            callExpanded = true
             UIApplication.shared.sendAction(
                 #selector(UIResponder.resignFirstResponder),
                 to: nil,
@@ -848,7 +849,7 @@ private struct ModemDeckWorkspaceShell: View {
                             accessibilityLabel: controller.text("打开拨号盘", "Open dialer"),
                             open: { if callController.call != nil { callExpanded = true } else { showingDialer = true } }
                         ))
-                    if let call = callController.call, !callExpanded {
+                    if let call = callController.visibleCall, !callExpanded {
                         ModemDeckMiniCallBar(call: call, controller: controller, callController: callController,
                                              restore: { callExpanded = true })
                             .padding(.horizontal, 12).padding(.vertical, 8)

@@ -11,7 +11,7 @@ const (
 )
 
 // DecodedAudio contains one complete Opus packet decoded to the endpoint's
-// PCM format. Duration is derived from the Opus packet, not SDP ptime.
+// PCM format. Duration is derived from the Opus packet.
 type DecodedAudio struct {
 	PCM      []byte
 	Duration time.Duration
@@ -45,12 +45,12 @@ func validateEncodedFrame(format PCMFormat, pcm []byte) error {
 
 func durationFromSamples(samples, sampleRate int) (time.Duration, error) {
 	if samples <= 0 || sampleRate <= 0 {
-		return 0, ErrInvalidRTP
+		return 0, ErrInvalidAudio
 	}
 	nanoseconds := int64(samples) * int64(time.Second) / int64(sampleRate)
 	duration := time.Duration(nanoseconds)
 	if duration > maxOpusPacketTime || !validOpusPacketDuration(duration) {
-		return 0, ErrInvalidRTP
+		return 0, ErrInvalidAudio
 	}
 	return duration, nil
 }
@@ -83,11 +83,11 @@ func validOpusPacketDuration(duration time.Duration) bool {
 
 func pcmBytesForDuration(format PCMFormat, duration time.Duration) (int, error) {
 	if !validOpusPacketDuration(duration) {
-		return 0, ErrInvalidRTP
+		return 0, ErrInvalidAudio
 	}
 	samples := format.samples(duration)
 	if samples <= 0 {
-		return 0, ErrInvalidRTP
+		return 0, ErrInvalidAudio
 	}
 	return samples * format.Channels * bytesPerPCMSample, nil
 }

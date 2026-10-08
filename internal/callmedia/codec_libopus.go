@@ -135,7 +135,7 @@ func (c *libOpusCodec) Encode(pcm []byte) ([]byte, error) {
 
 func (c *libOpusCodec) Decode(payload []byte) (DecodedAudio, error) {
 	if c == nil || len(payload) == 0 || len(payload) > maxOpusPayloadBytes {
-		return DecodedAudio{}, fmt.Errorf("decode Opus packet: %w", ErrInvalidRTP)
+		return DecodedAudio{}, fmt.Errorf("decode Opus packet: %w", ErrInvalidAudio)
 	}
 	duration, err := c.PacketDuration(payload)
 	if err != nil {
@@ -172,17 +172,17 @@ func (c *libOpusCodec) Decode(payload []byte) (DecodedAudio, error) {
 
 func (c *libOpusCodec) PacketDuration(payload []byte) (time.Duration, error) {
 	if c == nil || len(payload) == 0 || len(payload) > maxOpusPayloadBytes {
-		return 0, fmt.Errorf("inspect Opus packet: %w", ErrInvalidRTP)
+		return 0, fmt.Errorf("inspect Opus packet: %w", ErrInvalidAudio)
 	}
 	samples := C.opus_packet_get_nb_samples(
 		(*C.uchar)(unsafe.Pointer(&payload[0])),
 		C.opus_int32(len(payload)),
-		C.opus_int32(RTPClockRate),
+		C.opus_int32(OpusClockRate),
 	)
 	if samples < 0 {
 		return 0, opusError("inspect Opus packet", C.int(samples))
 	}
-	duration, err := durationFromSamples(int(samples), RTPClockRate)
+	duration, err := durationFromSamples(int(samples), OpusClockRate)
 	if err != nil {
 		return 0, fmt.Errorf("inspect Opus packet: %w", err)
 	}
@@ -191,7 +191,7 @@ func (c *libOpusCodec) PacketDuration(payload []byte) (time.Duration, error) {
 
 func (c *libOpusCodec) Conceal(duration time.Duration) ([]byte, error) {
 	if c == nil || !validOpusFrameDuration(duration) {
-		return nil, fmt.Errorf("conceal Opus packet: duration: %w", ErrInvalidRTP)
+		return nil, fmt.Errorf("conceal Opus packet: duration: %w", ErrInvalidAudio)
 	}
 	pcmBytes, err := pcmBytesForDuration(c.format, duration)
 	if err != nil {

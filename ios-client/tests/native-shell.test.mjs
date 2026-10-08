@@ -174,7 +174,7 @@ test('native call control preserves server defaults and serializes completed DTM
   ])
 
   assert.match(delegate, /configure\(store: credentialStore\)/)
-  assert.match(app, /\.accessibilityHidden\(callController\.call != nil && callExpanded\)/)
+  assert.match(app, /\.accessibilityHidden\(callController\.visibleCall != nil && callExpanded\)/)
   assert.match(app, /\.accessibilityAddTraits\(callExpanded \? \.isModal : \[\]\)/)
   assert.match(api, /recordingEnabled: Bool\?/)
   assert.match(api, /func callRecording\(callID:/)
@@ -807,7 +807,7 @@ test('CallKit foreground reconciliation opens the native active-call surface', a
     source('ios/App/App/ModemDeckNative.swift')
   ])
 
-  assert.match(app, /if let call = callController\.call[\s\S]*ModemDeckActiveCallView/)
+  assert.match(app, /if let call = callController\.visibleCall[\s\S]*ModemDeckActiveCallView/)
   assert.match(app, /UIApplication\.didBecomeActiveNotification[\s\S]*callController\.refreshFromCallKit\(\)/)
   assert.match(session, /func refreshFromCallKit\(\)[\s\S]*currentCallState/)
   assert.match(native, /answerRequestedCallUUIDs\.insert\(uuid\)[\s\S]*publishCallState\(\)/)
