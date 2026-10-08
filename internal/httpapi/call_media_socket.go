@@ -131,7 +131,7 @@ func (api *API) serveMediaSocket(w http.ResponseWriter, r *http.Request, open fu
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second)); err != nil {
+			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(2*time.Second)); err != nil {
 				return
 			}
 			if err := transport.json(map[string]any{"type": "stats", "final": false, "audio": session.Statistics()}); err != nil {
@@ -183,13 +183,13 @@ func (t *mediaSocketTransport) Write(ctx context.Context, data []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_ = t.conn.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
+	_ = t.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	return t.conn.WriteMessage(websocket.BinaryMessage, data)
 }
 func (t *mediaSocketTransport) json(value any) error {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	_ = t.conn.SetWriteDeadline(time.Now().Add(time.Second))
+	_ = t.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	return t.conn.WriteJSON(value)
 }
 func (t *mediaSocketTransport) Finish(reason error, stats callmedia.AudioStatistics) {
@@ -201,7 +201,7 @@ func (t *mediaSocketTransport) Finish(reason error, stats callmedia.AudioStatist
 	if reason != nil {
 		code = websocket.CloseInternalServerErr
 	}
-	_ = t.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, ""), time.Now().Add(time.Second))
+	_ = t.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, ""), time.Now().Add(2*time.Second))
 }
 func (t *mediaSocketTransport) InterruptRead() { _ = t.conn.SetReadDeadline(time.Now()) }
 

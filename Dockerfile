@@ -22,20 +22,37 @@ COPY web/ ./
 COPY internal/audiocore/ ../internal/audiocore/
 COPY scripts/build-audio-core.mjs ../scripts/build-audio-core.mjs
 COPY scripts/audio-core/ ../scripts/audio-core/
+COPY third_party/audio/ ../third_party/audio/
 RUN npm run build
 
 
 FROM ${GO_IMAGE} AS go-toolchain
 
 ENV GOTOOLCHAIN=local \
-    CGO_ENABLED=1
+    CGO_ENABLED=1 \
+    CGO_LDFLAGS_ALLOW="-Wl,--gc-sections"
 WORKDIR /workspace
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update \
-    && apt-get install -y --no-install-recommends libopus-dev=1.3.1-3
+    && apt-get install -y --no-install-recommends cmake=3.25.1-1 ninja-build=1.11.1-2~deb12u1
 
+COPY third_party/audio/ /opt/modemdeck-audio/third_party/audio/
+COPY internal/audiocore/native/ /opt/modemdeck-audio/internal/audiocore/native/
+RUN cmake -S /opt/modemdeck-audio/internal/audiocore/native -B /opt/modemdeck-audio/build -G Ninja \
+    && cmake --build /opt/modemdeck-audio/build --target md_audio_core_bundle --parallel 4 \
+    && install -m 0644 /opt/modemdeck-audio/build/libmd_audio_core.a /usr/local/lib/ \
+    && install -m 0644 /opt/modemdeck-audio/internal/audiocore/native/include/md_neteq.h /usr/local/include/ \
+    && mkdir -p /usr/local/share/modemdeck-audio \
+    && install -m 0644 /opt/modemdeck-audio/build/audio-source.sha256 /usr/local/share/modemdeck-audio/source.sha256 \
+    && install -m 0755 /opt/modemdeck-audio/internal/audiocore/native/go-build-env.sh /usr/local/bin/modemdeck-go-env \
+    && mkdir -p /usr/local/include/opus \
+    && cp /opt/modemdeck-audio/build/upstream/src/third_party/opus/src/include/*.h /usr/local/include/opus/
+
+
+ENTRYPOINT ["/usr/local/bin/modemdeck-go-env"]
+SHELL ["/usr/local/bin/modemdeck-go-env", "/bin/sh", "-c"]
 
 FROM go-toolchain AS app-builder
 
@@ -85,6 +102,7 @@ ARG VCS_REF=unknown
 
 COPY --from=app-builder /out/modemdeck-updater /usr/local/bin/modemdeck-updater
 COPY LICENSE NOTICE.md THIRD_PARTY_NOTICES.md /usr/share/licenses/modemdeck/
+COPY third_party/audio/LICENSES.txt /usr/share/licenses/modemdeck/audio-LICENSES.txt
 
 LABEL org.opencontainers.image.title="ModemDeck Updater" \
       org.opencontainers.image.description="Digest-pinned update control plane for ModemDeck containers" \
@@ -109,6 +127,7 @@ COPY --chown=101:101 web/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=101:101 --chmod=0755 scripts/nginx-entrypoint.sh /usr/local/bin/modemdeck-web-entrypoint
 COPY --from=web-builder --chown=101:101 /workspace/web/dist/ /usr/share/nginx/html/
 COPY LICENSE NOTICE.md THIRD_PARTY_NOTICES.md /usr/share/licenses/modemdeck/
+COPY third_party/audio/LICENSES.txt /usr/share/licenses/modemdeck/audio-LICENSES.txt
 COPY web/THIRD_PARTY_NOTICES.md /usr/share/licenses/modemdeck/web-THIRD_PARTY_NOTICES.md
 
 LABEL org.opencontainers.image.title="ModemDeck Web" \
@@ -150,6 +169,7 @@ RUN apk add --no-cache ca-certificates=20260909-r0 \
 COPY --from=app-builder /out/modemdeck /usr/local/bin/modemdeck
 COPY --chmod=0755 scripts/docker-entrypoint.sh /usr/local/bin/modemdeck-entrypoint
 COPY LICENSE NOTICE.md THIRD_PARTY_NOTICES.md /usr/share/licenses/modemdeck/
+COPY third_party/audio/LICENSES.txt /usr/share/licenses/modemdeck/audio-LICENSES.txt
 
 LABEL org.opencontainers.image.title="ModemDeck" \
       org.opencontainers.image.description="Self-hosted cellular communications console" \

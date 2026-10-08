@@ -6,9 +6,9 @@ const limits = {
   initialRequests: 12,
   initialGzip: 230 * kibibyte,
   javascriptGzip: 100 * kibibyte,
-  // The pinned MIT/BSD libopus WASM is embedded in this worker. It loads only
-  // when starting call audio and must never enter the startup requests.
-  callCodecGzip: 180 * kibibyte,
+  // The shared WebRTC NetEq/Opus WASM loads only when enabling call audio.
+  // Its separate budget must not hide startup requests or unbounded growth.
+  callCodecGzip: 300 * kibibyte,
   stylesheetGzip: 20 * kibibyte
 }
 
@@ -26,10 +26,10 @@ async function compressedSize(url) {
 const assetNames = await readdir(assetsURL)
 const measuredAssets = await Promise.all(
   assetNames
-    .filter(name => /\.(?:css|js)$/.test(name))
+    .filter(name => /\.(?:css|js|wasm)$/.test(name))
     .map(async name => ({
       name,
-      type: name.endsWith('.css') ? 'css' : 'js',
+      type: name.endsWith('.css') ? 'css' : name.endsWith('.wasm') ? 'wasm' : 'js',
       gzip: await compressedSize(new URL(name, assetsURL))
     }))
 )
@@ -83,9 +83,10 @@ if (startupGzip > limits.initialGzip) {
     `worst-case startup JS/CSS is ${formatKibibytes(startupGzip)} gzip (limit ${formatKibibytes(limits.initialGzip)})`
   )
 }
-const lazyCallCodec = measuredAssets.find(asset => /^callOpus\.worker-.*\.js$/.test(asset.name))
-if (lazyCallCodec && (uniqueInitialPaths.some(path => path.endsWith(lazyCallCodec.name)) || lazyCallCodec.gzip > limits.callCodecGzip)) {
-  violations.push(`call codec must stay lazy and below ${formatKibibytes(limits.callCodecGzip)} gzip`)
+const lazyCallCodec = measuredAssets.find(asset => /^audioCore-.*\.wasm$/.test(asset.name))
+if (!lazyCallCodec) violations.push('shared call audio WASM asset is missing')
+if (lazyCallCodec && (indexHTML.includes(lazyCallCodec.name) || lazyCallCodec.gzip > limits.callCodecGzip)) {
+  violations.push(`shared call WASM must stay lazy and below ${formatKibibytes(limits.callCodecGzip)} gzip`)
 }
 const largestApplicationJavaScript = measuredAssets
   .filter(asset => asset.type === 'js' && asset !== lazyCallCodec)
@@ -104,6 +105,7 @@ if (largestStylesheet && largestStylesheet.gzip > limits.stylesheetGzip) {
 console.log(
   `bundle budget: ${uniqueInitialPaths.length} shell assets, ${formatKibibytes(initialGzip)} gzip; ` +
     `${startupRequests} assets and ${formatKibibytes(startupGzip)} gzip with the largest startup locale; ` +
+    `shared lazy audio WASM ${formatKibibytes(lazyCallCodec?.gzip || 0)}, ` +
     `largest JS ${formatKibibytes(largestJavaScript?.gzip || 0)}, ` +
     `largest CSS ${formatKibibytes(largestStylesheet?.gzip || 0)}`
 )

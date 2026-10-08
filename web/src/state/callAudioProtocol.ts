@@ -1,10 +1,7 @@
-import { instantiateAudioCore, type AudioCoreExports } from './audioCore'
-
 export const CALL_AUDIO_FORMAT = {
   version: 1, codec: 'opus', sample_rate: 16000, channels: 1, frame_ms: 20
 } as const
 export const CALL_AUDIO_FRAME_SAMPLES = 320
-export const CALL_AUDIO_MAX_AGE_MS = 100
 export const CALL_AUDIO_MAX_PACKET_BYTES = 1275
 
 export function callAudioWebSocketURL(callID: string, location: Pick<Location, 'href'>): string {
@@ -37,36 +34,20 @@ export function decodeCallAudioPacket(buffer: ArrayBuffer): { sequence: number; 
   return { sequence: view.getUint32(4), timestamp: view.getUint32(8), payload: bytes.slice(12) }
 }
 
+// MD12 transport integrity only: NetEq owns arrival/age/delay decisions.
+export function validateCallAudioProgress(previous: { sequence: number; timestamp: number } | undefined, packet: { sequence: number; timestamp: number }): void {
+  if (!previous) return
+  const distance = (packet.sequence - previous.sequence) >>> 0
+  if (!distance || distance >= 0x80000000 ||
+      ((packet.timestamp - previous.timestamp) >>> 0) !== ((distance * CALL_AUDIO_FRAME_SAMPLES) >>> 0)) {
+    throw new Error('Invalid call audio sequence')
+  }
+}
+
 export function isCallAudioReady(value: Record<string, unknown>): boolean {
   return value.type === 'ready' && Object.entries(CALL_AUDIO_FORMAT).every(([key, expected]) => value[key] === expected)
 }
 
 export function isRecoverableCallAudioError(code: unknown): boolean {
   return code === 'transport_timeout' || code === 'transport_closed' || code === 'backpressure'
-}
-
-// Thin adapter: the same C source is compiled for iOS, Go and this WASM.
-// Public browser times remain milliseconds; the shared ABI uses seconds.
-export class CallAudioReceiveClock {
-  private readonly core: AudioCoreExports
-
-  constructor(module: WebAssembly.Module) {
-    this.core = instantiateAudioCore(module)
-  }
-
-  get sendQueueCapacity(): number { return this.core.md_audio_send_queue_capacity() }
-  get queueCapacity(): number { return this.core.md_audio_queue_capacity() }
-  expired(sourceSeconds: number, nowSeconds: number): boolean {
-    return this.core.md_audio_frame_expired(sourceSeconds, nowSeconds) !== 0
-  }
-
-  get generation(): number { return this.core.md_clock_generation() }
-  get sourceSamples(): number { return this.core.md_clock_source_samples() }
-  get playAt(): number { return this.core.md_clock_play_at() * 1000 }
-
-  accept(sequence: number, timestamp: number, now: number): boolean {
-    const result = this.core.md_clock_accept(sequence, timestamp, now / 1000)
-    if (result < 0) throw new Error('Invalid call audio clock')
-    return result === 1
-  }
 }

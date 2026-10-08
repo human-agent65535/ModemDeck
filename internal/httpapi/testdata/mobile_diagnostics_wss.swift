@@ -32,7 +32,17 @@ import CryptoKit
                 "server_dropped_reanchor_packets": "4", "server_dropped_playout_packets": "5",
                 "server_dropped_rebuffer_packets": "6", "server_clock_reanchors": "2",
                 "server_playout_underruns": "3", "server_playout_silence_frames": "4",
-                "server_playout_missed_ticks": "1"])
+                "server_playout_missed_ticks": "1"]),
+            ("neteq_audio_statistics", ["neteq_concealed_samples": "480", "neteq_concealment_events": "1",
+                "neteq_inserted_samples": "960", "neteq_removed_samples": "240", "neteq_discarded_packets": "0",
+                "neteq_received_packets": "250", "neteq_target_delay_ms": "90", "neteq_buffer_delay_ms": "80",
+                "neteq_ingress_packets": "5", "neteq_render_errors": "0", "neteq_output_samples": "16000",
+                "neteq_output_sample_rate": "16000", "audio_samples": "synthetic-private-value"]),
+            ("server_audio_statistics", ["server_received_packets": "250", "server_neteq_concealed_samples": "480",
+                "server_neteq_concealment_events": "1", "server_neteq_inserted_samples": "960",
+                "server_neteq_removed_samples": "240", "server_neteq_packets_discarded": "0",
+                "server_neteq_target_delay_ms": "90", "server_neteq_current_delay_ms": "80",
+                "server_neteq_internal_sample_rate": "48000"])
         ]
         let events = inputs.enumerated().map { index, input in
             ModemDeckDiagnostics.Event(
@@ -54,7 +64,9 @@ import CryptoKit
         precondition(events.allSatisfy { $0.fields.count <= 32 })
         precondition(events[1].fields["send_dropped_frames"] == "2")
         precondition(events[3].fields["server_dropped_rebuffer_packets"] == "6")
-        let batch = ModemDeckDiagnostics.Batch(appVersion: "0.1.0", appBuild: "30", osVersion: "18.0", dropped: 2, events: events)
+        precondition(events[4].fields.count == 12 && events[4].fields["audio_samples"] == nil)
+        precondition(events[5].fields["server_neteq_internal_sample_rate"] == "48000")
+        let batch = ModemDeckDiagnostics.Batch(appVersion: "0.1.0", appBuild: "31", osVersion: "18.0", dropped: 2, events: events)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let output = URL(fileURLWithPath: CommandLine.arguments[2])

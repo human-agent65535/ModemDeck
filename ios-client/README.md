@@ -34,7 +34,7 @@ call audio remain native platform services.
   and retry immediately on a restored network path or app activation. SMS,
   call, and other business writes are never replayed automatically. Media
   recovery reopens authenticated WSS using the existing call lease and media
-  owner; the Opus source clock and bounded queues are shared with Web and Go.
+  owner. Native, Web and Go share the same pinned upstream NetEq core and resource limits.
 - Recents is a quick view of line status, call shortcuts and dated activity, sharing
   message, call, recording, and contact stores with the dedicated pages.
   Native swipe actions and copy/action menus remain available; search,
@@ -250,17 +250,29 @@ physical-device radio changes, background push delivery, or call audio.
 6. Revoke the iOS pairing in Web and verify the app returns to onboarding on
    the next request.
 
-Native call audio uses source-built `Copus` from BSD-3-Clause `alta/swift-opus`,
-pinned to revision `6f3cb6bd3ffed1fe5f06d00a962d5c191a50daf8`. No codec runtime
-service is required. AVAudioEngine voice processing provides capture/render AEC
-and AGC after CallKit activation, using an explicit mono 16 kHz client graph
-and 20 ms Opus packets. The authenticated WSS stream uses the protocol in
-[`docs/call-audio-websocket.md`](../docs/call-audio-websocket.md). Capture and
-transport queues retain 100 ms limits. Playback starts with a fixed 40 ms
-prebuffer and holds at most seven unrendered frames (a 100 ms batch plus that
-prebuffer); device output latency does not count toward this queue. Source
-freshness remains limited to 100 ms, including after playback restarts. The meter is
-measured from processed local capture and displayed at 10 Hz; server reports remain separate from sent counters.
+Native call audio links `MDNetEq.xcframework`, built from the repository's pinned
+upstream WebRTC NetEq, Opus and dependencies. `npm test` prepares the host static
+core; `npm run build:ios` prepares device arm64 and universal simulator slices.
+Dependency notices are generated once and packaged as `AudioCoreNotices.txt`.
+No codec runtime service, PeerConnection or TURN service is required.
+
+CallKit activation owns the AVAudioEngine voice-processing graph. Apple provides
+capture/render AEC and AGC using an explicit mono 16 kHz client format. Actual
+capture buffers are split into 20 ms Opus packets without assuming a preferred
+hardware buffer duration. NetEq owns decoding, adaptive jitter buffering, loss
+concealment and time scaling internally at 48 kHz, with official resampling to
+16 kHz. An AVAudioSourceNode consumes actual device demand directly; the shared
+C adapter retains only the remainder of a 10 ms pull. There is no additional
+fixed prebuffer, source-age discard window or per-packet player queue.
+
+The authenticated WSS protocol is documented in
+[`docs/call-audio-websocket.md`](../docs/call-audio-websocket.md). Preallocated
+network ingress and outgoing packet queues have explicit shared resource limits;
+exhaustion enters transport recovery rather than silently replacing queued
+speech. Engine reconfiguration preserves NetEq adaptation while discarding only
+the partial render block; reconnect creates fresh codec state. The meter measures
+processed local capture at 10 Hz. Opt-in diagnostics report separate capture,
+send, server receive and NetEq counters every five seconds, never audio content.
 
 For visual-only audio feedback checks, existing DEBUG UAT call fixtures accept
 `MODEMDECK_UAT_TEST_AUDIO_DYNAMIC=1` alongside `MODEMDECK_UAT_MODE=1`,

@@ -152,7 +152,7 @@ func TestMediaHubKeepsPlayedFramesInOrderForBurstCapture(t *testing.T) {
 	format := testFormat(8000)
 	hub := &mediaHub{
 		format: format,
-		played: make(chan []byte, uplinkQueueCapacity),
+		played: make(chan []byte, playedHistoryCapacity),
 	}
 	first := make([]byte, format.FrameBytes())
 	first[0] = 0x11
@@ -228,36 +228,5 @@ func (e *blockingStartEndpoint) Start(ctx context.Context) error {
 		return e.fakeEndpoint.Start(ctx)
 	case <-ctx.Done():
 		return ctx.Err()
-	}
-}
-
-func TestMediaHubUplinkBackpressureFailsAllConsumers(t *testing.T) {
-	format := testFormat(8000)
-	endpoint := newFakeEndpoint(format)
-	endpoint.writes = make(chan []byte, uplinkQueueCapacity+1)
-	hub, err := newMediaHub(context.Background(), "call-backpressure", endpoint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	subscription, err := hub.Subscribe(2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := subscription.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	frame := make([]byte, format.FrameBytes())
-	var overflow error
-	for index := 0; index < uplinkQueueCapacity*4; index++ {
-		if err := hub.WritePCM(context.Background(), frame); err != nil {
-			overflow = err
-			break
-		}
-	}
-	if !errors.Is(overflow, ErrBackpressure) {
-		t.Fatalf("overflow WritePCM() error = %v, want ErrBackpressure", overflow)
-	}
-	if _, err := subscription.Next(context.Background()); !errors.Is(err, ErrBackpressure) {
-		t.Fatalf("subscription error = %v, want ErrBackpressure", err)
 	}
 }

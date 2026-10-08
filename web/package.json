@@ -9,14 +9,14 @@
     "lint": "node ./node_modules/eslint/bin/eslint.js \"src/**/*.{ts,vue}\"",
     "typecheck": "vue-tsc --noEmit",
     "typecheck:sidecar": "tsc --project tsconfig.typescript7.json --noEmit",
-    "build": "npm run check:audio-core && npm run typecheck && vite build && npm run check:bundle",
+    "build": "npm run check:audio-core && npm run typecheck && vite build && npm run check:worklet && npm run check:bundle",
+    "check:worklet": "node --experimental-vm-modules ./scripts/check-call-audio-worklet.mjs",
     "check:bundle": "node ./scripts/check-bundle-budget.mjs",
     "preview": "vite preview",
     "check:audio-core": "node ../scripts/build-audio-core.mjs --check"
   },
   "dependencies": {
     "@lucide/vue": "1.28.0",
-    "libopus-wasm": "0.4.1",
     "libphonenumber-js": "1.13.9",
     "qrcode": "^1.5.4",
     "vue": "^3.5.40",

@@ -23,7 +23,7 @@ final class Owner {
     let queue = Queue()
     func recordConnectionEvent(_ event: String, error: Error) {}
     func recordDroppedFrames(_ count: Int, reason: Reason) { dropped += count }
-    func flushPlayback() { flushes += 1 }
+    func stopAudio() { flushes += 1 }
     func publishMediaState(_ state: String) { precondition(state == "reconnecting") }
     func failMedia(_ error: Error) { failures += 1; stopped = true }
     func stopLocked(notifyRemoteEnd: Bool) { if notifyRemoteEnd { remoteEnds += 1 } }

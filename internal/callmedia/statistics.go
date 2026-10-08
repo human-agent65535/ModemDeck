@@ -8,7 +8,6 @@ import (
 	"math"
 	"net"
 	"sync/atomic"
-	"time"
 )
 
 func AudioStatsLogger(logger *slog.Logger) func(string, AudioStatistics) {
@@ -18,77 +17,42 @@ func AudioStatsLogger(logger *slog.Logger) func(string, AudioStatistics) {
 			"received_packets", stats.ReceivedPackets, "received_bytes", stats.ReceivedBytes,
 			"sent_packets", stats.SentPackets, "dropped_packets", stats.DroppedPackets, "input_dbfs", stats.InputDBFS,
 			"input_peak_dbfs", stats.InputPeakDBFS, "output_dbfs", stats.OutputDBFS,
-			"dropped_source_early_packets", stats.DroppedSourceEarlyPackets,
-			"dropped_source_late_packets", stats.DroppedSourceLatePackets,
-			"dropped_queue_overflow_packets", stats.DroppedQueueOverflowPackets,
-			"dropped_reanchor_packets", stats.DroppedReanchorPackets,
-			"dropped_playout_packets", stats.DroppedPlayoutPackets,
-			"dropped_rebuffer_packets", stats.DroppedRebufferPackets,
-			"clock_reanchors", stats.ClockReanchors,
-			"playout_underruns", stats.PlayoutUnderruns,
-			"playout_silence_frames", stats.PlayoutSilenceFrames,
-			"playout_missed_ticks", stats.PlayoutMissedTicks)
+			"neteq_concealed_samples", stats.NetEqConcealedSamples, "neteq_concealment_events", stats.NetEqConcealmentEvents,
+			"neteq_inserted_samples", stats.NetEqInsertedSamples, "neteq_removed_samples", stats.NetEqRemovedSamples,
+			"neteq_packets_discarded", stats.NetEqPacketsDiscarded, "neteq_target_delay_ms", stats.NetEqTargetDelayMS,
+			"neteq_current_delay_ms", stats.NetEqCurrentDelayMS, "neteq_internal_sample_rate", stats.NetEqInternalSampleRate)
 	}
 }
 
 // AudioStatistics contains counters and levels only, never audio or addresses.
 type AudioStatistics struct {
-	DroppedSourceEarlyPackets   uint64 `json:"dropped_source_early_packets,omitempty"`
-	DroppedSourceLatePackets    uint64 `json:"dropped_source_late_packets,omitempty"`
-	DroppedQueueOverflowPackets uint64 `json:"dropped_queue_overflow_packets,omitempty"`
-	DroppedReanchorPackets      uint64 `json:"dropped_reanchor_packets,omitempty"`
-	DroppedPlayoutPackets       uint64 `json:"dropped_playout_packets,omitempty"`
-	DroppedRebufferPackets      uint64 `json:"dropped_rebuffer_packets,omitempty"`
-	ClockReanchors              uint64 `json:"clock_reanchors,omitempty"`
-	PlayoutUnderruns            uint64 `json:"playout_underruns,omitempty"`
-	PlayoutSilenceFrames        uint64 `json:"playout_silence_frames,omitempty"`
-	PlayoutMissedTicks          uint64 `json:"playout_missed_ticks,omitempty"`
-	Transport                   string `json:"transport,omitempty"`
-	State                       string `json:"state,omitempty"`
-	FailureCode                 string `json:"failure_code,omitempty"`
-	ReceivedPackets             uint64 `json:"received_packets"`
-	ReceivedBytes               uint64 `json:"received_bytes"`
-	DroppedPackets              uint64 `json:"dropped_packets,omitempty"`
-	SentPackets                 uint64 `json:"sent_packets"`
-	InputDBFS                   int    `json:"input_dbfs"`
-	InputPeakDBFS               int    `json:"input_peak_dbfs"`
-	OutputDBFS                  int    `json:"output_dbfs"`
+	NetEqConcealedSamples   uint64 `json:"neteq_concealed_samples,omitempty"`
+	NetEqConcealmentEvents  uint64 `json:"neteq_concealment_events,omitempty"`
+	NetEqInsertedSamples    uint64 `json:"neteq_inserted_samples,omitempty"`
+	NetEqRemovedSamples     uint64 `json:"neteq_removed_samples,omitempty"`
+	NetEqPacketsDiscarded   uint64 `json:"neteq_packets_discarded,omitempty"`
+	NetEqTargetDelayMS      uint64 `json:"neteq_target_delay_ms,omitempty"`
+	NetEqCurrentDelayMS     uint64 `json:"neteq_current_delay_ms,omitempty"`
+	NetEqInternalSampleRate uint64 `json:"neteq_internal_sample_rate,omitempty"`
+	Transport               string `json:"transport,omitempty"`
+	State                   string `json:"state,omitempty"`
+	FailureCode             string `json:"failure_code,omitempty"`
+	ReceivedPackets         uint64 `json:"received_packets"`
+	ReceivedBytes           uint64 `json:"received_bytes"`
+	DroppedPackets          uint64 `json:"dropped_packets,omitempty"`
+	SentPackets             uint64 `json:"sent_packets"`
+	InputDBFS               int    `json:"input_dbfs"`
+	InputPeakDBFS           int    `json:"input_peak_dbfs"`
+	OutputDBFS              int    `json:"output_dbfs"`
 }
 
 type audioCounters struct {
-	droppedSourceEarlyPackets   atomic.Uint64
-	droppedSourceLatePackets    atomic.Uint64
-	droppedQueueOverflowPackets atomic.Uint64
-	droppedReanchorPackets      atomic.Uint64
-	droppedPlayoutPackets       atomic.Uint64
-	droppedRebufferPackets      atomic.Uint64
-	clockReanchors              atomic.Uint64
-	playoutUnderruns            atomic.Uint64
-	playoutSilenceFrames        atomic.Uint64
-	playoutMissedTicks          atomic.Uint64
-	receivedPackets             atomic.Uint64
-	receivedBytes               atomic.Uint64
-	sentPackets                 atomic.Uint64
-	droppedPackets              atomic.Uint64
-	inputDBFS                   atomic.Int64
-	inputPeakDBFS               atomic.Int64
-	outputDBFS                  atomic.Int64
-}
-
-func (c *audioCounters) recordSourceDrop(age time.Duration) {
-	if age < -socketLateBudget {
-		c.droppedSourceEarlyPackets.Add(1)
-	} else {
-		c.droppedSourceLatePackets.Add(1)
-	}
-	c.droppedPackets.Add(1)
-}
-func (c *audioCounters) recordQueueDrops(d socketDrops) {
-	c.droppedQueueOverflowPackets.Add(d.overflow)
-	c.droppedReanchorPackets.Add(d.reanchor)
-	c.droppedPlayoutPackets.Add(d.playout)
-	c.droppedRebufferPackets.Add(d.rebuffer)
-	c.droppedPackets.Add(d.total())
+	receivedPackets atomic.Uint64
+	receivedBytes   atomic.Uint64
+	sentPackets     atomic.Uint64
+	inputDBFS       atomic.Int64
+	inputPeakDBFS   atomic.Int64
+	outputDBFS      atomic.Int64
 }
 
 func PCMLevels(pcm []byte) (rmsDBFS, peakDBFS int) {
@@ -114,23 +78,21 @@ func levelDBFS(value float64) int {
 
 func (s *Session) Statistics() AudioStatistics {
 	stats := AudioStatistics{ReceivedPackets: s.baseStats.ReceivedPackets + s.stats.receivedPackets.Load(), ReceivedBytes: s.baseStats.ReceivedBytes + s.stats.receivedBytes.Load(),
-		SentPackets: s.baseStats.SentPackets + s.stats.sentPackets.Load(), DroppedPackets: s.baseStats.DroppedPackets + s.stats.droppedPackets.Load(), InputDBFS: int(s.stats.inputDBFS.Load()),
+		SentPackets: s.baseStats.SentPackets + s.stats.sentPackets.Load(), DroppedPackets: s.baseStats.DroppedPackets, InputDBFS: int(s.stats.inputDBFS.Load()),
 		InputPeakDBFS: int(s.stats.inputPeakDBFS.Load()), OutputDBFS: int(s.stats.outputDBFS.Load())}
-	stats.DroppedSourceEarlyPackets = s.baseStats.DroppedSourceEarlyPackets + s.stats.droppedSourceEarlyPackets.Load()
-	stats.DroppedSourceLatePackets = s.baseStats.DroppedSourceLatePackets + s.stats.droppedSourceLatePackets.Load()
-	stats.DroppedQueueOverflowPackets = s.baseStats.DroppedQueueOverflowPackets + s.stats.droppedQueueOverflowPackets.Load()
-	stats.DroppedReanchorPackets = s.baseStats.DroppedReanchorPackets + s.stats.droppedReanchorPackets.Load()
-	stats.DroppedPlayoutPackets = s.baseStats.DroppedPlayoutPackets + s.stats.droppedPlayoutPackets.Load()
-	stats.DroppedRebufferPackets = s.baseStats.DroppedRebufferPackets + s.stats.droppedRebufferPackets.Load()
-	stats.ClockReanchors = s.baseStats.ClockReanchors + s.stats.clockReanchors.Load()
-	stats.PlayoutUnderruns = s.baseStats.PlayoutUnderruns + s.stats.playoutUnderruns.Load()
-	stats.PlayoutSilenceFrames = s.baseStats.PlayoutSilenceFrames + s.stats.playoutSilenceFrames.Load()
-	stats.PlayoutMissedTicks = s.baseStats.PlayoutMissedTicks + s.stats.playoutMissedTicks.Load()
 	stats.Transport = "websocket"
-	stats.Transport = "websocket"
-	// Derive the public total from the same category snapshot, so concurrent
-	// updates cannot make telemetry disagree with its own six-way breakdown.
-	stats.DroppedPackets = stats.DroppedSourceEarlyPackets + stats.DroppedSourceLatePackets + stats.DroppedQueueOverflowPackets + stats.DroppedReanchorPackets + stats.DroppedPlayoutPackets + stats.DroppedRebufferPackets
+	if s.socket != nil && s.socket.receiver != nil {
+		n := s.socket.receiver.Statistics()
+		stats.NetEqConcealedSamples = s.baseStats.NetEqConcealedSamples + n.ConcealedSamples
+		stats.NetEqConcealmentEvents = s.baseStats.NetEqConcealmentEvents + n.ConcealmentEvents
+		stats.NetEqInsertedSamples = s.baseStats.NetEqInsertedSamples + n.InsertedSamples
+		stats.NetEqRemovedSamples = s.baseStats.NetEqRemovedSamples + n.RemovedSamples
+		stats.NetEqPacketsDiscarded = s.baseStats.NetEqPacketsDiscarded + n.PacketsDiscarded
+		stats.NetEqTargetDelayMS = uint64(n.TargetDelayMS)
+		stats.NetEqCurrentDelayMS = uint64(n.CurrentDelayMS)
+		stats.NetEqInternalSampleRate = uint64(n.InternalSampleRate)
+		stats.DroppedPackets = stats.NetEqPacketsDiscarded
+	}
 	stats.State = "connecting"
 	if s.events != nil {
 		select {

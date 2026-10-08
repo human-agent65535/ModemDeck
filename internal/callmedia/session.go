@@ -75,6 +75,7 @@ func (s *Session) cleanup() {
 	<-s.ctx.Done()
 	var cleanupError error
 	s.socket.transport.InterruptRead()
+	s.hub.detachReceiver(s)
 	if err := s.subscription.Close(); err != nil {
 		cleanupError = errors.Join(cleanupError, fmt.Errorf("close PCM subscription: %w", err))
 	}
@@ -84,6 +85,7 @@ func (s *Session) cleanup() {
 	if s.reportStats != nil {
 		s.reportStats(s.callID, s.Statistics())
 	}
+	s.socket.receiver.Close()
 	if err := s.codec.Close(); err != nil {
 		cleanupError = errors.Join(cleanupError, fmt.Errorf("close Opus codec: %w", err))
 	}

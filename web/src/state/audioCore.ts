@@ -1,38 +1,31 @@
-// The shared C core owns clock, freshness and rebuffer decisions. Platform
-// adapters only translate monotonic clock domains and supply native PCM.
-export type AudioCoreExports = {
-  md_clock_reset(): void
-  md_clock_accept(sequence: number, timestamp: number, now: number): number
-  md_clock_play_at(): number
-  md_clock_age(): number
-  md_clock_source_samples(): number
-  md_clock_generation(): number
-  md_audio_frame_expired(source: number, now: number): number
-  md_audio_playback_start(source: number, now: number): number
-  md_audio_source_slot(epochStart: number, sourceSamples: number): number
-  md_audio_frame_seconds(): number
-  md_audio_prebuffer_seconds(): number
-  md_audio_max_age_seconds(): number
-  md_audio_send_queue_capacity(): number
-  md_audio_queue_capacity(): number
-  md_audio_frame_samples(): number
+// Load only after call audio is enabled. The worklet owns the sole NetEq and
+// Opus instance; initialization never runs inside its rendering callback.
+export type AudioCoreModule = {
+  HEAPU8: Uint8Array
+  HEAPF32: Float32Array
+  _malloc(size: number): number
+  _free(pointer: number): void
+  _md_audio_ingress_capacity(): number
+  _md_audio_send_capacity(): number
+  _md_neteq_create(rate: number): number
+  _md_neteq_enqueue(handle: number, payload: number, size: number, sequence: number, timestamp48k: number, arrivalUs: bigint): number
+  _md_neteq_render_float(handle: number, nowUs: bigint, output: number, frames: number): number
+  _md_neteq_get_stats(handle: number, stats: number): number
+  _md_neteq_destroy(handle: number): void
+  _md_opus_encoder_create(rate: number, channels: number): number
+  _md_opus_encode_float(handle: number, pcm: number, frames: number, output: number, capacity: number): number
+  _md_opus_encoder_destroy(handle: number): void
 }
 
-export function instantiateAudioCore(module: WebAssembly.Module): AudioCoreExports {
-  return new WebAssembly.Instance(module).exports as unknown as AudioCoreExports
-}
-
-let compiled: Promise<WebAssembly.Module> | undefined
-export function loadAudioCore(): Promise<WebAssembly.Module> {
-  // Fetch only after the user enables call audio. The same compiled module is
-  // reused, but each receive clock/worklet has its own isolated instance.
-  compiled ??= import('./audioCore.wasm?url&no-inline').then(async ({ default: url }) => {
+let loaded: Promise<ArrayBuffer> | undefined
+export function loadAudioCore(): Promise<ArrayBuffer> {
+  loaded ??= import('./audioCore.wasm?url&no-inline').then(async ({ default: url }) => {
     const response = await fetch(url)
     if (!response.ok) throw new Error('Call audio core unavailable')
-    return WebAssembly.compile(await response.arrayBuffer())
+    return response.arrayBuffer()
   }).catch(error => {
-    compiled = undefined
+    loaded = undefined
     throw error
   })
-  return compiled
+  return loaded
 }

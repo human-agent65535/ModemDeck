@@ -7,7 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		96C100023300000000000002 /* audio_core.c in Sources */ = {isa = PBXBuildFile; fileRef = 96C100013300000000000001 /* audio_core.c */; };
+		96D100033400000000000003 /* AudioCoreNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 96D100043400000000000004 /* AudioCoreNotices.txt */; };
+		96D100013400000000000001 /* MDNetEq.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 96D100023400000000000002 /* MDNetEq.xcframework */; };
 		96B000013200000000000001 /* CommunicationUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96B000023200000000000002 /* CommunicationUXTests.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
@@ -20,7 +21,6 @@
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		9582B6852FEA1F270072D4E8 /* ModemDeckNative.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6842FEA1F250072D4E8 /* ModemDeckNative.swift */; };
 		95C0A0023000000000000002 /* ModemDeckCallAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C0A0013000000000000001 /* ModemDeckCallAudio.swift */; };
-		95C0A0033000000000000003 /* Copus in Frameworks */ = {isa = PBXBuildFile; productRef = 95C0A0053000000000000005 /* Copus */; };
 		96A000013100000000000001 /* ModemDeckAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A000113100000000000011 /* ModemDeckAPI.swift */; };
 		96A000023100000000000002 /* ModemDeckSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A000123100000000000012 /* ModemDeckSession.swift */; };
 		96A000033100000000000003 /* ModemDeckPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A000133100000000000013 /* ModemDeckPairing.swift */; };
@@ -38,7 +38,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		96C100013300000000000001 /* audio_core.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = ../../../internal/audiocore/audio_core.c; sourceTree = SOURCE_ROOT; };
+		96D100043400000000000004 /* AudioCoreNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ../../../dist/audio-core/ios/AudioCoreNotices.txt; sourceTree = SOURCE_ROOT; };
+		96D100023400000000000002 /* MDNetEq.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = ../../../dist/audio-core/ios/MDNetEq.xcframework; sourceTree = SOURCE_ROOT; };
 		96B000023200000000000002 /* CommunicationUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunicationUXTests.swift; sourceTree = "<group>"; };
 		96B000033200000000000003 /* AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -79,7 +80,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
-				95C0A0033000000000000003 /* Copus in Frameworks */,
+				96D100013400000000000001 /* MDNetEq.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -126,7 +127,7 @@
 				96A000173100000000000017 /* ModemDeckSettingsView.swift */,
 				9582B6842FEA1F250072D4E8 /* ModemDeckNative.swift */,
 				95C0A0013000000000000001 /* ModemDeckCallAudio.swift */,
-				96C100013300000000000001 /* audio_core.c */,
+				96D100023400000000000002 /* MDNetEq.xcframework */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -135,6 +136,7 @@
 				504EC3131FED79650016851F /* Info.plist */,
 				958DCC732DB07C7200EA8C5F /* App.entitlements */,
 				96A000183100000000000018 /* ThirdPartyNotices.txt */,
+				96D100043400000000000004 /* AudioCoreNotices.txt */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
@@ -170,7 +172,6 @@
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
-				95C0A0053000000000000005 /* Copus */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -204,7 +205,6 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
-				95C0A0043000000000000004 /* XCRemoteSwiftPackageReference "swift-opus" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -224,6 +224,7 @@
 				504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */,
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
 				96A000083100000000000008 /* ThirdPartyNotices.txt in Resources */,
+				96D100033400000000000003 /* AudioCoreNotices.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -256,7 +257,6 @@
 				96A000073100000000000007 /* ModemDeckSettingsView.swift in Sources */,
 				9582B6852FEA1F270072D4E8 /* ModemDeckNative.swift in Sources */,
 				95C0A0023000000000000002 /* ModemDeckCallAudio.swift in Sources */,
-				96C100023300000000000002 /* audio_core.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -438,7 +438,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -451,7 +451,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MODEMDECK_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/../../../internal/audiocore";
+				OTHER_LDFLAGS = "$(inherited) -lc++ -framework CoreFoundation -dead_strip";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -463,7 +463,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -475,7 +475,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MODEMDECK_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/../../../internal/audiocore";
+				OTHER_LDFLAGS = "$(inherited) -lc++ -framework CoreFoundation -dead_strip";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -513,14 +513,6 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		95C0A0043000000000000004 /* XCRemoteSwiftPackageReference "swift-opus" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/alta/swift-opus.git";
-			requirement = {
-				kind = revision;
-				revision = 6f3cb6bd3ffed1fe5f06d00a962d5c191a50daf8;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -528,11 +520,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
-		};
-		95C0A0053000000000000005 /* Copus */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 95C0A0043000000000000004 /* XCRemoteSwiftPackageReference "swift-opus" */;
-			productName = Copus;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

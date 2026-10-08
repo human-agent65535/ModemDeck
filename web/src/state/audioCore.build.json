@@ -1,6 +1,9 @@
 {
-  "schema": 1,
+  "schema": 2,
   "compiler": "emscripten/emsdk:4.0.10@sha256:90b757eb11fa9a0e3ce4d2d9f76d932a56018e4accc37b5a28b2783751e60eb7",
-  "source_sha256": "cc1e38176d39b0031c463516a51e7d6b9267f00bf7a8c78330efd5bb91e4eee2",
-  "wasm_sha256": "4e0ce3fb6fa4c4aae37f012ef1aa34426e037d15a1a9bc720e3f49a3fcd2da64"
+  "source_sha256": "8944e127e629ff8737bb0ac581e8f78a503e18c0e0233061847c8013081df7dc",
+  "wasm_sha256": "acef9c250a58f4202fa8a1c0a1a3215c208a71f74b3c8b4fc04a12d081a4db2e",
+  "glue_sha256": "798529c01f7dbab3b8d308a18d40e58ecdcb655d189ddcc9401c96cad1f20c3c",
+  "memory_bytes": 33554432,
+  "threads": false
 }

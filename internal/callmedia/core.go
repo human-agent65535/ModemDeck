@@ -579,7 +579,6 @@ func (c *Core) releaseWhenDone(
 			}
 		}
 		c.finalStats[callID] = session.Statistics()
-		session.hub.discardUplink()
 		if owner.connected {
 			c.notifyOwnerState(callID, false)
 		}

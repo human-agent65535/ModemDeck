@@ -13,7 +13,7 @@ const (
 	defaultBrowserQueueCapacity   = 16
 	defaultRecordingQueueCapacity = 32
 	maxSubscriberQueueCapacity    = 256
-	uplinkQueueCapacity           = 16
+	playedHistoryCapacity         = 16
 )
 
 // DuplexFrame is one fixed-duration modem frame. DownlinkPCM is remote audio
@@ -110,9 +110,10 @@ type mediaHub struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	writeMu sync.Mutex
-	uplink  chan []byte
-	played  chan []byte
+	writeMu  sync.Mutex
+	receiver *Session
+	played   chan []byte
+	playedMu sync.Mutex
 
 	mu            sync.Mutex
 	nextID        uint64
@@ -146,8 +147,7 @@ func newMediaHub(parent context.Context, callID string, endpoint MediaEndpoint) 
 		endpoint:      endpoint,
 		ctx:           ctx,
 		cancel:        cancel,
-		uplink:        make(chan []byte, uplinkQueueCapacity),
-		played:        make(chan []byte, uplinkQueueCapacity),
+		played:        make(chan []byte, playedHistoryCapacity),
 		subscriptions: make(map[uint64]*DuplexSubscription),
 		done:          make(chan struct{}),
 		startDone:     make(chan struct{}),
@@ -239,34 +239,24 @@ func (h *mediaHub) startSubscription(
 	return h.Start(ctx)
 }
 
-func (h *mediaHub) WritePCM(ctx context.Context, frame []byte) error {
-	if h == nil || len(frame) != h.format.FrameBytes() {
-		return ErrInvalidArgument
-	}
-	h.startMu.Lock()
-	started := h.started
-	h.startMu.Unlock()
-	if !started {
-		return ErrEndpointNotStarted
-	}
-	ctx = normalizeContext(ctx)
-	owned := append([]byte(nil), frame...)
+// attachReceiver installs one authenticated media owner. No PCM is queued.
+func (h *mediaHub) attachReceiver(s *Session) error {
 	h.writeMu.Lock()
 	defer h.writeMu.Unlock()
-	if h.ctx.Err() != nil {
-		if err := h.Error(); err != nil {
-			return err
-		}
-		return ErrEndpointUnavailable
-	}
-	select {
-	case h.uplink <- owned:
-		return nil
-	case <-ctx.Done():
+	if h.ctx.Err() != nil || s.ctx.Err() != nil {
 		return ErrCanceled
-	default:
-		h.initiate(ErrBackpressure)
-		return ErrBackpressure
+	}
+	if h.receiver != nil && h.receiver != s {
+		return ErrCallInUse
+	}
+	h.receiver = s
+	return nil
+}
+func (h *mediaHub) detachReceiver(s *Session) {
+	h.writeMu.Lock()
+	defer h.writeMu.Unlock()
+	if h.receiver == s {
+		h.receiver = nil
 	}
 }
 
@@ -346,24 +336,49 @@ func (h *mediaHub) startAndCapture() {
 
 func (h *mediaHub) playbackWorker() {
 	frame := make([]byte, h.format.FrameBytes())
-	ticker := time.NewTicker(h.format.FrameDuration)
+	chunkBytes := h.format.SampleRate / 100 * 2
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-
+	offset := 0
+	var frameOwner *Session
 	for {
-		clear(frame)
-		select {
-		case pending := <-h.uplink:
-			copy(frame, pending)
-		default:
+		h.writeMu.Lock()
+		owner := h.receiver
+		if owner != nil && owner.ctx.Err() != nil {
+			h.receiver = nil
+			owner = nil
 		}
-		if err := h.endpoint.WritePCM(h.ctx, frame); err != nil {
-			if h.ctx.Err() != nil {
+		if owner != frameOwner {
+			clear(frame)
+			frameOwner = owner
+		}
+		clear(frame[offset : offset+chunkBytes])
+		if owner != nil {
+			chunk, err := owner.pullPCM10(time.Now())
+			if err != nil {
+				owner.stop(err)
+				h.receiver = nil
+				clear(frame)
+			} else {
+				copy(frame[offset:], chunk)
+			}
+		}
+		h.writeMu.Unlock()
+		offset += chunkBytes
+		if offset == len(frame) {
+			h.playedMu.Lock()
+			if err := h.endpoint.WritePCM(h.ctx, frame); err != nil {
+				h.playedMu.Unlock()
+				if h.ctx.Err() != nil {
+					return
+				}
+				h.initiate(fmt.Errorf("write PCM endpoint: %w", ErrEndpointIO))
 				return
 			}
-			h.initiate(fmt.Errorf("write PCM endpoint: %w", ErrEndpointIO))
-			return
+			h.rememberPlayed(frame)
+			h.playedMu.Unlock()
+			offset = 0
 		}
-		h.rememberPlayed(frame)
 		select {
 		case <-ticker.C:
 		case <-h.ctx.Done():
@@ -402,11 +417,13 @@ func (h *mediaHub) captureWorker() {
 		}
 		sequence++
 		uplink := make([]byte, h.format.FrameBytes())
+		h.playedMu.Lock()
 		select {
 		case pending := <-h.played:
 			copy(uplink, pending)
 		default:
 		}
+		h.playedMu.Unlock()
 		h.broadcast(DuplexFrame{
 			Sequence:    sequence,
 			DownlinkPCM: append([]byte(nil), frame...),
@@ -484,21 +501,4 @@ func (h *mediaHub) cleanup() {
 	}
 	h.mu.Unlock()
 	close(h.done)
-}
-
-// discardUplink prevents a replacement owner from replaying microphone frames
-// queued by the previous owner. Recording history in played remains intact.
-func (h *mediaHub) discardUplink() {
-	if h == nil {
-		return
-	}
-	h.writeMu.Lock()
-	defer h.writeMu.Unlock()
-	for {
-		select {
-		case <-h.uplink:
-		default:
-			return
-		}
-	}
 }

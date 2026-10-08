@@ -12,6 +12,9 @@ docs
 integration
 packaging
 third_party
+!third_party/
+third_party/*
+!third_party/audio/
 scripts
 !scripts/
 scripts/*

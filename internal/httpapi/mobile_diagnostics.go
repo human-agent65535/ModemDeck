@@ -137,7 +137,12 @@ func validMobileDiagnosticField(key, value string) bool {
 		"server_clock_reanchors", "server_playout_underruns", "server_playout_silence_frames", "server_playout_missed_ticks":
 		number, err := strconv.ParseInt(value, 10, 64)
 		return err == nil && number >= -1_000_000_000 && number <= 1_000_000_000
-	case "expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "reused_connection":
+	case "neteq_concealed_samples", "neteq_concealment_events", "neteq_inserted_samples", "neteq_removed_samples",
+		"neteq_discarded_packets", "neteq_received_packets", "neteq_target_delay_ms", "neteq_buffer_delay_ms",
+		"neteq_ingress_packets", "neteq_render_errors", "neteq_output_samples", "neteq_output_sample_rate", "server_neteq_concealed_samples", "server_neteq_concealment_events", "server_neteq_inserted_samples", "server_neteq_removed_samples", "server_neteq_packets_discarded", "server_neteq_target_delay_ms", "server_neteq_current_delay_ms", "server_neteq_internal_sample_rate":
+		number, err := strconv.ParseUint(value, 10, 64)
+		return err == nil && number <= 1_000_000_000_000
+	case "expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "microphone_track_enabled", "reused_connection":
 		return value == "true" || value == "false"
 	case "input_route", "output_route":
 		return diagnosticChoice(value, "none microphone receiver speaker bluetooth headphones external")

@@ -1,6 +1,5 @@
 import AVFoundation
 import Foundation
-import Copus
 import ModemDeckAudioCore
 
 enum ModemDeckCallAudioError: LocalizedError {
@@ -104,39 +103,49 @@ struct ModemDeckAudioPacket {
     }
 }
 
-private enum ModemDeckAudioDropReason { case capture, send, receiveStale, receiveInvalid, playback }
+private enum ModemDeckAudioDropReason { case capture, send, receiveInvalid }
 private struct ModemDeckAudioDropCounts {
-    var capture = 0, send = 0, receiveStale = 0, receiveInvalid = 0, playback = 0
+    var capture = 0, send = 0, receiveInvalid = 0
     var fields: [String: String] {
         ["capture_dropped_frames": String(capture), "send_dropped_frames": String(send),
-         "receive_stale_frames": String(receiveStale), "receive_invalid_frames": String(receiveInvalid),
-         "playback_dropped_frames": String(playback)]
+         "receive_invalid_frames": String(receiveInvalid)]
     }
     mutating func add(_ count: Int, reason: ModemDeckAudioDropReason) {
         guard count > 0 else { return }
         switch reason {
         case .capture: capture += count
         case .send: send += count
-        case .receiveStale: receiveStale += count
         case .receiveInvalid: receiveInvalid += count
-        case .playback: playback += count
         }
     }
 }
 
-/// Remote sample ticks define playout age, independent of receive bursts.
-struct ModemDeckAudioClock {
-    private var state = md_audio_clock()
-    var generation: UInt32 { state.generation }
-    var playAt: Double { withUnsafePointer(to: state) { md_audio_clock_play_at($0) } }
-    var sourceSamples: Double { withUnsafePointer(to: state) { md_audio_clock_source_samples($0) } }
-    var age: Double { withUnsafePointer(to: state) { md_audio_clock_age($0) } }
-    mutating func accept(sequence: UInt32, timestamp: UInt32, now: Double) -> Bool? {
-        switch md_audio_clock_accept(&state, sequence, timestamp, now) {
-        case 1: return true
-        case 0: return false
-        default: return nil
+/// One SPSC ingress producer; the source-node render callback alone owns NetEq.
+private final class ModemDeckAudioRenderer {
+    private let receiver: OpaquePointer
+    init() throws {
+        guard let receiver = md_neteq_create(16_000) else { throw ModemDeckCallAudioError.negotiationFailed }
+        self.receiver = receiver
+    }
+    deinit {
+        // Source-node callbacks retain this owner. Destruction happens only after
+        // their final reference is released and always away from the render thread.
+        let receiver = receiver
+        DispatchQueue.global(qos: .utility).async { md_neteq_destroy(receiver) }
+    }
+    func enqueue(_ packet: ModemDeckAudioPacket, arrivalUS: Int64) -> Int32 {
+        packet.payload.withUnsafeBytes { bytes in
+            md_neteq_enqueue(receiver, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
+                             UInt16(truncatingIfNeeded: packet.sequence), packet.timestamp &* 3, arrivalUS)
         }
+    }
+    func render(nowUS: Int64, samples: UnsafeMutablePointer<Float>, count: Int) -> Int32 {
+        md_neteq_render_float(receiver, nowUS, samples, count)
+    }
+    func resetRender() { _ = md_neteq_reset_render(receiver) }
+    func statistics() -> md_neteq_stats? {
+        var result = md_neteq_stats()
+        return md_neteq_get_stats(receiver, &result) == 0 ? result : nil
     }
 }
 
@@ -205,32 +214,23 @@ final class ModemDeckCallAudioSession: NSObject {
     private var latestTestAudio: ModemDeckTestAudioStatus?
     private var testAudioAt = 0.0
     private var engine: AVAudioEngine?
-    private var player: AVAudioPlayerNode?
+    private var sourceNode: AVAudioSourceNode?
+    private var renderer: ModemDeckAudioRenderer?
     private var captureTapInstalled = false
     private var captureGeneration = 0
     private var encoder: OpaquePointer?
-    private var decoder: OpaquePointer?
     private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
     private var captureSamples: [Float] = []
-    private var sendQueue: [(Data, Double)] = []
+    private var sendQueue: [Data] = []
     private var sending = false
     private var sendStarted = 0.0
     private var sequence: UInt32 = 0
     private var timestamp: UInt32 = 0
-    private var receiveClock = ModemDeckAudioClock()
     private var serverReceivedPackets = 0
     private var serverAudioDropFields: [String: String] = [:]
-    private var playbackPending = 0
-    private var playbackUnderruns = 0
-    // Source-clock generation changes and genuine unrendered queue overflow;
-    // excludes ordinary teardown/reconfiguration and independently counted underruns.
-    private var playbackResets = 0
-    private var playbackGeneration = 0
-    private var playbackEpochSourceSamples: Double?
-    private var playbackEpochStartedAt = 0.0
-    private var playbackQueuedUntil = -Double.infinity
-    private var playbackFrameEnds: [AVAudioFramePosition] = []
-    private var playbackLastSampleEnd: AVAudioFramePosition = 0
+    private var renderedSampleCount: UInt64 = 0
+    private var receivedSequence: UInt32?
+    private var receivedTimestamp: UInt32?
     private var capturedFrames = 0
     private var sentPackets = 0
     private var receivedPackets = 0
@@ -279,8 +279,7 @@ final class ModemDeckCallAudioSession: NSObject {
     deinit {
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
-        if let encoder { opus_encoder_destroy(encoder) }
-        if let decoder { opus_decoder_destroy(decoder) }
+        if let encoder { md_opus_encoder_destroy(encoder) }
     }
     static func prepareAudioSession() {
         let session = AVAudioSession.sharedInstance()
@@ -400,16 +399,7 @@ final class ModemDeckCallAudioSession: NSObject {
                 failMedia(ModemDeckCallAudioError.invalidResponse); return
             }
             markSocketReady(now: ProcessInfo.processInfo.systemUptime)
-            sendQueue.removeAll(); resetCaptureStream(); receiveClock = ModemDeckAudioClock()
-            sequence = 0; timestamp = 0
-            if let encoder { opus_encoder_destroy(encoder) }; encoder = nil
-            if let decoder { opus_decoder_destroy(decoder) }; decoder = nil
-            var codecError: Int32 = 0
-            encoder = opus_encoder_create(16_000, 1, OPUS_APPLICATION_VOIP, &codecError)
-            decoder = opus_decoder_create(16_000, 1, &codecError)
-            guard encoder != nil, decoder != nil, codecError == OPUS_OK else {
-                failMedia(ModemDeckCallAudioError.negotiationFailed); return
-            }
+            guard resetMediaForReady() else { return }
             setConnectionStage("connected"); publishMediaState(activated && engine?.isRunning == true ? "active" : "waiting_for_audio")
             startLeaseHeartbeat(); startTestPhaseUpdates()
             finishConnection(.success(())); startAudioIfReady()
@@ -421,12 +411,18 @@ final class ModemDeckCallAudioSession: NSObject {
         default: break
         }
     }
+    private func resetMediaForReady() -> Bool {
+        stopAudio(); sendQueue.removeAll(); resetCaptureStream()
+        sending = false; sequence = 0; timestamp = 0
+        receivedSequence = nil; receivedTimestamp = nil
+        if let encoder { md_opus_encoder_destroy(encoder) }
+        encoder = md_opus_encoder_create(16_000, 1)
+        guard encoder != nil else { failMedia(ModemDeckCallAudioError.negotiationFailed); return false }
+        return true
+    }
     private func updateServerAudioStatistics(_ audio: [String: Any]) {
         if let received = audio["received_packets"] as? Int, received >= 0 { serverReceivedPackets = received }
-        let names = ["dropped_packets", "dropped_source_early_packets", "dropped_source_late_packets",
-                     "dropped_queue_overflow_packets", "dropped_reanchor_packets", "dropped_playout_packets",
-                     "dropped_rebuffer_packets", "clock_reanchors", "playout_underruns",
-                     "playout_silence_frames", "playout_missed_ticks"]
+        let names = ["neteq_concealed_samples", "neteq_concealment_events", "neteq_inserted_samples", "neteq_removed_samples", "neteq_packets_discarded", "neteq_target_delay_ms", "neteq_current_delay_ms", "neteq_internal_sample_rate"]
         for name in names {
             if let value = audio[name] as? Int, value >= 0 { serverAudioDropFields["server_" + name] = String(value) }
         }
@@ -461,7 +457,7 @@ final class ModemDeckCallAudioSession: NSObject {
         socket = nil; ready = false; sending = false; pingInFlight = false
         task.cancel(with: .goingAway, reason: nil)
         recordDroppedFrames(sendQueue.count, reason: .send)
-        sendQueue.removeAll(); captureSamples.removeAll(); flushPlayback()
+        sendQueue.removeAll(); captureSamples.removeAll(); stopAudio()
         publishMediaState("reconnecting")
         if reconnectDeadline == .distantPast {
             reconnectDeadline = Date().addingTimeInterval(8)
@@ -521,18 +517,14 @@ final class ModemDeckCallAudioSession: NSObject {
     private func startAudioIfReady() {
         guard !stopped, activated, ready, engine == nil else { return }
         do {
-            var status: Int32 = 0
-            if encoder == nil { encoder = opus_encoder_create(16_000, 1, OPUS_APPLICATION_VOIP, &status) }
-            guard encoder != nil, status == OPUS_OK else { throw ModemDeckCallAudioError.negotiationFailed }
-            if decoder == nil { decoder = opus_decoder_create(16_000, 1, &status) }
-            guard decoder != nil, status == OPUS_OK else { throw ModemDeckCallAudioError.negotiationFailed }
-            let engine = AVAudioEngine(), player = AVAudioPlayerNode()
+            if encoder == nil { encoder = md_opus_encoder_create(16_000, 1) }
+            guard encoder != nil else { throw ModemDeckCallAudioError.negotiationFailed }
+            let engine = AVAudioEngine()
             try engine.inputNode.setVoiceProcessingEnabled(true)
             engine.inputNode.isVoiceProcessingAGCEnabled = true
-            engine.attach(player)
-            self.engine = engine; self.player = player
-            try configureVoiceGraph(engine, player: player)
-            try startVoiceGraph(engine, player: player)
+            self.engine = engine
+            try configureVoiceGraph(engine)
+            try startVoiceGraph(engine)
             recordConnectionEvent("voice_processing_started")
         } catch {
             recordConnectionEvent("audio_engine_failed", error: error)
@@ -547,10 +539,26 @@ final class ModemDeckCallAudioSession: NSObject {
         matchesVoiceFormat(engine.inputNode.outputFormat(forBus: 0)) &&
             matchesVoiceFormat(engine.outputNode.inputFormat(forBus: 0))
     }
-    private func configureVoiceGraph(_ engine: AVAudioEngine, player: AVAudioPlayerNode) throws {
+    private func configureVoiceGraph(_ engine: AVAudioEngine) throws {
         // VoiceProcessingIO requires the same client format in both directions.
         // Hardware/echo-reference channels are not separate telephone channels.
-        engine.connect(player, to: engine.mainMixerNode, format: format)
+        if renderer == nil { renderedSampleCount = 0 }
+        let renderer = try self.renderer ?? ModemDeckAudioRenderer()
+        let source = AVAudioSourceNode(format: format) { [renderer] silence, timestamp, frameCount, output in
+            guard let memory = output.pointee.mBuffers.mData else { return kAudio_ParamError }
+            let samples = memory.assumingMemoryBound(to: Float.self)
+            let hostTime = timestamp.pointee.mFlags.contains(.hostTimeValid)
+                ? timestamp.pointee.mHostTime : mach_absolute_time()
+            let nowUS = Int64(AVAudioTime.seconds(forHostTime: hostTime) * 1_000_000)
+            let result = renderer.render(nowUS: nowUS, samples: samples, count: Int(frameCount))
+            if result < 0 {
+                samples.initialize(repeating: 0, count: Int(frameCount)); silence.pointee = true
+            } else { silence.pointee = false }
+            return noErr
+        }
+        self.renderer = renderer; sourceNode = source
+        engine.attach(source)
+        engine.connect(source, to: engine.mainMixerNode, format: format)
         engine.connect(engine.mainMixerNode, to: engine.outputNode, format: format)
         resetCaptureStream(replacingGraph: true)
         let generation = captureGeneration
@@ -567,7 +575,7 @@ final class ModemDeckCallAudioSession: NSObject {
                 return
             }
             let now = ProcessInfo.processInfo.systemUptime
-            let total = Int(buffer.frameLength), sampleCount = min(1600, total), trimmed = total - sampleCount
+            let total = Int(buffer.frameLength), sampleCount = total
             // Input hostTime describes the first sample. Retain its true end
             // time through dispatch/encoding; fallback to callback end-time.
             let hostNow = AVAudioTime.seconds(forHostTime: mach_absolute_time())
@@ -586,14 +594,17 @@ final class ModemDeckCallAudioSession: NSObject {
                 self.captureHardwareNext = when.sampleTime + AVAudioFramePosition(total)
             } else { self.captureHardwareNext = nil }
             self.captureSourceCursor = sourceStart + UInt64(total)
-            self.captureDroppedSamples += UInt64(trimmed)
-            guard self.capturePendingSamples + sampleCount <= 1600 else {
-                self.captureDroppedSamples += UInt64(sampleCount)
-                self.captureLock.unlock(); return
+            guard self.capturePendingSamples + sampleCount <= Int(md_audio_send_capacity()) * 320 else {
+                self.captureLock.unlock()
+                self.queue.async { [weak self, weak engine] in
+                    guard let self, !self.stopped, self.engine === engine,
+                          self.captureGeneration == generation else { return }
+                    self.transportFailed(task: self.socket, error: ModemDeckCallAudioError.timedOut)
+                }
+                return
             }
             self.capturePendingSamples += sampleCount; self.captureLock.unlock()
-            let retainedStart = sourceStart + UInt64(trimmed)
-            let values = Array(UnsafeBufferPointer(start: samples.advanced(by: trimmed), count: sampleCount))
+            let values = Array(UnsafeBufferPointer(start: samples, count: sampleCount))
             self.queue.async { [weak self, weak engine] in
                 guard let self else { return }
                 defer {
@@ -605,7 +616,7 @@ final class ModemDeckCallAudioSession: NSObject {
                 }
                 guard !self.stopped, self.engine === engine, self.captureGeneration == generation,
                       self.captureStreamGeneration == streamGeneration else { return }
-                self.captureBatch(values, sourceStart: retainedStart, sampleEnd: sampleEnd)
+                self.captureBatch(values, sourceStart: sourceStart, sampleEnd: sampleEnd)
             }
         }
         captureTapInstalled = true
@@ -616,25 +627,27 @@ final class ModemDeckCallAudioSession: NSObject {
             throw ModemDeckCallAudioError.audioFormatUnavailable
         }
     }
-    private func startVoiceGraph(_ engine: AVAudioEngine, player: AVAudioPlayerNode) throws {
+    private func startVoiceGraph(_ engine: AVAudioEngine) throws {
         engine.prepare(); try engine.start()
         let input = engine.inputNode.outputFormat(forBus: 0), output = engine.outputNode.inputFormat(forBus: 0)
         recordConnectionEvent("voice_input_format", fields: ["sample_rate": String(Int(input.sampleRate)), "channels": String(input.channelCount)])
         recordConnectionEvent("voice_output_format", fields: ["sample_rate": String(Int(output.sampleRate)), "channels": String(output.channelCount)])
         guard voiceGraphMatches(engine) else { throw ModemDeckCallAudioError.audioFormatUnavailable }
-        // Receive starts the player on the first source slot plus 40 ms.
+        // NetEq alone owns delay, concealment and time scaling; device demand drives pull.
         publishMediaState(ready ? "active" : "reconnecting")
     }
     private func audioConfigurationChanged(_ changedEngine: AVAudioEngine?) {
-        guard !stopped, activated, let engine, let player, changedEngine === engine else { return }
+        guard !stopped, activated, let engine, changedEngine === engine else { return }
         // Startup can queue a notification that is delivered after the graph is
         // already running. Recreating VoiceProcessingIO here changes its format again.
         guard !engine.isRunning || !voiceGraphMatches(engine) else { return }
         do {
-            engine.stop(); flushPlayback(); captureSamples.removeAll()
+            engine.stop()
+            if let sourceNode { engine.detach(sourceNode) }
+            sourceNode = nil; renderer?.resetRender(); captureSamples.removeAll()
             if captureTapInstalled { engine.inputNode.removeTap(onBus: 0); captureTapInstalled = false }
-            try configureVoiceGraph(engine, player: player)
-            try startVoiceGraph(engine, player: player)
+            try configureVoiceGraph(engine)
+            try startVoiceGraph(engine)
             recordConnectionEvent("voice_processing_reconfigured")
         } catch {
             recordConnectionEvent("audio_engine_failed", error: error)
@@ -678,7 +691,6 @@ final class ModemDeckCallAudioSession: NSObject {
     private func capture(_ values: [Float], sampleEnd: Double) {
         captureSamples.append(contentsOf: values)
         while captureSamples.count >= 320 {
-            let frameEnd = sampleEnd - Double(captureSamples.count - 320) / 16_000
             var frame = Array(captureSamples.prefix(320)); captureSamples.removeFirst(320)
             captureSourceFrameStart += 320; capturedFrames += 1
             let rms = sqrt(frame.reduce(0.0) { $0 + Double($1 * $1) } / 320)
@@ -687,24 +699,22 @@ final class ModemDeckCallAudioSession: NSObject {
             if muted { frame = Array(repeating: 0, count: 320) }
             let frameSequence = sequence, frameTimestamp = timestamp
             sequence &+= 1; timestamp &+= 320
-            guard md_audio_frame_expired(frameEnd, ProcessInfo.processInfo.systemUptime) == 0 else {
-                recordDroppedFrames(1, reason: .capture); continue
-            }
             guard ready, let encoder else { recordDroppedFrames(1, reason: .send); continue }
             var payload = [UInt8](repeating: 0, count: 1275)
-            let count = opus_encode_float(encoder, &frame, 320, &payload, 1275)
+            let count = md_opus_encode_float(encoder, &frame, 320, &payload, 1275)
             guard count > 0 else { recordDroppedFrames(1, reason: .send); continue }
             let packet = ModemDeckAudioPacket.encode(sequence: frameSequence, timestamp: frameTimestamp, payload: Data(payload.prefix(Int(count))))
-            if sendQueue.count >= Int(md_audio_send_queue_capacity()) { sendQueue.removeFirst(); recordDroppedFrames(1, reason: .send) }
-            sendQueue.append((packet, frameEnd)); sendNext()
+            guard sendQueue.count < Int(md_audio_send_capacity()) else {
+                transportFailed(task: socket, error: ModemDeckCallAudioError.timedOut); return
+            }
+            sendQueue.append(packet); sendNext()
         }
     }
     private func sendNext() {
         guard !sending, ready, let task = socket else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        while let first = sendQueue.first, md_audio_frame_expired(first.1, now) != 0 { sendQueue.removeFirst(); recordDroppedFrames(1, reason: .send) }
         guard !sendQueue.isEmpty else { return }
-        let packet = sendQueue.removeFirst().0; sending = true; sendStarted = now
+        let packet = sendQueue.removeFirst(); sending = true; sendStarted = now
         task.send(.data(packet)) { [weak self, weak task] error in
             self?.queue.async { [weak self] in
                 guard let self, let task, !self.stopped, self.socket === task else { return }
@@ -714,91 +724,41 @@ final class ModemDeckCallAudioSession: NSObject {
             }
         }
     }
+    private func checkSendDeadline(now: Double) {
+        // Resource capacity also defines the maximum blocked wire send. A
+        // legitimate 1.5s TCP stall must reach the shared jitter-buffer path.
+        let budget = Double(md_audio_send_capacity()) * 0.02
+        if sending, now - sendStarted >= budget {
+            transportFailed(task: socket, error: ModemDeckCallAudioError.timedOut)
+        }
+    }
     private func receiveAudio(_ data: Data) {
-        guard let packet = ModemDeckAudioPacket.decode(data), let decoder else { recordDroppedFrames(1, reason: .receiveInvalid); return }
-        let now = ProcessInfo.processInfo.systemUptime
-        let clockGeneration = receiveClock.generation
-        guard let current = receiveClock.accept(sequence: packet.sequence, timestamp: packet.timestamp, now: now) else {
-            recordDroppedFrames(1, reason: .receiveInvalid); recordConnectionEvent("invalid_audio_packet"); return
-        }
-        if clockGeneration != 0, receiveClock.generation != clockGeneration { resetPlaybackForMedia(underrun: false) }
-        receivedPackets += 1
-        var output = [Float](repeating: 0, count: 320)
-        let count = packet.payload.withUnsafeBytes { bytes in
-            opus_decode_float(decoder, bytes.bindMemory(to: UInt8.self).baseAddress, Int32(bytes.count), &output, 320, 0)
-        }
-        // Decode valid stale packets to retain codec continuity, but never render them.
-        guard current else { recordDroppedFrames(1, reason: .receiveStale); return }
-        guard count == 320 else { recordDroppedFrames(1, reason: .receiveInvalid); return }
-        guard activated, let player, engine?.isRunning == true,
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 320), let samples = buffer.floatChannelData?[0] else {
-            recordDroppedFrames(1, reason: .playback); return
-        }
-        // An exhausted player gets a new playback epoch, never a new source-age
-        // anchor. Old TCP audio must pass the unchanged clock freshness gate.
-        let renderedThrough = retireRenderedPlayback()
-        if playbackEpochSourceSamples != nil, now > playbackQueuedUntil + 0.0000001,
-           renderedThrough.map({ $0 >= playbackLastSampleEnd }) ?? (playbackPending == 0) {
-            resetPlaybackForMedia(underrun: true)
-        }
-        // Five frames per legitimate 100 ms batch plus two prebuffer frames.
-        if playbackPending >= Int(md_audio_queue_capacity()) { resetPlaybackForMedia(underrun: false) }
-        if playbackEpochSourceSamples == nil {
-            let start = md_audio_playback_start(receiveClock.playAt, now)
-            guard md_audio_frame_expired(receiveClock.playAt, start) == 0 else { recordDroppedFrames(1, reason: .playback); return }
-            playbackEpochSourceSamples = receiveClock.sourceSamples
-            playbackEpochStartedAt = start
-        }
-        let sampleTime = AVAudioFramePosition(receiveClock.sourceSamples - playbackEpochSourceSamples!)
-        buffer.frameLength = 320
-        output.withUnsafeBufferPointer { source in samples.update(from: source.baseAddress!, count: 320) }
-        playbackFrameEnds.append(sampleTime + 320)
-        playbackLastSampleEnd = sampleTime + 320
-        playbackPending = playbackFrameEnds.count; renderedPackets += 1
-        lastRenderedAudioAt = now
-        playbackQueuedUntil = max(playbackQueuedUntil, md_audio_source_slot(playbackEpochStartedAt, Double(sampleTime + 320)))
-        let generation = playbackGeneration
-        // Explicit source sample slots preserve missing-frame gaps. Completion
-        // means rendered by the player; downstream device latency is not backlog.
-        player.scheduleBuffer(buffer, at: AVAudioTime(sampleTime: sampleTime, atRate: 16_000), options: [],
-                              completionCallbackType: .dataRendered) { [weak self] _ in
-            self?.queue.async { [weak self] in
-                guard let self, self.playbackGeneration == generation else { return }
-                self.playbackFrameEnds.removeAll { $0 == sampleTime + 320 }
-                self.playbackPending = self.playbackFrameEnds.count
+        guard let packet = ModemDeckAudioPacket.decode(data) else { recordDroppedFrames(1, reason: .receiveInvalid); return }
+        if let previous = receivedSequence, let previousTimestamp = receivedTimestamp {
+            let distance = packet.sequence &- previous
+            guard distance > 0, distance < 0x8000_0000,
+                  packet.timestamp &- previousTimestamp == distance &* 320 else {
+                recordDroppedFrames(1, reason: .receiveInvalid); return
             }
         }
-        if !player.isPlaying {
-            let delay = max(0, playbackEpochStartedAt - now)
-            player.play(at: AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: delay)))
+        receivedSequence = packet.sequence; receivedTimestamp = packet.timestamp
+        receivedPackets += 1
+        // CallKit-inactive audio has no renderer. Test media starts only after
+        // uplink activation, and interrupted audio is discarded at that boundary.
+        guard activated, engine?.isRunning == true, let renderer else { return }
+        let arrivalUS = Int64(AVAudioTime.seconds(forHostTime: mach_absolute_time()) * 1_000_000)
+        if renderer.enqueue(packet, arrivalUS: arrivalUS) != 0 {
+            transportFailed(task: socket, error: ModemDeckCallAudioError.timedOut)
         }
     }
-    private func retireRenderedPlayback() -> AVAudioFramePosition? {
-        guard let player, let renderTime = player.lastRenderTime,
-              let playerTime = player.playerTime(forNodeTime: renderTime) else { return nil }
-        // Completion delivery can lag a packet burst on this serial queue.
-        // Inspect the actual player cursor before treating its count as backlog.
-        playbackFrameEnds.removeAll { $0 <= playerTime.sampleTime }
-        playbackPending = playbackFrameEnds.count
-        return playerTime.sampleTime
-    }
-    private func resetPlaybackForMedia(underrun: Bool) {
-        _ = retireRenderedPlayback()
-        if underrun { playbackUnderruns += 1 } else { playbackResets += 1 }
-        recordDroppedFrames(playbackPending, reason: .playback)
-        flushPlayback()
-    }
-    private func flushPlayback() {
-        playbackGeneration += 1; playbackPending = 0; player?.stop()
-        playbackEpochSourceSamples = nil; playbackEpochStartedAt = 0; playbackQueuedUntil = -Double.infinity
-        playbackFrameEnds.removeAll(); playbackLastSampleEnd = 0
-    }
+
     private func stopAudio() {
         guard let engine else { return }
         resetCaptureStream(replacingGraph: true)
-        flushPlayback(); engine.stop()
+        engine.stop()
         if captureTapInstalled { engine.inputNode.removeTap(onBus: 0); captureTapInstalled = false }
-        self.engine = nil; player = nil; captureSamples.removeAll()
+        if let sourceNode { engine.detach(sourceNode) }
+        self.engine = nil; sourceNode = nil; renderer = nil; captureSamples.removeAll()
         publishMediaState(ready ? "waiting_for_audio" : "reconnecting")
     }
     private func startTelemetry() {
@@ -808,6 +768,8 @@ final class ModemDeckCallAudioSession: NSObject {
         timer.setEventHandler { [weak self] in
             guard let self, !self.stopped else { return }
             let now = ProcessInfo.processInfo.systemUptime
+            self.updateRenderedAudioStatistics()
+            guard !self.stopped else { return }
             self.clearRecoveryAfterStableMedia(now: now)
             let level: Int? = self.engine?.isRunning == true ? Int(self.microphoneLevel) : nil
             let captured = self.capturedFrames, sent = self.sentPackets
@@ -820,6 +782,9 @@ final class ModemDeckCallAudioSession: NSObject {
                 self.updateCaptureDropCounts()
                 self.lastStatisticsLog = now
                 self.recordConnectionEvent("audio_statistics", fields: self.localAudioStatisticsFields())
+                if let stats = self.renderer?.statistics() {
+                    self.recordConnectionEvent("neteq_audio_statistics", fields: self.neteqStatisticsFields(stats))
+                }
                 if let task = self.socket, self.ready, !self.pingInFlight {
                     self.pingInFlight = true; self.pingStarted = now
                     task.sendPing { [weak self, weak task] error in
@@ -831,19 +796,45 @@ final class ModemDeckCallAudioSession: NSObject {
                     }
                 }
             }
-            if self.sending, now - self.sendStarted > 1 { self.transportFailed(task: self.socket, error: ModemDeckCallAudioError.timedOut) }
+            self.checkSendDeadline(now: now)
             if self.pingInFlight, now - self.pingStarted > 10 { self.transportFailed(task: self.socket, error: ModemDeckCallAudioError.timedOut) }
         }
         telemetryTimer = timer; timer.resume()
+    }
+    private func updateRenderedAudioStatistics() {
+        guard let stats = renderer?.statistics() else { return }
+        if stats.render_errors > 0 { failMedia(ModemDeckCallAudioError.audioFormatUnavailable); return }
+        // C publishes actual non-PLC output samples in the client output domain.
+        // Synthetic concealment never retires the bounded reconnect budget.
+        let samples = stats.real_output_samples
+        if samples >= renderedSampleCount {
+            let frames = (samples - renderedSampleCount) / 320
+            renderedPackets += Int(frames); renderedSampleCount += frames * 320
+        }
+        if stats.last_real_render_us > 0 { lastRenderedAudioAt = Double(stats.last_real_render_us) / 1_000_000 }
+    }
+    private func neteqStatisticsFields(_ stats: md_neteq_stats) -> [String: String] {
+        // Concealed/inserted/removed are upstream internal48k samples. Actual
+        // output progress is16k and carries its explicit rate beside it.
+        ["neteq_concealed_samples": String(stats.concealed_samples),
+         "neteq_concealment_events": String(stats.concealment_events),
+         "neteq_inserted_samples": String(stats.inserted_samples),
+         "neteq_removed_samples": String(stats.removed_samples),
+         "neteq_discarded_packets": String(stats.packets_discarded),
+         "neteq_received_packets": String(stats.packets_received),
+         "neteq_target_delay_ms": String(stats.target_delay_ms),
+         "neteq_buffer_delay_ms": String(stats.current_delay_ms),
+         "neteq_ingress_packets": String(stats.ingress_queued),
+         "neteq_render_errors": String(stats.render_errors),
+         "neteq_output_samples": String(stats.real_output_samples),
+         "neteq_output_sample_rate": "16000"]
     }
     private func localAudioStatisticsFields() -> [String: String] {
         ModemDeckAudioRoute.fields().merging([
             "microphone_dbfs": String(Int(microphoneLevel)), "captured_frames": String(capturedFrames),
             "sent_packets": String(sentPackets), "server_received_packets": String(serverReceivedPackets),
             "received_packets": String(receivedPackets), "dropped_frames": String(droppedFrames),
-            "playback_pending": String(playbackPending), "playback_underruns": String(playbackUnderruns),
-            "playback_resets": String(playbackResets), "audio_enabled": String(activated),
-            "microphone_track_enabled": String(!muted)]) { _, new in new }
+            "audio_enabled": String(activated)]) { _, new in new }
             .merging(dropCounts.fields) { _, new in new }
     }
     private func interpolatedTestAudio(now: Double) -> ModemDeckTestAudioStatus? {

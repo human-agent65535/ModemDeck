@@ -23,19 +23,11 @@ async function verify(template, declarations) {
     const stubs = await readFile(new URL(`fixtures/${template}`, import.meta.url), 'utf8')
     const file = path.join(directory, 'test.swift')
     const binary = path.join(directory, 'test')
-    const needsCore = declarations.some(value => value.includes('md_audio_'))
-    const core = new URL('../../internal/audiocore/', import.meta.url).pathname
-    const object = path.join(directory, 'audio_core.o')
-    const coreArguments = []
-    if (needsCore) {
-      const compiledCore = spawnSync('xcrun', ['clang', '-std=c11', '-Wall', '-Wextra', '-Werror', '-c',
-        path.join(core, 'audio_core.c'), '-o', object], {
-        env: { ...process.env, DEVELOPER_DIR: process.env.DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }, encoding: 'utf8'
-      })
-      assert.equal(compiledCore.status, 0, compiledCore.stderr)
-      coreArguments.push('-I', core, object)
-    }
-    await writeFile(file, (needsCore ? 'import ModemDeckAudioCore\n' : '') + stubs.replace('// INSERT_PRODUCT_METHODS', declarations.join('\n')))
+    const needsCore = declarations.some(value => /md_(?:audio|neteq|opus)_/.test(value))
+    const core = new URL('../../dist/audio-core/host/', import.meta.url).pathname
+    const coreArguments = needsCore ? ['-I', path.join(core, 'include'), path.join(core, 'libmd_audio_core.a'),
+      '-lc++', '-framework', 'CoreFoundation', '-Xlinker', '-dead_strip'] : []
+    await writeFile(file, (needsCore ? 'import ModemDeckAudioCore\n' : '') + stubs.replace('// INSERT_PRODUCT_GLOBALS', declarations.filter(value => /^(?:enum ModemDeckCallAudioError|struct ModemDeckAudioPacket|private final class ModemDeckAudioRenderer)/.test(value)).join('\n')).replace('// INSERT_PRODUCT_METHODS', declarations.filter(value => !stubs.includes('// INSERT_PRODUCT_GLOBALS') || !/^(?:enum ModemDeckCallAudioError|struct ModemDeckAudioPacket|private final class ModemDeckAudioRenderer)/.test(value)).join('\n')))
     const compiled = spawnSync('xcrun', ['swiftc', '-parse-as-library', file,
       new URL('fixtures/diagnostics-stub.swift', import.meta.url).pathname, ...coreArguments, '-o', binary], {
       env: { ...process.env, DEVELOPER_DIR: process.env.DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }, encoding: 'utf8'
@@ -91,16 +83,18 @@ test('native voice graph fixes both directions to mono, preserves the engine acr
     'private func recordDroppedFrames(', 'private func resetCaptureStream(', 'private func updateCaptureDropCounts()', 'private func captureBatch(', 'private func startAudioIfReady()',
     'private func matchesVoiceFormat(', 'private func voiceGraphMatches(',
     'private func configureVoiceGraph(', 'private func startVoiceGraph(',
-    'private func audioConfigurationChanged(', 'private func flushPlayback()',
+    'private func audioConfigurationChanged(',
     'private func stopAudio()', 'private func failMedia(', 'private func finishConnection('
   ].map(marker => declaration(source, marker)))
 })
 
-test('native playback bounds unrendered audio without counting device latency and capture keeps 20 ms frames', { skip: process.platform !== 'darwin' }, async () => {
+test('native NetEq adapter uses real Opus, demand pulls, wrap metadata and bounded transport backpressure', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
-  await verify('audio-cadence-stubs.swift', ['struct ModemDeckAudioPacket {', 'struct ModemDeckAudioClock {',
-    'private enum ModemDeckAudioDropReason', 'private struct ModemDeckAudioDropCounts', 'private func recordDroppedFrames(',
-    'private func receiveAudio(', 'private func retireRenderedPlayback(', 'private func resetPlaybackForMedia(', 'private func flushPlayback()', 'private func capture(', 'private func sendNext('
+  await verify('neteq-native-stubs.swift', ['enum ModemDeckCallAudioError:', 'struct ModemDeckAudioPacket {',
+    'private final class ModemDeckAudioRenderer {', 'private enum ModemDeckAudioDropReason',
+    'private struct ModemDeckAudioDropCounts', 'private func recordDroppedFrames(', 'private func capture(',
+    'private func sendNext(', 'private func checkSendDeadline(', 'private func receiveAudio(', 'private func resetMediaForReady()',
+    'private func updateRenderedAudioStatistics()', 'private func neteqStatisticsFields('
   ].map(marker => declaration(source, marker)))
 })
 
@@ -210,14 +204,6 @@ test('CallKit repeated answers share permission and connection outcomes without 
 test('WSS audio framing validates header, limits, byte order and wrapping counters', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
   await verify('audio-packet-stubs.swift', [declaration(source, 'struct ModemDeckAudioPacket {')])
-})
-
-
-test('WSS playout rejects stale bursts, malformed clocks and duplicate frames, then recovers', { skip: process.platform !== 'darwin' }, async () => {
-  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
-  const vectors = await readFile(new URL('../../internal/callmedia/testdata/socket_clock_vectors.json', import.meta.url), 'utf8')
-  await verify('audio-clock-stubs.swift', [declaration(source, 'struct ModemDeckAudioClock {'),
-    'let clockVectorsJSON = #"""\n' + vectors + '\n"""#'])
 })
 
 

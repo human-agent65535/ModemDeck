@@ -66,7 +66,7 @@ func TestMobileDiagnosticsAuthenticateValidateAndLog(t *testing.T) {
 		"microphone_dbfs": "-37", "received_packets": "250", "sent_packets": "240", "sent_bytes": "18000",
 		"input_route": "microphone", "output_route": "receiver", "input_available": "true",
 		"input_gain_settable": "false", "input_gain_percent": "100", "output_volume_percent": "60",
-		"audio_enabled": "true", "sample_rate": "48000", "channels": "1",
+		"audio_enabled": "true", "microphone_track_enabled": "true", "sample_rate": "48000", "channels": "1",
 		"http_protocol": "h3", "reused_connection": "true",
 	}
 	send(http.MethodPost, "", batch, http.StatusForbidden)
@@ -84,6 +84,7 @@ func TestMobileDiagnosticsAuthenticateValidateAndLog(t *testing.T) {
 		func(b *mobileDiagnosticBatch) { b.Events[8].Fields["route"] = "/api/v1/messages/+12025550101" },
 		func(b *mobileDiagnosticBatch) { b.Events[8].Fields["reason"] = "private IP 192.0.2.1" },
 		func(b *mobileDiagnosticBatch) { b.Events[6].Fields["input_route"] = "personal headset name" },
+		func(b *mobileDiagnosticBatch) { b.Events[6].Fields["microphone_track_enabled"] = "private value" },
 		func(b *mobileDiagnosticBatch) { b.Events[8].CallID = "+12025550101" },
 		func(b *mobileDiagnosticBatch) { b.Events[8].CallID = "call_0123456789abcdef0123456789abcdef0" },
 		func(b *mobileDiagnosticBatch) { b.Events[8].CallID = "call_0123456789abcdef0123456789abcdeg" },
@@ -134,12 +135,14 @@ func TestMobileDiagnosticsAcceptsSwiftWSSContract(t *testing.T) {
 	if err := json.Unmarshal(body, &batch); err != nil {
 		t.Fatal(err)
 	}
-	if len(batch.Events) != 4 || batch.Events[0].Fields["stage"] != "connecting_wss" ||
+	if len(batch.Events) != 6 || batch.Events[0].Fields["stage"] != "connecting_wss" ||
 		batch.Events[2].Fields["stage"] != "reconnecting_wss" ||
 		batch.Events[1].Fields["captured_frames"] != "250" || batch.Events[1].Fields["dropped_frames"] != "7" ||
 		batch.Events[1].Fields["server_received_packets"] != "240" ||
 		batch.Events[1].Fields["playback_pending"] != "3" || batch.Events[1].Fields["playback_underruns"] != "2" ||
-		batch.Events[1].Fields["playback_resets"] != "1" {
+		batch.Events[1].Fields["playback_resets"] != "1" ||
+		batch.Events[4].Fields["neteq_output_sample_rate"] != "16000" || len(batch.Events[4].Fields) != 12 ||
+		batch.Events[5].Fields["server_neteq_internal_sample_rate"] != "48000" {
 		t.Fatal("Swift fixture lost WSS stages or audio counters")
 	}
 	if bytes.Contains(body, []byte("synthetic-private-value")) {
@@ -227,7 +230,7 @@ func TestMobileDiagnosticsAcceptsSwiftWSSContract(t *testing.T) {
 }
 
 func TestMobileDiagnosticsRejectRetiredTransportFields(t *testing.T) {
-	for _, key := range strings.Fields("candidates relay_candidates ice_state gathering_state signaling_state turn_port turn_index turn_transport turn_host microphone_track_enabled") {
+	for _, key := range strings.Fields("candidates relay_candidates ice_state gathering_state signaling_state turn_port turn_index turn_transport turn_host") {
 		if validMobileDiagnosticField(key, "1") {
 			t.Fatalf("retired field %s still accepted", key)
 		}
@@ -239,5 +242,50 @@ func TestMobileDiagnosticsRejectRetiredTransportFields(t *testing.T) {
 	}
 	if validMobileDiagnosticField("error_domain", "webrtc") {
 		t.Fatal("retired transport domain still accepted")
+	}
+}
+
+// Build 28 persisted this safe microphone state before the WSS-only release.
+// An upgraded client can resend the same journal under its newer build number.
+// Keep schema 1 readable across upgrades so one old event cannot block the batch.
+func TestMobileDiagnosticsAcceptsPersistedWSSMicrophoneState(t *testing.T) {
+	body, err := os.ReadFile("testdata/mobile_diagnostics_legacy_wss.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, build := range []string{"28", "30", "31"} {
+		for _, value := range []string{"true", "false"} {
+			var batch mobileDiagnosticBatch
+			if err := json.Unmarshal(body, &batch); err != nil {
+				t.Fatal(err)
+			}
+			batch.AppBuild = build
+			batch.Events[0].Fields["microphone_track_enabled"] = value
+			if !validMobileDiagnosticBatch(batch) {
+				t.Fatalf("persisted WSS microphone state %s rejected after upgrade to build %s", value, build)
+			}
+			for _, invalid := range []string{"1", "True", "private microphone name"} {
+				batch.Events[0].Fields["microphone_track_enabled"] = invalid
+				if validMobileDiagnosticBatch(batch) {
+					t.Fatalf("non-Boolean legacy field %q accepted", invalid)
+				}
+			}
+		}
+	}
+}
+
+func TestNetEqDiagnosticFieldsAcceptCountersWithoutAllowingPayloads(t *testing.T) {
+	keys := []string{"neteq_concealed_samples", "neteq_concealment_events", "neteq_inserted_samples", "neteq_removed_samples", "neteq_discarded_packets", "neteq_received_packets", "neteq_target_delay_ms", "neteq_buffer_delay_ms", "neteq_ingress_packets", "neteq_render_errors", "neteq_output_samples", "neteq_output_sample_rate", "server_neteq_concealed_samples", "server_neteq_concealment_events", "server_neteq_inserted_samples", "server_neteq_removed_samples", "server_neteq_packets_discarded", "server_neteq_target_delay_ms", "server_neteq_current_delay_ms", "server_neteq_internal_sample_rate"}
+	for _, key := range keys {
+		for _, value := range []string{"0", "48000", "1000000001"} {
+			if !validMobileDiagnosticField(key, value) {
+				t.Errorf("rejected %s=%s", key, value)
+			}
+		}
+		for _, value := range []string{"-1", "1000000000001", "private microphone contents", "NaN"} {
+			if validMobileDiagnosticField(key, value) {
+				t.Errorf("accepted %s=%s", key, value)
+			}
+		}
 	}
 }

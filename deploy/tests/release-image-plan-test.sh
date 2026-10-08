@@ -102,4 +102,16 @@ plan=$(cd "$fixture" && deploy/release-image-plan.sh \
 [ "$(printf '%s' "$plan" | jq -r '.include | map(select(.mode == "build") | .component) | join(",")')" = hardware ] ||
     fail "Hardware runtime change selected another container: $plan"
 
+# An upstream-only audio update must rebuild both consumers even when the
+# adapter API and generated artifact paths have not changed yet.
+mkdir -p "${fixture}/third_party/audio"
+printf '%s\n' pinned-audio-source >"${fixture}/third_party/audio/upstream.json"
+git -C "$fixture" add .
+git -C "$fixture" commit --quiet -m v1.9.10
+git -C "$fixture" tag -a v1.9.10 -m v1.9.10
+plan=$(cd "$fixture" && deploy/release-image-plan.sh \
+    v1.9.10 HEAD v1.9.9 human-agent65535 false)
+[ "$(printf '%s' "$plan" | jq -r '.include | map(select(.mode == "build") | .component) | join(",")')" = api,web ] ||
+    fail "Shared audio source change did not rebuild API and Web: $plan"
+
 printf '%s\n' 'release-image-plan-test: ok'

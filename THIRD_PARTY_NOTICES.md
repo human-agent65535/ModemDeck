@@ -122,3 +122,13 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
+
+## Shared call audio core
+
+Native iOS, Web and the Go API use the same pinned WebRTC NetEq, Abseil and Opus
+source distribution. NetEq supplies buffering, concealment and time stretching;
+only WSS is used for call transport. Exact revisions and source hashes are in
+`third_party/audio/upstream.json`. The complete license texts, patent grant and
+DSP dependency notices are preserved in `third_party/audio/LICENSES.txt` and
+packaged as `audio-LICENSES.txt` in distributed images and `AudioCoreNotices.txt`
+in the iOS app. See `third_party/audio/README.md` for build provenance.

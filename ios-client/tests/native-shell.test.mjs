@@ -102,17 +102,17 @@ test('CallKit owns native WSS Opus audio and keeps synthetic calls local', async
     source('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved')
   ])
 
-  assert.match(project, /alta\/swift-opus\.git/)
-  assert.match(project, /kind = revision;[\s\S]*revision = 6f3cb6bd3ffed1fe5f06d00a962d5c191a50daf8;/)
-  assert.match(project, /Copus in Frameworks/)
-  assert.match(resolved, /"identity" : "swift-opus"/)
+  assert.match(project, /MDNetEq.xcframework in Frameworks/)
+  assert.doesNotMatch(project + resolved, /Copus|swift-opus/)
+  assert.match(audio, /import ModemDeckAudioCore/)
   assert.doesNotMatch(audio, /import WebRTC|RTCPeerConnection/)
   assert.match(audio, /func didActivate/)
   assert.match(audio, /guard !stopped, activated, ready, engine == nil/)
   assert.match(audio, /setVoiceProcessingEnabled\(true\)/)
   assert.match(audio, /isVoiceProcessingAGCEnabled = true/)
   assert.match(audio, /opus_encode_float/)
-  assert.match(audio, /opus_decode_float/)
+  assert.match(audio, /md_neteq_render_float/)
+  assert.match(audio, /AVAudioSourceNode/)
   assert.match(audio, /callPath\("media\/ws"\)/)
   assert.match(audio, /components\.scheme = "wss"/)
   assert.match(audio, /callPath\("media"\)/)
@@ -226,7 +226,10 @@ test('tracked iOS configuration contains no personal signing identity', async ()
     .split('\0')
     .filter(Boolean)
   const trackedEntries = await Promise.all(trackedPaths.map(async path => {
-    const data = await readFile(new URL(path, root))
+    const data = await readFile(new URL(path, root)).catch(error => {
+      if (error.code === 'ENOENT') return Buffer.alloc(0) // A tracked deletion has no packaged content.
+      throw error
+    })
     return data.includes(0) ? '' : `[${path}]\n${data.toString('utf8')}`
   }))
   const trackedConfiguration = trackedEntries.join('\n')
@@ -647,10 +650,11 @@ test('native communication avatars and phone copying follow the Web identity rul
   assert.match(calls, /ModemDeckRecordingRow[\s\S]*ModemDeckCommunicationAvatar\([\s\S]*channel: \.recording/)
 })
 
-test('native source-built Opus does not embed a WebRTC binary or generated dSYM phase', async () => {
+test('native NetEq links one shared static core without PeerConnection or a second Opus package', async () => {
   const project = await source('ios/App/App.xcodeproj/project.pbxproj')
   assert.doesNotMatch(project, /WebRTC|generate-webrtc-dsym/)
-  assert.match(project, /productName = Copus;/)
+  assert.match(project, /MDNetEq.xcframework/)
+  assert.doesNotMatch(project, /Copus|swift-opus|audio_core.c/)
 })
 
 test('native communication density keeps compact visuals and full touch targets', async () => {

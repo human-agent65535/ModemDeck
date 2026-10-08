@@ -1,19 +1,28 @@
-# Shared audio timing core
+# Shared call audio core
 
-`audio_core.c` owns the source clock, bounded recovery estimator, freshness
-decisions and common timing budgets for iOS, Web and Go. It allocates no memory
-and has no device, codec, network or wall-clock dependencies. Inputs/outputs use
-monotonic seconds; decisions use integer microseconds. One state belongs to one
-receive stream and is reset on reconnect, never merely on a playback underrun.
+`native/` exposes a small C ABI over the pinned original WebRTC NetEq and Opus.
+iOS, Web and Go compile this same source with the same codec configuration.
+The upstream source archive, revisions, hashes and licenses live in
+`third_party/audio/`. There is no second Swift, Go or TypeScript implementation
+of jitter buffering, concealment or adaptive playout.
 
-The native target imports `ModemDeckAudioCore` via `module.modulemap` and compiles
-this C source. Go CGO compiles it in this package, so its build cache tracks the
-actual C and header files. The browser compiles it with
-`scripts/audio-core/wasm.c`; each Wasm instance has its own state. There is no
-separate timing implementation for builds without CGO: those builds report
-WSS audio unsupported, just as they cannot supply the production Opus codec.
+A receiver has one render consumer and one network producer. Network enqueue
+copies into preallocated SPSC ingress storage; the consumer owns NetEq. Only
+that consumer calls pull/render or resets a device remainder. Stop both users
+before destroying the receiver. The Go adapter additionally guards lifecycle
+with a read/write lock; it does not serialize network enqueue against render.
+The C header documents time domains, sample units, capacities and error codes.
 
-Run `make audio-core` after changing the C source, header or Wasm build script.
-The Docker compiler is pinned by digest. `web` tests/builds verify the source
-and artifact hashes, and the production Wasm has no runtime imports. See
-`docs/call-audio-websocket.md` for the wire protocol and audio lifecycle.
+All NetEq processing uses 48 kHz internally. RTP timestamp conversion is wrapping
+16 kHz wire to 48 kHz multiplication, not a custom 16 kHz decoder. Official WebRTC
+resampling supplies the device rate. NetEq owns delay and time stretching;
+platforms own only authentication, transport, device activation and actual
+render demand. See `docs/call-audio-websocket.md` for the complete contract.
+
+Build Web artifacts with `make audio-core`, the Go toolchain with
+`make root-toolchain`, and native libraries with
+`node scripts/build-native-audio-core.mjs --ios` or `--host`.
+Web checks reject stale source/artifact fingerprints. iOS build scripts rebuild
+the static XCFramework when sources change. Go production builds use the
+Docker-built static library and require CGO; no fallback audio algorithm is
+provided when CGO is disabled.
