@@ -19,8 +19,10 @@ call audio remain native platform services.
   operations. Copy remains available for one selected item, and More provides
   an accessible selection alternative. Row swipes pause during selection.
 - The native dialer sheet retains its number and line when collapsed and shows
-  the default recording policy as a small status label. Recording controls stay
-  in Settings rather than the dialing or active-call surface. Active calls can collapse into a persistent return/hang-up bar;
+  the default recording policy as a small status label. While connecting or
+  ringing, the call surface shows the prepared recording choice as read-only
+  text. Once connected, its recording button can start or stop recording.
+  Active calls can collapse into a persistent return/hang-up bar;
   CallKit continues to own audio and control throughout.
 - Preferences → Appearance offers System, Light and Dark on this device.
   Native semantic colors cover navigation, avatars, bubbles and recording UI.
