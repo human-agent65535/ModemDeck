@@ -148,6 +148,8 @@ type SendMessageInput struct {
 }
 
 type StartCallInput struct {
+	// Recheck the prepared media at the serialized hardware dispatch boundary.
+	ReadyToDial  func() bool `json:"-"`
 	RequestID    string
 	RequestScope string
 	LineID       string
@@ -520,6 +522,7 @@ func (s *Service) commitSnapshotLocked(
 	if err != nil {
 		return s.recordRefreshFailure("persist host agent snapshot", err)
 	}
+	s.logCallObservations(previousSnapshot, snapshot)
 	durableMessageChange := len(snapshotResult.CreatedIncomingMessages) > 0 ||
 		len(snapshotResult.HandledDeliveryReportIDs) > 0
 	if durableMessageChange && s.runtime != nil {
@@ -1957,6 +1960,12 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 			err,
 		)
 	}
+	if err := normalizeContext(ctx).Err(); err != nil {
+		return store.Call{}, s.failLocalCommand(ctx, command, operation, "call was cancelled before dial", err)
+	}
+	if input.ReadyToDial != nil && !input.ReadyToDial() {
+		return store.Call{}, s.failLocalCommand(ctx, command, operation, "prepared call audio is no longer ready", nil)
+	}
 	commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
 	defer cancel()
 	receipt, err := s.agent.StartCall(commandContext, agentclient.StartCallRequest{
@@ -3019,6 +3028,8 @@ func projectCall(
 	revision int64,
 ) store.HardwareCall {
 	projected := store.HardwareCall{
+		ConnectedAt:     call.ConnectedAt,
+		TerminatedAt:    call.TerminatedAt,
 		AppID:           stableInstanceID("call", call.LineID, call.ID),
 		RequestID:       requestID,
 		LineID:          call.LineID,
@@ -3198,8 +3209,10 @@ func indexStableHomeCountry(index map[string]string, key, homeCountryISO string)
 
 func callPhase(state string) string {
 	switch strings.ToLower(strings.TrimSpace(state)) {
-	case "dialing", "ringing-out":
+	case "dialing":
 		return "dialing"
+	case "ringing-out":
+		return "ringing-out"
 	case "ringing", "ringing-in", "waiting":
 		return "ringing"
 	case "connecting":

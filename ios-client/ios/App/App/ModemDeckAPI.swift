@@ -407,6 +407,14 @@ struct ModemDeckRecordingCall: Codable, Identifiable, Hashable {
     }
 }
 
+struct ModemDeckCallPreparation: Decodable {
+    let preparationId: String
+    let mediaSocketPath: String
+    let expiresAt: String
+    let recordingEnabled: Bool
+    var clientSessionID: String?
+}
+
 struct ModemDeckCallSession: Decodable, Identifiable, Hashable {
     let id: String
     let lineId: String
@@ -699,7 +707,7 @@ private struct ModemDeckMessageResponse: Decodable {
     let message: ModemDeckMessage
 }
 
-private struct ModemDeckCallResponse: Decodable {
+struct ModemDeckCallResponse: Decodable {
     let call: ModemDeckCallSession
 }
 
@@ -1200,42 +1208,35 @@ final class ModemDeckAPIClient {
         )
     }
 
-    func startCall(
-        lineID: String,
-        number: String,
-        recordingEnabled: Bool?
-    ) async throws -> ModemDeckCallSession {
+    func prepareCall(lineID: String, number: String, recordingEnabled: Bool?) async throws -> ModemDeckCallPreparation {
         struct Payload: Encodable {
             let requestId: String
             let lineId: String
             let number: String
             let recordingEnabled: Bool?
         }
-        let operation = try operationIdentity(
-            kind: "start-call",
-            parts: [lineID, number, recordingEnabled.map(String.init) ?? "default"]
-        )
+        let sessionID = UUID().uuidString.lowercased()
+        let started = ProcessInfo.processInfo.systemUptime
+        ModemDeckDiagnostics.shared.record(.app, "outgoing_prepare_started", fields: ["session_id": sessionID])
         do {
-            let response = try await decode(
-                ModemDeckCallResponse.self,
-                path: "/api/v1/calls",
-                method: "POST",
-                headers: ["Idempotency-Key": operation.requestID],
-                body: try encoder.encode(Payload(
-                    requestId: operation.requestID,
-                    lineId: lineID,
-                    number: number,
-                    recordingEnabled: recordingEnabled
-                ))
-            )
-            operationJournal.complete(operation)
-            return response.call
+            var preparation = try await decode(ModemDeckCallPreparation.self, path: "/api/v1/calls/prepare", method: "POST",
+                body: try encoder.encode(Payload(requestId: sessionID, lineId: lineID,
+                    number: number, recordingEnabled: recordingEnabled)))
+            ModemDeckDiagnostics.shared.record(.app, "outgoing_prepare_completed", callID: preparation.preparationId,
+                fields: ["session_id": sessionID, "preparation_id": preparation.preparationId,
+                    "elapsed_ms": String(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))])
+            preparation.clientSessionID = sessionID
+            return preparation
         } catch {
-            if !preservesOperationIdentity(error) {
-                operationJournal.complete(operation)
-            }
+            ModemDeckDiagnostics.shared.record(.app, "outgoing_prepare_failed", fields: ["session_id": sessionID,
+                "elapsed_ms": String(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))], error: error)
             throw error
         }
+    }
+
+    func cancelCallPreparation(_ id: String) async throws {
+        let escaped = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        _ = try await data(path: "/api/v1/calls/preparations/\(escaped)", method: "DELETE")
     }
 
     func callRecording(callID: String) async throws -> ModemDeckCallRecordingState {

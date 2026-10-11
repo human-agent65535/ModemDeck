@@ -12,6 +12,8 @@ final class Queue {
     func asyncAfter(deadline: DispatchTime, execute: @escaping () -> Void) { jobs.append(execute) }
 }
 final class Owner {
+    var preparation: Int? = nil
+    var preparationCommitted = false
     enum Reason { case send }
     var stopped = false, ready = true, sending = true, pingInFlight = true
     var socket: Socket? = Socket()

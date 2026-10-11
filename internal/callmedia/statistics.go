@@ -81,6 +81,7 @@ func (s *Session) Statistics() AudioStatistics {
 		SentPackets: s.baseStats.SentPackets + s.stats.sentPackets.Load(), DroppedPackets: s.baseStats.DroppedPackets, InputDBFS: int(s.stats.inputDBFS.Load()),
 		InputPeakDBFS: int(s.stats.inputPeakDBFS.Load()), OutputDBFS: int(s.stats.outputDBFS.Load())}
 	stats.Transport = "websocket"
+	s.codecMu.Lock()
 	if s.socket != nil && s.socket.receiver != nil {
 		n := s.socket.receiver.Statistics()
 		stats.NetEqConcealedSamples = s.baseStats.NetEqConcealedSamples + n.ConcealedSamples
@@ -93,6 +94,7 @@ func (s *Session) Statistics() AudioStatistics {
 		stats.NetEqInternalSampleRate = uint64(n.InternalSampleRate)
 		stats.DroppedPackets = stats.NetEqPacketsDiscarded
 	}
+	s.codecMu.Unlock()
 	stats.State = "connecting"
 	if s.events != nil {
 		select {

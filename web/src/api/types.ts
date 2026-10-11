@@ -97,6 +97,7 @@ export type CallPhase =
   | 'unknown'
   | 'dialing'
   | 'ringing'
+  | 'ringing-out'
   | 'connecting'
   | 'active'
   | 'ending'
@@ -1424,3 +1425,5 @@ export type Page<T> = {
   items: T[]
   meta: PageMeta
 }
+
+export type OutgoingCallPreparation = { preparation_id: string; media_socket_path: string; expires_at: string; recording_enabled: boolean }

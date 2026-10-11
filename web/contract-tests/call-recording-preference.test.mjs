@@ -4,7 +4,6 @@ import { gateway } from '../src/api/client.ts'
 import {
   answerCall,
   callState,
-  dial,
   initializeCallRuntime,
   requestActiveCallRefresh,
   shutdownCallRuntime
@@ -53,7 +52,7 @@ test('real call requests keep recording preferences local to each request', asyn
     }
     const body = bodies.at(-1)
     return new Response(
-      JSON.stringify(callResponse(`call-${bodies.length}`, body.line_id, body.number)),
+      JSON.stringify({ recording_enabled: body.recording_enabled ?? true, preparation_id: `prep-${bodies.length}`, media_socket_path: `/api/v1/calls/preparations/prep-${bodies.length}/media/ws`, expires_at: '2026-10-20T00:00:00Z' }),
       {
         status: 201,
         headers: { 'Content-Type': 'application/json' }
@@ -62,14 +61,14 @@ test('real call requests keep recording preferences local to each request', asyn
   }
 
   try {
-    await gateway.startCall('line-main', '+818000000001', true)
-    await gateway.startCall('line-main', '+818000000002', false)
+    await gateway.prepareCall('line-main', '+818000000001', true)
+    await gateway.prepareCall('line-main', '+818000000002', false)
     failNext = true
     await assert.rejects(
-      () => gateway.startCall('line-main', '+818000000003', true),
+      () => gateway.prepareCall('line-main', '+818000000003', true),
       /forced failure/
     )
-    await gateway.startCall('line-main', '+818000000004')
+    await gateway.prepareCall('line-main', '+818000000004')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -79,76 +78,6 @@ test('real call requests keep recording preferences local to each request', asyn
     [true, false, true, undefined]
   )
   assert.equal('recording_enabled' in bodies[3], false)
-})
-
-test('dial forwards the current recording preference and keeps one call in flight', async () => {
-  const originalStartCall = gateway.startCall
-  const originalBootstrap = bootstrapResource.data
-  const originalBootstrapStatus = bootstrapResource.status
-  const originalBootstrapError = bootstrapResource.error
-  const received = []
-
-  bootstrapResource.data = {
-    capabilities: {
-      agent_connected: true,
-      dial: true,
-      message: true,
-      wss_audio: true,
-      device_control: false,
-      volte_control: false,
-      vowifi_control: false
-    },
-    lines: [
-      {
-        id: 'line-main',
-        capabilities: {
-          dial: true,
-          media: true
-        }
-      }
-    ]
-  }
-  bootstrapResource.status = 'ready'
-  bootstrapResource.error = ''
-  gateway.startCall = async (lineKey, number, recordingEnabled) => {
-    received.push({ lineKey, number, recordingEnabled })
-    return callResponse(`state-call-${received.length}`, lineKey, number).call
-  }
-
-  try {
-    assert.equal(await dial('+818000000011', 'line-main', true), true)
-    shutdownCallRuntime()
-    assert.equal(await dial('+818000000012', 'line-main', false), true)
-    shutdownCallRuntime()
-
-    let releasePending
-    gateway.startCall = (lineKey, number, recordingEnabled) => {
-      received.push({ lineKey, number, recordingEnabled })
-      return new Promise(resolve => {
-        releasePending = () =>
-          resolve(callResponse(`state-call-${received.length}`, lineKey, number).call)
-      })
-    }
-    const pending = dial('+818000000013', 'line-main', true)
-    assert.equal(callState.busy, true)
-    assert.equal(await dial('+818000000014', 'line-main', false), false)
-    assert.equal(callState.errorStatus, 409)
-    assert.equal(typeof releasePending, 'function')
-    releasePending()
-    assert.equal(await pending, true)
-  } finally {
-    shutdownCallRuntime()
-    gateway.startCall = originalStartCall
-    bootstrapResource.data = originalBootstrap
-    bootstrapResource.status = originalBootstrapStatus
-    bootstrapResource.error = originalBootstrapError
-    callState.session = null
-  }
-
-  assert.deepEqual(
-    received.map(request => request.recordingEnabled),
-    [true, false, true]
-  )
 })
 
 test('a pre-connect recording choice wins over a pending default lookup', async () => {
@@ -599,4 +528,31 @@ test('call reconciliation repeats when a terminal event arrives during an active
     shutdownCallRuntime()
     gateway.getActiveCallSnapshot = originalGetActiveCallSnapshot
   }
+})
+
+test('real outgoing gateway uses prepare then idempotent commit and scoped lease/cancel paths', async () => {
+  const originalFetch = globalThis.fetch, requests = []
+  globalThis.fetch = async (input, init) => {
+    const path = String(input), body = JSON.parse(String(init?.body || '{}'))
+    requests.push({path,method:init?.method,body})
+    if (path.endsWith('/prepare')) return new Response(JSON.stringify({recording_enabled:true,preparation_id:'prepared-call',media_socket_path:'/api/v1/calls/preparations/prepared-call/media/ws',expires_at:'2026-10-20T00:00:00Z'}),{status:201,headers:{'Content-Type':'application/json'}})
+    if (path.endsWith('/commit')) return new Response(JSON.stringify(callResponse('committed-call','line-main','555')),{status:201,headers:{'Content-Type':'application/json'}})
+    if (path.endsWith('/lease')) return new Response(JSON.stringify({preparation_id:'prepared-call',expires_at:'2026-10-20T00:00:00Z'}),{status:200,headers:{'Content-Type':'application/json'}})
+    if (init?.method==='DELETE') return new Response(null,{status:204})
+    throw new Error(`Unexpected outgoing endpoint: ${path}`)
+  }
+  try {
+    const preparation = await gateway.prepareCall('line-main','555',true)
+    assert.equal(preparation.recording_enabled,true)
+    await gateway.renewCallPreparation(preparation.preparation_id)
+    const first = await gateway.commitCallPreparation(preparation.preparation_id)
+    const replay = await gateway.commitCallPreparation(preparation.preparation_id)
+    assert.equal(first.id,replay.id)
+    await gateway.cancelCallPreparation(preparation.preparation_id)
+    assert.equal('startCall' in gateway,false)
+    assert.deepEqual(requests.map(request=>request.method),['POST','PUT','POST','POST','DELETE'])
+    assert.equal(requests[0].body.recording_enabled,true)
+    assert.deepEqual(requests[2].body,{audio_running:true})
+    assert.equal(requests.some(request=>request.path==='/api/v1/calls'),false)
+  } finally {globalThis.fetch=originalFetch}
 })

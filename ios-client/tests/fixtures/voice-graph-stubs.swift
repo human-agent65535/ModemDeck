@@ -1,4 +1,5 @@
 import Foundation
+final class Ringback { func mix(_ output: UnsafeMutablePointer<Float>, count: Int) {} }
 
 // These doubles model graph mutations and callbacks, not a physical audio device.
 // Product startup, graph configuration, capture guards and failure methods are
@@ -156,6 +157,9 @@ final class Owner {
         onFailed = { [weak self] in self?.failures.append($0) }
         onRemoteEnded = { [weak self] in self?.remoteEnds += 1 }
     }
+    let preparation: Int? = nil
+    func commitPreparationIfReady() {}
+    let ringback = Ringback()
     func start() { startAudioIfReady() }
     func resetStream() { resetCaptureStream() }
     func configurationChanged(_ changed: AVAudioEngine?) { audioConfigurationChanged(changed) }

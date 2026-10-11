@@ -18,6 +18,10 @@ func (e *sessionEvents) markConnected() { e.connectOnce.Do(func() { close(e.conn
 // Session owns one authenticated WSS client and its codec. The shared PCM hub
 // owns the host endpoint independently so recording can outlive the client.
 type Session struct {
+	bindingMu    sync.Mutex
+	identityMu   sync.RWMutex
+	codecMu      sync.Mutex
+	bound        chan struct{}
 	callID       string
 	format       PCMFormat
 	hub          *mediaHub
@@ -73,19 +77,27 @@ func (s *Session) stop(reason error) {
 
 func (s *Session) cleanup() {
 	<-s.ctx.Done()
+	s.bindingMu.Lock()
 	var cleanupError error
 	s.socket.transport.InterruptRead()
-	s.hub.detachReceiver(s)
-	if err := s.subscription.Close(); err != nil {
-		cleanupError = errors.Join(cleanupError, fmt.Errorf("close PCM subscription: %w", err))
+	if s.hub != nil {
+		s.hub.detachReceiver(s)
 	}
+	if s.subscription != nil {
+		if err := s.subscription.Close(); err != nil {
+			cleanupError = errors.Join(cleanupError, fmt.Errorf("close PCM subscription: %w", err))
+		}
+	}
+	s.bindingMu.Unlock()
 	s.workers.Wait()
 	s.socket.transport.Finish(s.Err(), s.Statistics())
 	_ = s.socket.transport.Close()
 	if s.reportStats != nil {
-		s.reportStats(s.callID, s.Statistics())
+		s.reportStats(s.CallID(), s.Statistics())
 	}
-	s.socket.receiver.Close()
+	if s.socket.receiver != nil {
+		s.socket.receiver.Close()
+	}
 	if err := s.codec.Close(); err != nil {
 		cleanupError = errors.Join(cleanupError, fmt.Errorf("close Opus codec: %w", err))
 	}
@@ -138,6 +150,8 @@ func (s *Session) Format() PCMFormat {
 	if s == nil {
 		return PCMFormat{}
 	}
+	s.codecMu.Lock()
+	defer s.codecMu.Unlock()
 	return s.format
 }
 
@@ -145,6 +159,8 @@ func (s *Session) CallID() string {
 	if s == nil {
 		return ""
 	}
+	s.identityMu.RLock()
+	defer s.identityMu.RUnlock()
 	return s.callID
 }
 
@@ -155,3 +171,29 @@ func (s *Session) setReasonIfNil(err error) {
 	}
 	s.reasonMu.Unlock()
 }
+
+// UplinkReady is closed only after a syntactically and codec-valid real Opus packet.
+func (s *Session) UplinkReady() <-chan struct{} { return s.socket.firstPacket }
+func (s *Session) TransportReady() bool {
+	select {
+	case <-s.socket.firstPacket:
+	default:
+		return false
+	}
+	return s.ctx.Err() == nil
+}
+func (s *Session) waitBinding() error {
+	if s.bound == nil {
+		return nil
+	}
+	select {
+	case <-s.bound:
+		return nil
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
+}
+
+// Context is cancelled as soon as media fails or stops, before socket cleanup.
+// Dial dispatch derives cancellation from it, without taking session ownership.
+func (s *Session) Context() context.Context { return s.ctx }

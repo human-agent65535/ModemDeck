@@ -506,6 +506,8 @@ type HardwareLine struct {
 }
 
 type HardwareCall struct {
+	ConnectedAt     time.Time
+	TerminatedAt    time.Time
 	AppID           string
 	RequestID       string
 	LineID          string

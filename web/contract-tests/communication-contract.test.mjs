@@ -118,11 +118,7 @@ test('communication and Telegram endpoints match the root API', () => {
     path: '/api/v1/messages/threads/state',
     successStatus: 200
   })
-  assert.deepEqual(communicationContracts.startCall, {
-    method: 'POST',
-    path: '/api/v1/calls',
-    successStatus: 201
-  })
+  assert.equal('startCall' in communicationContracts, false)
   assert.deepEqual(communicationContracts.markMissedCallsRead, {
     method: 'PATCH',
     path: '/api/v1/calls/missed/read',

@@ -2,6 +2,10 @@ import Foundation
 private final class Owner {
     let queue = DispatchQueue(label: "heartbeat-test")
     let renewed = DispatchSemaphore(value: 0)
+    struct Preparation { let preparationId: String }
+    var preparation: Preparation?
+    var preparationCommitted = false
+    func preparationPath(_ id: String) -> String { "/api/v1/calls/preparations/" + id }
     var stopped = false, leaseRequestInFlight = false
     var leaseTimer: DispatchSourceTimer?
     var requests = 0

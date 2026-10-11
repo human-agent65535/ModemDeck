@@ -2,7 +2,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  AudioLines,
   Circle,
   Grip,
   LoaderCircle,
@@ -29,12 +28,8 @@ import {
   resumeCallAudio,
   toggleCallMute
 } from '../state/callMedia'
-import {
-  callRecordingState,
-  rememberCallRecordingPreference,
-  setCallRecordingEnabled
-} from '../state/recording'
-import type { CallRecordingSegment, CallSession } from '../api/types'
+import { callRecordingState, setCallRecordingEnabled } from '../state/recording'
+import type { CallSession } from '../api/types'
 import { playDTMFTone } from '../state/dtmfAudio'
 import {
   bootstrapResource,
@@ -79,11 +74,13 @@ const contactNumber = computed(() => {
   return number && number !== contactName.value ? number : ''
 })
 const phaseLabel = computed(() => {
+  if (callState.pendingAction === 'dial') return t('runtime.dialPreparing')
   if (callState.pendingAction === 'hangup' || callState.pendingAction === 'reject') return t('calls.ending')
   if (callState.endReason) return t(`calls.${callState.endReason}`)
   const labels = {
     unknown: t('calls.phaseUnknown'),
     dialing: t('calls.dialing'),
+    'ringing-out': t('calls.waitingAnswer'),
     ringing:
       session.value?.direction === 'incoming'
         ? session.value.control_state === 'owned'
@@ -127,48 +124,37 @@ const occupiedDescription = computed(() =>
     : t('calls.lineInUseDescription')
 )
 const active = computed(() => session.value?.phase === 'active')
-const recordingAdjustable = computed(() => {
-  const phase = session.value?.phase
-  return (
-    !occupied.value &&
-    (incoming.value || callState.owned) &&
-    (phase === 'dialing' ||
-      phase === 'ringing' ||
-      phase === 'connecting' ||
-      phase === 'active')
-  )
+const recordingAdjustable = computed(() => active.value && callState.owned && !occupied.value)
+const recordingControlReady = computed(() =>
+  callRecordingState.callID === session.value.id &&
+  callRecordingState.status === 'ready' &&
+  callRecordingState.segmentsStatus !== 'loading'
+)
+const recordingLabel = computed(() => {
+  if (terminal.value || occupied.value || !callState.owned) return ''
+  if (callState.pendingAction === 'dial') {
+    const enabled = callState.outgoingRecordingEnabled
+    return enabled === undefined ? '' : t(enabled ? 'dialer.recordingEnabled' : 'dialer.recordingDisabled')
+  }
+  if (callRecordingState.callID !== session.value.id) return ''
+  if (!active.value) {
+    return callRecordingState.status === 'ready'
+      ? t(callRecordingState.enabled ? 'dialer.recordingEnabled' : 'dialer.recordingDisabled')
+      : ''
+  }
+  if (callRecordingState.busy || callRecordingState.status === 'initializing') return t('calls.applyingRecording')
+  if (callRecordingState.recordingStatus === 'failed') return t('calls.recordingFailed')
+  if (callRecordingState.recordingStatus === 'recording') return t('calls.recordingActive')
+  if (callRecordingState.enabled) return t('calls.recordingPending')
+  return ''
 })
-const recordingSegments = computed(() =>
-  callRecordingState.callID === session.value?.id
-    ? callRecordingState.segments
-    : []
-)
-const activeRecordingSegment = computed(() =>
-  recordingSegments.value.find(
-    segment =>
-      segment.id === callRecordingState.activeSegmentID &&
-      segment.status === 'recording'
-  )
-)
-const recordingActive = computed(
-  () =>
-    callRecordingState.recordingStatus === 'recording' &&
-    Boolean(activeRecordingSegment.value)
-)
-const recordingFailed = computed(
-  () => callRecordingState.recordingStatus === 'failed'
-)
-const recordingControlReady = computed(
-  () =>
-    callRecordingState.status === 'ready' &&
-    callRecordingState.segmentsStatus !== 'loading'
-)
 const canHangup = computed(() => {
   const phase = session.value?.phase
   return (
     callState.pendingAction === 'hangup' ||
     phase === 'unknown' ||
     phase === 'dialing' ||
+    phase === 'ringing-out' ||
     phase === 'ringing' ||
     phase === 'connecting' ||
     phase === 'active'
@@ -196,13 +182,13 @@ const rejectUnavailable = computed(() =>
   lineSupports(line.value, 'reject') === false ? t('calls.rejectUnsupported') : ''
 )
 const hangupUnavailable = computed(() =>
-  lineSupports(line.value, 'hangup') === false ? t('calls.hangupUnsupported') : ''
+  callState.pendingAction !== 'dial' && lineSupports(line.value, 'hangup') === false ? t('calls.hangupUnsupported') : ''
 )
 const dtmfUnavailable = computed(() =>
   lineSupports(line.value, 'dtmf') === false ? t('calls.dtmfUnsupported') : ''
 )
 const mediaLabel = computed(() => {
-  if (!active.value || !callState.owned) return ''
+  if (terminal.value || !callState.owned) return ''
   if (callMediaState.status === 'unavailable') return t('calls.serverAudioUnavailable')
   if (callMediaState.status === 'requesting') return t('calls.requestingMicrophone')
   if (callMediaState.status === 'connecting') return t('calls.connectingBrowserAudio')
@@ -218,28 +204,18 @@ const mediaControllable = computed(
 )
 const showMediaControls = computed(
   () =>
-    active.value &&
+    !terminal.value &&
     callState.owned &&
     !dtmfOpen.value &&
     (mediaControllable.value ||
       callMediaState.playbackBlocked ||
       callMediaState.status === 'error')
 )
-const recordingLabel = computed(() => {
-  if (!active.value || !callState.owned) return ''
-  if (recordingActive.value) return t('calls.recordingActive')
-  if (callRecordingState.busy || callRecordingState.status === 'initializing') {
-    return t('calls.applyingRecording')
-  }
-  if (recordingFailed.value) return t('calls.recordingFailed')
-  if (callRecordingState.enabled) return t('calls.recordingPending')
-  return ''
-})
 const statusError = computed(
   () =>
     callState.error ||
     callState.syncError ||
-    callRecordingState.error ||
+    (callRecordingState.callID === session.value.id ? callRecordingState.error : '') ||
     callMediaState.error ||
     session.value?.failure_reason ||
     ''
@@ -255,33 +231,6 @@ const capabilityNotice = computed(() => {
     .filter((reason, index) => reason && reasons.indexOf(reason) === index)
     .join(t('common.listSeparator'))
 })
-
-function isActiveRecordingSegment(segment: CallRecordingSegment): boolean {
-  return recordingActive.value && segment.id === callRecordingState.activeSegmentID
-}
-
-function recordingSegmentDuration(segment: CallRecordingSegment): string {
-  if (isActiveRecordingSegment(segment) && segment.started_at) {
-    const startedAt = Date.parse(segment.started_at)
-    if (Number.isFinite(startedAt)) {
-      return formatDuration(Math.max(0, Math.floor((now.value - startedAt) / 1000)))
-    }
-  }
-  return formatDuration(segment.duration_seconds)
-}
-
-function recordingSegmentStatus(segment: CallRecordingSegment): string {
-  switch (segment.status) {
-    case 'pending':
-      return t('recordings.pending')
-    case 'recording':
-      return t('recordings.recording')
-    case 'failed':
-      return t('recordings.failed')
-    default:
-      return t('recordings.playable')
-  }
-}
 
 watch(
   () => [session.value?.id, session.value?.phase] as const,
@@ -299,23 +248,7 @@ function tone(digit: string): void {
 }
 
 function toggleRecording(): void {
-  if (
-    !session.value ||
-    callState.busy ||
-    callRecordingState.busy ||
-    !recordingControlReady.value
-  ) {
-    return
-  }
-  if (!active.value) {
-    const enabled = !callRecordingState.enabled
-    rememberCallRecordingPreference(
-      session.value.id,
-      enabled
-    )
-    if (callState.owned) void setCallRecordingEnabled(enabled)
-    return
-  }
+  if (!recordingAdjustable.value || callState.busy || callRecordingState.busy || !recordingControlReady.value) return
   void setCallRecordingEnabled(!callRecordingState.enabled)
 }
 
@@ -385,44 +318,7 @@ onBeforeUnmount(() => {
             {{ capabilityNotice }}
           </p>
           <p v-if="mediaLabel" class="call-surface__media">{{ mediaLabel }}</p>
-          <p
-            v-if="recordingLabel"
-            class="call-surface__recording"
-            :class="{
-              'is-active': recordingActive,
-              'is-failed': recordingFailed
-            }"
-          >
-            <i v-if="recordingActive" aria-hidden="true" />
-            {{ recordingLabel }}
-          </p>
-        </div>
-
-        <div
-          v-if="active && callState.owned && recordingSegments.length"
-          class="call-surface__recording-segments"
-        >
-          <header>
-            <span><AudioLines :size="14" /> {{ t('recordings.title') }}</span>
-            <strong>{{ recordingSegments.length }}</strong>
-          </header>
-          <ol :aria-label="t('recordings.title')">
-            <li
-              v-for="segment in recordingSegments"
-              :key="segment.id"
-              :class="{
-                'is-active': isActiveRecordingSegment(segment),
-                'is-failed': segment.status === 'failed'
-              }"
-              :title="
-                `${t('recordings.segment', { number: segment.segment_index })} · ${recordingSegmentStatus(segment)}`
-              "
-            >
-              <i v-if="isActiveRecordingSegment(segment)" aria-hidden="true" />
-              <span>{{ String(segment.segment_index).padStart(2, '0') }}</span>
-              <strong>{{ recordingSegmentDuration(segment) }}</strong>
-            </li>
-          </ol>
+          <p v-if="recordingLabel" class="call-surface__recording" role="status">{{ recordingLabel }}</p>
         </div>
 
         <div
@@ -538,7 +434,7 @@ onBeforeUnmount(() => {
           <small>{{ t('calls.record') }}</small>
         </button>
         <template v-if="incoming">
-          <span class="call-primary-action call-primary-action--center keypad-action-item">
+          <span class="call-primary-action call-primary-action--start keypad-action-item">
             <button
               class="call-button call-button--hangup"
               type="button"
@@ -577,7 +473,7 @@ onBeforeUnmount(() => {
               :title="hangupUnavailable || t('calls.hangup')"
               :aria-label="t('calls.hangup')"
               :aria-describedby="hangupUnavailable ? 'call-capability-notice' : undefined"
-              :disabled="callState.busy || Boolean(hangupUnavailable)"
+              :disabled="(callState.busy && callState.pendingAction !== 'dial') || Boolean(hangupUnavailable)"
               @click="hangupCall"
             >
               <LoaderCircle v-if="callState.pendingAction === 'hangup'" class="spin" :size="25" />
@@ -742,106 +638,6 @@ onBeforeUnmount(() => {
 .call-surface__notices .call-surface__error {
   width: 100%;
   justify-content: center;
-  color: var(--danger);
-}
-
-.call-surface__recording {
-  color: var(--muted);
-}
-
-.call-surface__recording.is-active {
-  color: var(--danger);
-  font-weight: 650;
-}
-
-.call-surface__recording.is-failed {
-  color: var(--danger);
-  font-weight: 650;
-}
-
-.call-surface__recording i {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 7px;
-  background: var(--danger);
-  border-radius: 50%;
-  box-shadow: 0 0 0 3px var(--danger-soft);
-}
-
-.call-surface__recording-segments {
-  width: min(100%, 280px);
-  margin-top: 12px;
-}
-
-.call-surface__recording-segments header {
-  display: flex;
-  min-height: 24px;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.call-surface__recording-segments header span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.call-surface__recording-segments header strong {
-  font-variant-numeric: tabular-nums;
-}
-
-.call-surface__recording-segments ol {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.call-surface__recording-segments li {
-  display: inline-flex;
-  min-width: 78px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 9px;
-  color: var(--muted);
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.call-surface__recording-segments li > span {
-  font-weight: 700;
-}
-
-.call-surface__recording-segments li > strong {
-  color: var(--text);
-  font-weight: 650;
-}
-
-.call-surface__recording-segments li.is-active {
-  color: var(--danger);
-  background: var(--danger-soft);
-  border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
-}
-
-.call-surface__recording-segments li.is-active i {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
-  background: var(--danger);
-  border-radius: 50%;
-}
-
-.call-surface__recording-segments li.is-failed,
-.call-surface__recording-segments li.is-failed > strong {
   color: var(--danger);
 }
 

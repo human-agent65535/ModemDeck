@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
@@ -321,6 +322,8 @@ type API struct {
 	messagePolicies            MessagePolicyService
 	callMedia                  CallMediaService
 	callLeases                 CallLeaseService
+	preparationsMu             sync.Mutex
+	preparations               map[string]*outgoingPreparation
 	recordings                 RecordingService
 	network                    NetworkService
 	telegram                   TelegramSettingsService
@@ -474,6 +477,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.postOnly(response, request, api.mobileDiagnostics)
 	case "/api/v1/users":
 		api.usersCollection(response, request)
+	case "/api/v1/calls/prepare":
+		api.postOnly(response, request, api.prepareOutgoingCall)
 	case "/api/v1/contacts":
 		api.contactsCollection(response, request)
 	case "/api/v1/contacts/batch":
@@ -535,6 +540,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	case "/api/v1/settings/tls/ca":
 		api.getOnly(response, request, api.tlsCertificateAuthority)
 	default:
+		if strings.HasPrefix(request.URL.Path, "/api/v1/calls/preparations/") {
+			api.outgoingPreparationResource(response, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/api/v1/mobile/call-tests/") {
 			api.mobileCallTest(response, request)
 			return

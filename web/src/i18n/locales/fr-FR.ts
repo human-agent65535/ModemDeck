@@ -711,6 +711,8 @@ export default {
     "detailPlaceholder": "Les détails de l'appel apparaîtront ici"
   },
   "dialer": {
+    "recordingEnabled": "Enregistrement des appels activé",
+    "recordingDisabled": "Enregistrement des appels désactivé",
     "title": "Composer",
     "line": "Ligne appelante",
     "lineUnsupported": "Appel non pris en charge",

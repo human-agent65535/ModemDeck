@@ -528,6 +528,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     private struct PendingOutgoingCall {
+        let preparation: ModemDeckCallPreparation
         let callID: String
         let lineID: String
         let remoteNumber: String
@@ -536,11 +537,12 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     private struct PresentedCall {
-        let callID: String
+        var callID: String
         let lineID: String
         let remoteNumber: String
         let displayName: String
         let direction: String
+        var outgoingPhase: String = "connecting"
         let testCall: Bool
         let createdAt: Date
         var activeAt: Date?
@@ -608,6 +610,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     private var providerCallActions: [UUID: CXCallAction] = [:]
     private var presentedCalls: [UUID: PresentedCall] = [:]
     private var callAudioSessions: [UUID: ModemDeckCallAudioSession] = [:]
+    private var preparationCallUUIDs: Set<UUID> = []
     private var pendingOutgoingCalls: [UUID: PendingOutgoingCall] = [:]
     private var testCallTimeouts: [UUID: DispatchWorkItem] = [:]
     private var endedCallUUIDs: Set<UUID> = []
@@ -875,7 +878,9 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             cleanupCall(uuid, terminationState: "handled_elsewhere")
             return
         }
+        presentedCalls[uuid]?.outgoingPhase = phase
         callAudioSessions[uuid]?.applyRuntimeState(phase: phase)
+        publishCallState()
     }
 
     func observeCallState(_ observer: ModemDeckCallStateObserver) {
@@ -946,6 +951,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         lineID: String,
         remoteNumber: String,
         displayName: String,
+        preparation: ModemDeckCallPreparation,
         completion: @escaping (Result<UUID, Error>) -> Void
     ) {
         DispatchQueue.main.async { [weak self] in
@@ -966,6 +972,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             ModemDeckCallAudioSession.prepareAudioSession()
             let uuid = UUID()
             self.pendingOutgoingCalls[uuid] = PendingOutgoingCall(
+                preparation: preparation,
                 callID: callID,
                 lineID: lineID,
                 remoteNumber: remoteNumber,
@@ -1822,6 +1829,10 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     private func sendEndCallAction(verb: String, callUUID: UUID, reconcileFirst: Bool = false) {
+        if preparationCallUUIDs.contains(callUUID) {
+            callAudioSessions[callUUID]?.stop()
+            return
+        }
         if audioTestCallUUIDs.contains(callUUID) {
             sendCallAction(verb: verb, callUUID: callUUID) { result in
                 if case .failure(let error) = result {
@@ -2012,39 +2023,32 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             callID: pending.callID,
             credential: credential
         )
-        audioSession.startControlHeartbeat()
         audioSession.onBecameActive = { [weak self, weak audioSession] in
-            guard let self,
-                  let audioSession,
-                  self.callAudioSessions[uuid] === audioSession else {
-                return
-            }
-            audioSession.onBecameActive = nil
-            audioSession.connect { [weak self, weak audioSession] result in
-                guard let self,
-                      let audioSession,
-                      self.callAudioSessions[uuid] === audioSession else {
-                    return
-                }
-                switch result {
-                case .success:
-                    self.answeredCallUUIDs.insert(uuid)
-                    self.callProvider.reportOutgoingCall(with: uuid, connectedAt: Date())
-                    self.markCallActive(uuid)
-                case .failure(let error):
-                    ModemDeckDiagnostics.shared.record(.callkit, "outgoing_audio_failed", error: error)
-                    self.sendEndCallAction(verb: "hangup", callUUID: uuid)
-                    self.reportCallEnded(
-                        with: uuid,
-                        endedAt: Date(),
-                        reason: .failed
-                    )
-                    self.cleanupCall(uuid, failureMessage: error.localizedDescription)
-                }
+            guard let self, let audioSession, self.callAudioSessions[uuid] === audioSession else { return }
+            self.answeredCallUUIDs.insert(uuid)
+            self.callProvider.reportOutgoingCall(with: uuid, connectedAt: Date())
+            self.markCallActive(uuid)
+        }
+        let connected: ModemDeckCallAudioSession.ConnectionCompletion = { [weak self, weak audioSession] result in
+            guard let self, let audioSession, self.callAudioSessions[uuid] === audioSession else { return }
+            if case .failure(let error) = result {
+                ModemDeckDiagnostics.shared.record(.callkit, "outgoing_audio_failed", error: error)
+                self.sendEndCallAction(verb: "hangup", callUUID: uuid)
+                self.reportCallEnded(with: uuid, endedAt: Date(), reason: .failed)
+                self.cleanupCall(uuid, failureMessage: error.localizedDescription)
             }
         }
-        startRuntimeCallStream(forceRestart: true)
-        callProvider.reportOutgoingCall(with: uuid, startedConnectingAt: Date())
+        preparationCallUUIDs.insert(uuid)
+        audioSession.onPreparedCallCommitted = { [weak self, weak audioSession] call in
+            guard let self, let audioSession, self.callAudioSessions[uuid] === audioSession else { return }
+            self.preparationCallUUIDs.remove(uuid)
+            self.callIDsByUUID[uuid] = call.id
+            self.presentedCalls[uuid]?.callID = call.id
+            self.callProvider.reportOutgoingCall(with: uuid, startedConnectingAt: Date())
+            self.startRuntimeCallStream(forceRestart: true)
+            self.publishCallState()
+        }
+        audioSession.connectPreparation(pending.preparation, completion: connected)
         action.fulfill()
         publishCallState()
         pending.completion(.success(uuid))
@@ -2164,7 +2168,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         } else if answeredCallUUIDs.contains(uuid) {
             state = "active"
         } else if outgoingCallUUIDs.contains(uuid) {
-            state = "connecting"
+            state = call.outgoingPhase == "ringing-out" ? "ringing-out" : "connecting"
         } else {
             state = "ringing"
         }
@@ -2444,6 +2448,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         settleProviderCallActions(for: uuid)
         failRequestedCallActions(ModemDeckCallAudioError.callEnded, for: uuid)
         rememberEndedCall(uuid)
+        preparationCallUUIDs.remove(uuid)
         callAudioSessions.removeValue(forKey: uuid)?.stop()
         testCallTimeouts.removeValue(forKey: uuid)?.cancel()
         callIDsByUUID.removeValue(forKey: uuid)
@@ -3065,29 +3070,7 @@ final class ModemDeckNativePlugin: CAPPlugin, CAPBridgedPlugin, ModemDeckCallSta
     }
 
     @objc func startOutgoingCall(_ call: CAPPluginCall) {
-        let callID = (call.getString("callID") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let remoteNumber = (call.getString("remoteNumber") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = (call.getString("displayName") ?? remoteNumber)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !callID.isEmpty, !remoteNumber.isEmpty else {
-            call.reject("callID and remoteNumber are required", "INVALID_ARGUMENT")
-            return
-        }
-        ModemDeckPushCoordinator.shared.startOutgoingCall(
-            callID: callID,
-            lineID: call.getString("lineID") ?? "",
-            remoteNumber: remoteNumber,
-            displayName: displayName.isEmpty ? remoteNumber : displayName
-        ) { result in
-            switch result {
-            case .success(let uuid):
-                call.resolve(["uuid": uuid.uuidString.lowercased()])
-            case .failure(let error):
-                call.reject(error.localizedDescription, "CALLKIT_START_FAILED", error)
-            }
-        }
+        call.reject("Outgoing calls require the native prepared media flow.", "OUTGOING_MEDIA_REQUIRED")
     }
 
     @objc func answerCall(_ call: CAPPluginCall) {

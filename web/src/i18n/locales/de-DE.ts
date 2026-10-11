@@ -711,6 +711,8 @@ export default {
     "detailPlaceholder": "Hier werden die Anrufdetails angezeigt"
   },
   "dialer": {
+    "recordingEnabled": "Anrufaufzeichnung an",
+    "recordingDisabled": "Anrufaufzeichnung aus",
     "title": "Wählen",
     "line": "Rufnummer",
     "lineUnsupported": "Anruf nicht unterstützt",

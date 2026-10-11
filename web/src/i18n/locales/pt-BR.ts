@@ -711,6 +711,8 @@ export default {
     "detailPlaceholder": "Os detalhes da chamada aparecerão aqui"
   },
   "dialer": {
+    "recordingEnabled": "Gravação de chamadas ativada",
+    "recordingDisabled": "Gravação de chamadas desativada",
     "title": "Discar",
     "line": "Linha de chamada",
     "lineUnsupported": "Chamada não suportada",

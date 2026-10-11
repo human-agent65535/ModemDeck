@@ -364,7 +364,8 @@ test('settings separate administrator infrastructure from self-service pairing',
     /ref="pairingCodeInput"[\s\S]*?readonly/
   )
   assert.match(externalAccessPanel, /iosPairing\.sameDeviceHint/)
-  assert.match(callMedia, /new WebSocket\(callAudioWebSocketURL/)
+  assert.match(callMedia, /new WebSocket\(target\)/)
+  assert.match(callMedia, /callAudioWebSocketURL\(callID, window\.location\)/)
   assert.doesNotMatch(callMedia, /iceTransportPolicy|RTCPeerConnection/)
   assert.doesNotMatch(
     externalAccessPanel,

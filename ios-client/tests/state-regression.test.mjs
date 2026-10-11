@@ -150,7 +150,7 @@ test('in-app hangup interrupts answering and ignores errors for an ended call', 
 
 test('outgoing media completions cannot revive a removed call', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckNative.swift', import.meta.url), 'utf8')
-  await verify('call-outgoing-stubs.swift', [declaration(source, 'audioSession.connect { [weak self, weak audioSession] result in')])
+  await verify('call-outgoing-stubs.swift', [declaration(source, 'audioSession.onBecameActive = { [weak self, weak audioSession] in'), declaration(source, 'let connected: ModemDeckCallAudioSession.ConnectionCompletion =').replace('let connected: ModemDeckCallAudioSession.ConnectionCompletion =', 'pending =')])
 })
 
 test('runtime reconciliation accepts ownership-only changes and rejects obsolete streams', { skip: process.platform !== 'darwin' }, async () => {
@@ -338,6 +338,7 @@ const endingOwnerFields = `
  var audioTestCallUUIDs = Set<UUID>(), testCallUUIDs = Set<UUID>()
  var answeredCallUUIDs = Set<UUID>(), answerRequestedCallUUIDs = Set<UUID>()
  var outgoingCallUUIDs = Set<UUID>(), mutedCallUUIDs = Set<UUID>()
+ var preparationCallUUIDs = Set<UUID>()
  var preferredRecordingByUUID: [UUID: Bool] = [:]
  var callAudioSessions: [UUID: Audio] = [:]
  var testCallTimeouts: [UUID: DispatchWorkItem] = [:]
@@ -378,3 +379,15 @@ const controlScopeFields = `
  func refreshRecordingState(callID: String) async { recordingReads += 1 }
  func reconcileRecording(for call: ModemDeckPresentedCall) { recordingReady = true }
 `
+
+test('outgoing reservation commits only after WSS, local engine and server uplink, and cancellation is terminal', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  const output = await verify('outgoing-preparation-stubs.swift', [declaration(source, 'struct ModemDeckOutgoingPreparationGate')])
+  assert.match(output, /outgoing-preparation-ok/)
+})
+
+test('shared native source rings for remote ringing only and audible early media permanently suppresses the tone', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  const output = await verify('ringback-stubs.swift', [declaration(source, 'private final class ModemDeckRingbackRenderer')])
+  assert.match(output, /ringback-ok/)
+})

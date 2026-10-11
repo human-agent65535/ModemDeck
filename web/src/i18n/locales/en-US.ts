@@ -743,6 +743,8 @@ export default {
     detailPlaceholder: 'Call details will appear here'
   },
   dialer: {
+    recordingEnabled: 'Call recording on',
+    recordingDisabled: 'Call recording off',
     title: 'Dial',
     line: 'Calling line',
     lineUnsupported: 'Calling unsupported',

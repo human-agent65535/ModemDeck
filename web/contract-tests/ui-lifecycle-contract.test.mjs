@@ -250,7 +250,7 @@ test('active calls apply output changes and replace input before stopping the ol
   assert.match(callMedia, /audioState\.selectedOutputID, audioState\.devicesRevision/)
   assert.match(callMedia, /if \(remoteAudio\) void playRemoteAudio\(\)/)
   assert.match(callMedia, /queueCallInputReplacement\(deviceID\)/)
-  assert.match(callMedia, /session\.phase !== 'active'/)
+  assert.match(callMedia, /\['active', 'dialing', 'ringing-out', 'connecting'\]\.includes\(session\.phase\)/)
   assert.match(callMedia, /!session\.media_available/)
   assert.match(
     callMedia,

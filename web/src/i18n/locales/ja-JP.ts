@@ -711,6 +711,8 @@ export default {
     "detailPlaceholder": "通話の詳細がここに表示されます"
   },
   "dialer": {
+    "recordingEnabled": "通話録音オン",
+    "recordingDisabled": "通話録音オフ",
     "title": "ダイヤル",
     "line": "電話回線",
     "lineUnsupported": "通話はサポートされていません",

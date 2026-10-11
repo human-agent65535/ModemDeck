@@ -100,6 +100,7 @@ const CALL_PHASES = new Set<CallPhase>([
   'unknown',
   'dialing',
   'ringing',
+  'ringing-out',
   'connecting',
   'active',
   'ending',
@@ -429,11 +430,6 @@ export const communicationContracts = {
     method: 'PATCH',
     path: communicationPaths.messageThreadState,
     successStatus: 200
-  },
-  startCall: {
-    method: 'POST',
-    path: communicationPaths.calls,
-    successStatus: 201
   },
   markMissedCallsRead: {
     method: 'PATCH',

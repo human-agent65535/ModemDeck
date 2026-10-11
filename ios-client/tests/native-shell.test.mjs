@@ -376,8 +376,9 @@ test('native API models match populated communication responses', async () => {
   assert.match(api, /let answerCall: Bool\?/)
   assert.match(api, /let sendDtmf: Bool\?/)
   assert.match(api, /let sendMessage: Bool\?/)
-  assert.match(calls, /private var recordingTitle: String/)
-  assert.match(calls, /case "recording":[\s\S]*controller\.text\("录音中", "Recording"\)/)
+  assert.match(calls, /accessibilityIdentifier\("call-recording"\)/)
+  assert.match(calls, /accessibilityIdentifier\("call-recording-status"\)/)
+  assert.match(calls, /accessibilityIdentifier\("dial-recording-status"\)/)
   assert.match(calls, /ModemDeckDialerPanel/)
   assert.match(settings, /从本机通讯录导入/)
   assert.match(settings, /开始通话测试/)
@@ -933,4 +934,18 @@ test('home stays a quick view with shared row actions and split detail', async (
   assert.match(home, /await calls\.mutate\(action, calls: \[call\]\)/)
   assert.match(session, /recordings\.removeAll \{ ids\.contains\(\$0\.call\.id\) \}/)
   assert.match(session, /messagesStore\.apply\(\.read, to: \[thread\.id\]\)/)
+})
+
+test('outgoing native calls require prepared media and the legacy plugin cannot directly dial', async () => {
+  const [api, native, audio] = await Promise.all([
+    source('ios/App/App/ModemDeckAPI.swift'), source('ios/App/App/ModemDeckNative.swift'),
+    source('ios/App/App/ModemDeckCallAudio.swift')
+  ])
+  assert.doesNotMatch(api, /func startCall\(/)
+  assert.match(native, /preparation: ModemDeckCallPreparation,/)
+  assert.doesNotMatch(native, /preparation: ModemDeckCallPreparation\? = nil/)
+  const plugin = native.split('@objc func startOutgoingCall(_ call: CAPPluginCall) {')[1].split('@objc func answerCall')[0]
+  assert.match(plugin, /OUTGOING_MEDIA_REQUIRED/)
+  assert.doesNotMatch(plugin, /shared\.startOutgoingCall/)
+  assert.doesNotMatch(audio, /endLateCommittedCall/)
 })

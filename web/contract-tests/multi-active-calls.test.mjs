@@ -170,7 +170,7 @@ test('SSE reconciliation stores reservations without turning them into calls', a
 test('dial refuses a reserved line before invoking the gateway', async () => {
   const originalBootstrap = bootstrapResource.data
   const originalBootstrapStatus = bootstrapResource.status
-  const originalStartCall = gateway.startCall
+  const originalPrepareCall = gateway.prepareCall
   let startRequests = 0
 
   bootstrapResource.data = {
@@ -195,9 +195,9 @@ test('dial refuses a reserved line before invoking the gateway', async () => {
   }
   bootstrapResource.status = 'ready'
   callState.reservations = [reservation()]
-  gateway.startCall = async () => {
+  gateway.prepareCall = async () => {
     startRequests += 1
-    throw new Error('startCall must not run for a reserved line')
+    throw new Error('prepareCall must not run for a reserved line')
   }
 
   try {
@@ -207,7 +207,7 @@ test('dial refuses a reserved line before invoking the gateway', async () => {
     assert.equal(callState.session, null)
   } finally {
     shutdownCallRuntime()
-    gateway.startCall = originalStartCall
+    gateway.prepareCall = originalPrepareCall
     bootstrapResource.data = originalBootstrap
     bootstrapResource.status = originalBootstrapStatus
   }

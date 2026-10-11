@@ -97,7 +97,7 @@ test('occupied calls are visible but cannot consume browser controls or media', 
     /session\.value\?\.control_state === 'occupied'[\s\S]*?calls\.answeredElsewhere/
   )
   assert.match(surface, /v-else-if="canHangup && callState\.owned"/)
-  assert.match(surface, /active\.value &&[\s\S]*?callState\.owned/)
+  assert.match(surface, /!terminal\.value &&[\s\S]*?callState\.owned/)
 })
 
 test('line cards expose authoritative call and reservation occupancy', async () => {

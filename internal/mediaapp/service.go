@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/communication"
@@ -38,6 +39,8 @@ type Service struct {
 	refresher Refresher
 	calls     CallStore
 	core      Core
+	changedMu sync.Mutex
+	changed   chan struct{}
 }
 
 func New(
@@ -52,6 +55,7 @@ func New(
 		refresher: refresher,
 		calls:     calls,
 		core:      core,
+		changed:   make(chan struct{}),
 	}, nil
 }
 
@@ -71,7 +75,7 @@ func (s *Service) OpenSocket(ctx context.Context, callID, ownerToken string, tra
 	if err != nil {
 		return nil, ErrUnavailable
 	}
-	if call.Phase != "active" {
+	if call.Phase != "active" && !(call.Direction == "outgoing" && (call.Phase == "dialing" || call.Phase == "connecting" || call.Phase == "ringing-out")) {
 		return nil, ErrNotActive
 	}
 	if !call.MediaAvailable {
@@ -115,7 +119,12 @@ func (s *Service) ReconcileAuthoritativeCalls(
 	for _, call := range activeCalls {
 		callIDs = append(callIDs, call.ID)
 	}
-	return s.core.ReconcileActiveCalls(ctx, callIDs)
+	err := s.core.ReconcileActiveCalls(ctx, callIDs)
+	s.changedMu.Lock()
+	close(s.changed)
+	s.changed = make(chan struct{})
+	s.changedMu.Unlock()
+	return err
 }
 
 func (s *Service) Close(ctx context.Context) error {
@@ -139,4 +148,63 @@ func classifyCoreError(err error) error {
 	default:
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
+}
+
+// PrepareSocket is scoped by the authenticated reservation in HTTP, without
+// inventing an authoritative hardware call before dial.
+func (s *Service) PrepareSocket(ctx context.Context, id, token string, transport callmedia.SocketTransport) (*callmedia.Session, error) {
+	core, ok := s.core.(interface {
+		PrepareSocket(context.Context, string, string, callmedia.SocketTransport) (*callmedia.Session, error)
+	})
+	if !ok {
+		return nil, ErrUnavailable
+	}
+	session, err := core.PrepareSocket(ctx, id, token, transport)
+	if err != nil {
+		return nil, classifyCoreError(err)
+	}
+	return session, nil
+}
+
+// BindPreparedSocket waits on the same authoritative lifecycle notifications as
+// recording and leases; it does not add another hardware refresh polling loop.
+func (s *Service) BindPreparedSocket(ctx context.Context, id, callID string, session *callmedia.Session) error {
+	core, ok := s.core.(interface {
+		BindPreparedSocket(context.Context, string, callmedia.ActiveCall, *callmedia.Session) error
+	})
+	if !ok {
+		return ErrUnavailable
+	}
+	for {
+		s.changedMu.Lock()
+		changed := s.changed
+		s.changedMu.Unlock()
+		call, err := s.calls.CallByID(ctx, callID)
+		if err != nil {
+			return ErrUnavailable
+		}
+		if call.Direction != "outgoing" || (call.Phase != "dialing" && call.Phase != "connecting" && call.Phase != "ringing" && call.Phase != "ringing-out" && call.Phase != "active") {
+			return ErrNotActive
+		}
+		if call.MediaAvailable {
+			return core.BindPreparedSocket(ctx, id, callmedia.ActiveCall{ID: callID, State: callmedia.CallStateActive}, session)
+		}
+		select {
+		case <-changed:
+		case <-session.Done():
+			return ErrUnavailable
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (s *Service) ActivatePreparedSocket(ctx context.Context, id, callID string, session *callmedia.Session) error {
+	core, ok := s.core.(interface {
+		ActivatePreparedSocket(context.Context, string, callmedia.ActiveCall, *callmedia.Session) error
+	})
+	if !ok {
+		return ErrUnavailable
+	}
+	return core.ActivatePreparedSocket(ctx, id, callmedia.ActiveCall{ID: callID, State: callmedia.CallStateActive}, session)
 }

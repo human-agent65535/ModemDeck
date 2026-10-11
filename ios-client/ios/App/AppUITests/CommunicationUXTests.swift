@@ -36,7 +36,7 @@ final class CommunicationUXTests: XCTestCase {
         ]
         app.launchEnvironment.merge(environment) { _, next in next }
         if callSurface {
-            app.launchEnvironment["MODEMDECK_UAT_CALL_STATE"] = "active"
+            app.launchEnvironment["MODEMDECK_UAT_CALL_STATE"] = environment["MODEMDECK_UAT_CALL_STATE"] ?? "active"
             app.launchEnvironment["MODEMDECK_UAT_TEST_AUDIO_DYNAMIC"] = "1"
         }
         if testAudio { app.launchEnvironment["MODEMDECK_UAT_TEST_AUDIO"] = "1" }
@@ -324,6 +324,7 @@ final class CommunicationUXTests: XCTestCase {
         app.buttons["section-home"].tap()
         capture("refresh-recents-dark", app: app)
         app.buttons["打开拨号盘"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["dial-recording-status"].exists)
         capture("refresh-dialer-dark", app: app)
     }
 
@@ -428,6 +429,39 @@ final class CommunicationUXTests: XCTestCase {
         // XCTest snapshots are asynchronous; immediate model dismissal is
         // separately covered by the production-method Reduce Motion regression.
         XCTAssertTrue(app.staticTexts["call-ended-status"].waitForNonExistence(timeout: 3))
+    }
+
+    func testOutgoingRecordingSnapshotAndActiveToggle() async throws {
+        for state in ["connecting", "ringing-out"] {
+            for enabled in [false, true] {
+                let app = try await launch(callSurface: true, environment: [
+                    "MODEMDECK_UAT_CALL_STATE": state,
+                    "MODEMDECK_UAT_RECORDING_ENABLED": enabled ? "1" : "0"
+                ])
+                XCTAssertTrue(app.staticTexts["call-recording-status"].waitForExistence(timeout: 5))
+                XCTAssertEqual(app.staticTexts["call-recording-status"].label, enabled ? "录音已开启" : "录音已关闭")
+                XCTAssertFalse(app.buttons["call-recording"].exists)
+                capture("outgoing-\(state)-recording-\(enabled ? "on" : "off")", app: app)
+                app.terminate()
+            }
+        }
+        let app = try await launch(callSurface: true)
+        let recording = app.buttons["call-recording"]
+        XCTAssertTrue(recording.waitForExistence(timeout: 5))
+        XCTAssertTrue(recording.isHittable)
+        recording.tap()
+        XCTAssertTrue(app.buttons["录音中"].waitForExistence(timeout: 5))
+        recording.tap()
+        XCTAssertTrue(app.buttons["录音"].waitForExistence(timeout: 5))
+        capture("active-recording-toggle", app: app)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            XCTAssertTrue(app.buttons["call-recording"].isHittable)
+            XCTAssertTrue(app.buttons["call-end"].isHittable)
+            capture("active-recording-toggle-landscape", app: app)
+            XCUIDevice.shared.orientation = .portrait
+        }
+        app.terminate()
     }
 
     func testCallPrimaryActionsStaySymmetricAndAvoidAnswerToEndOverlap() throws {

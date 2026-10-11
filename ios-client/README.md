@@ -18,8 +18,9 @@ call audio remain native platform services.
 - Long-press a contact, message, call or recording to select it and begin batch
   operations. Copy remains available for one selected item, and More provides
   an accessible selection alternative. Row swipes pause during selection.
-- The native dialer sheet retains its number, line and recording choice when
-  collapsed. Active calls can collapse into a persistent return/hang-up bar;
+- The native dialer sheet retains its number and line when collapsed and shows
+  the default recording policy as a small status label. Recording controls stay
+  in Settings rather than the dialing or active-call surface. Active calls can collapse into a persistent return/hang-up bar;
   CallKit continues to own audio and control throughout.
 - Preferences → Appearance offers System, Light and Dark on this device.
   Native semantic colors cover navigation, avatars, bubbles and recording UI.
@@ -50,7 +51,14 @@ call audio remain native platform services.
   reject/hang-up, mute, and DTMF, while an audio-only WSS/Opus stream carries sound
   through the existing call media and lease APIs. The in-app native call surface
   also exposes mute, speaker/receiver routing, connected headset selection,
-  keypad, recording, and hang-up after CallKit is hidden.
+  keypad, and hang-up after CallKit is hidden.
+- Outgoing calls reserve with `/api/v1/calls/prepare` before reporting the
+  CallKit start. The same owner opens its prepared WSS, starts VoiceProcessingIO
+  after CallKit activation, and waits for server uplink readiness before commit
+  can dial the modem. Commit binds the actual call and control stream without
+  replacing the socket or NetEq pipeline; cancellation deletes the reservation.
+  Local ringback uses the shared render source only for `ringing-out`, and
+  audible remote media suppresses it.
 - Ends the local call immediately while retaining unconfirmed server hang-up
   requests across network interruptions and app restarts. Recovery checks the
   original call's state and credential scope before retrying; bearer tokens

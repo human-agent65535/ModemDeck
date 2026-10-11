@@ -17,6 +17,7 @@ type AudioMessage = {
   sequence?: number
   timestamp: number
   payload: Uint8Array
+  enabled?: boolean
 }
 
 // One rendering owner runs the real shared NetEq receiver and Opus encoder.
@@ -31,6 +32,10 @@ class CallAudioProcessor extends AudioWorkletProcessor {
   private readonly packet: number
   private readonly stats: number
   private readonly statsView: DataView
+  private ringback = false
+  private ringbackStart = 0
+  private earlyMedia = false
+  private hasRemotePacket = false
   private healthFrames = 0
   private epoch = 0
   private active = false
@@ -71,7 +76,10 @@ class CallAudioProcessor extends AudioWorkletProcessor {
           this.deactivate()
           this.epoch = data.epoch
         } else if (data.epoch === this.epoch && this.active) {
-          if (data.type === 'stats') {
+          if (data.type === 'ringback') {
+            if (data.enabled && !this.ringback) this.ringbackStart = currentTime
+            this.ringback = Boolean(data.enabled)
+          } else if (data.type === 'stats') {
             if (this.core._md_neteq_get_stats(this.receiver, this.stats) !== 0) throw new Error('Call audio stats failed')
             // Copy the C ABI snapshot; never transfer the Wasm heap.
             this.port.postMessage({ type: 'stats', epoch: this.epoch, snapshot: this.core.HEAPU8.slice(this.stats, this.stats + 136) })
@@ -82,6 +90,7 @@ class CallAudioProcessor extends AudioWorkletProcessor {
             const result = this.core._md_neteq_enqueue(this.receiver, this.packet, data.payload.length,
               (data.sequence ?? 0) & 0xffff, (data.timestamp * 3) >>> 0, BigInt(Math.round(data.nowUs)))
             if (result !== 0) throw new Error(result === -5 ? 'Call audio ingress backpressure' : 'Invalid call audio packet')
+            this.hasRemotePacket = true
             this.port.postMessage({ type: 'received', epoch: this.epoch })
           }
         }
@@ -95,6 +104,7 @@ class CallAudioProcessor extends AudioWorkletProcessor {
 
   private deactivate(): void {
     this.active = false
+    this.ringback = this.earlyMedia = this.hasRemotePacket = false
     if (this.receiver) this.core._md_neteq_destroy(this.receiver)
     if (this.encoder) this.core._md_opus_encoder_destroy(this.encoder)
     this.receiver = this.encoder = 0
@@ -119,6 +129,20 @@ class CallAudioProcessor extends AudioWorkletProcessor {
       const result = this.core._md_neteq_render_float(this.receiver, BigInt(Math.round(nowUs)), this.output, output.length)
       if (result !== output.length) throw new Error('Call audio render failed')
       output.set(this.core.HEAPF32.subarray(this.output >> 2, (this.output >> 2) + output.length))
+      // The modem can send digital silence while alerting. Only audible
+      // remote output suppresses local ringback, through the same NetEq owner.
+      if (this.hasRemotePacket && !this.earlyMedia) {
+        for (let i = 0; i < output.length; i += 1) {
+          if (Math.abs(output[i] ?? 0) > 0.003) { this.earlyMedia = true; break }
+        }
+      }
+      // Ringback shares this renderer and output route; remote early media wins.
+      if (this.ringback && !this.earlyMedia) {
+        for (let i = 0; i < output.length; i += 1) {
+          const time = currentTime + i / sampleRate - this.ringbackStart
+          if (time % 6 < 2) output[i] = (output[i] ?? 0) + 0.08 * (Math.sin(2 * Math.PI * 440 * time) + Math.sin(2 * Math.PI * 480 * time))
+        }
+      }
       this.healthFrames += output.length
       if (this.healthFrames >= sampleRate / 10) {
         this.healthFrames %= sampleRate / 10

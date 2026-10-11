@@ -368,10 +368,11 @@ struct ModemDeckDialerView: View {
                     .disabled(lines.isEmpty)
                     .accessibilityLabel(controller.text("通话线路", "Calling line"))
                     .accessibilityValue(selectedLine?.displayName ?? "")
-                    Toggle(controller.text("本次录音", "Record call"), isOn: $draft.recording)
-                        .font(.footnote).tint(.mdAccent).fixedSize()
-                        .disabled(!draft.recordingInitialized)
-                        .accessibilityIdentifier("dial-recording")
+                    Text(draft.recordingInitialized
+                        ? controller.text(draft.recording ? "默认开启录音" : "默认关闭录音", draft.recording ? "Recording on by default" : "Recording off by default")
+                        : controller.text("正在读取录音设置…", "Loading recording setting…"))
+                        .font(.caption).foregroundColor(.mdMuted)
+                        .accessibilityIdentifier("dial-recording-status")
                 }
                 .frame(minHeight: 44)
 
@@ -2270,6 +2271,13 @@ struct ModemDeckActiveCallView: View {
                 .accessibilityIdentifier(isEnded ? "call-ended-status" : "call-status")
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            if !isEnded && !isActive && call.direction == "outgoing" && !call.testCall {
+                Text(callController.recordingReady
+                    ? controller.text(callController.recordingEnabled ? "录音已开启" : "录音已关闭", callController.recordingEnabled ? "Recording on" : "Recording off")
+                    : controller.text("正在读取录音设置…", "Loading recording setting…"))
+                    .font(.caption).foregroundColor(.mdMuted)
+                    .accessibilityIdentifier("call-recording-status")
+            }
             if let elapsed = endedCall?.elapsedSeconds {
                 Text(controller.text("通话时长 ", "Duration ") + ModemDeckDateText.duration(elapsed))
                     .font(.subheadline).monospacedDigit().foregroundColor(.mdMuted)
@@ -2295,17 +2303,17 @@ struct ModemDeckActiveCallView: View {
                 audioRouteControl
             }
             if !call.testCall {
-                ModemDeckCallControl(
-                    title: recordingTitle,
-                    icon: callController.recordingEnabled ? "stop.fill" : "circle.fill",
-                    selected: callController.recordingEnabled,
-                    selectedColor: .red,
-                    disabled: !callController.recordingReady || callController.recordingBusy || callController.busy
-                ) {
-                    Task { await callController.toggleRecording() }
-                }
-                .accessibilityIdentifier("call-recording")
                 if isActive {
+                    ModemDeckCallControl(
+                        title: recordingTitle,
+                        icon: callController.recordingEnabled ? "stop.fill" : "circle.fill",
+                        selected: callController.recordingEnabled,
+                        selectedColor: .red,
+                        disabled: !callController.recordingReady || callController.recordingBusy || callController.busy
+                    ) {
+                        Task { await callController.toggleRecording() }
+                    }
+                    .accessibilityIdentifier("call-recording")
                     ModemDeckCallControl(
                         title: showingKeypad ? controller.text("隐藏键盘", "Hide Keypad") : controller.text("键盘", "Keypad"),
                         icon: "circle.grid.3x3.fill",
@@ -2381,6 +2389,7 @@ struct ModemDeckActiveCallView: View {
         if callController.ending { return controller.text("正在结束…", "Ending…") }
         if call.mediaState == "reconnecting" { return controller.text("正在恢复音频连接…", "Reconnecting audio…") }
         if call.mediaState == "waiting_for_audio" { return controller.text("等待系统启用音频…", "Waiting for system audio…") }
+        if call.state == "ringing-out" { return controller.text("对方振铃中…", "Ringing…") }
         if call.testCall {
             if call.state == "connecting" { return controller.text("正在连接测试音频…", "Connecting test audio…") }
             if isActive && call.testAudio {

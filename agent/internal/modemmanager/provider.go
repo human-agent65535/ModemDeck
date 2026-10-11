@@ -49,10 +49,8 @@ type Provider struct {
 	qdc507Voice   QDC507VoiceRuntime
 	qdc507USB     QDC507USBProvisioner
 
-	callMu        sync.Mutex
-	configMu      sync.Mutex
-	snapshotMu    sync.Mutex
-	terminalCalls map[string]terminalCallProjection
+	callMu   sync.Mutex
+	configMu sync.Mutex
 
 	networkOperationMu sync.Mutex
 	networkOperations  map[string]struct{}
@@ -71,14 +69,10 @@ type Provider struct {
 	atCallSequence uint64
 
 	messageProperties *messagePropertyCache
+	callLifecycle     *callLifecycle
 	changes           *changeHub
 	radioLifecycle    *changeHub
 	modemLifecycle    *changeHub
-}
-
-type terminalCallProjection struct {
-	call      domain.Call
-	expiresAt time.Time
 }
 
 type signalSetupState struct {
@@ -197,7 +191,6 @@ func newProviderWithOptions(
 		usbRecovery:        options.USBRecovery,
 		qdc507Voice:        options.QDC507VoiceRuntime,
 		qdc507USB:          options.QDC507USBProvisioner,
-		terminalCalls:      make(map[string]terminalCallProjection),
 		networkOperations:  make(map[string]struct{}),
 		signalSetupStates:  make(map[string]signalSetupState),
 		servingRadioStates: make(map[string]servingRadioState),
@@ -205,6 +198,7 @@ func newProviderWithOptions(
 		atCalls:            make(map[string]map[int]atCallLifecycle),
 		atPendingCalls:     make(map[string]atCallLifecycle),
 		messageProperties:  newMessagePropertyCache(defaultMessagePropertyCacheLimit),
+		callLifecycle:      newCallLifecycle(),
 		changes:            newChangeHub(),
 		radioLifecycle:     newChangeHub(),
 		modemLifecycle:     newChangeHub(),
@@ -226,7 +220,8 @@ func OpenSystemBus() (*Provider, error) {
 }
 
 func OpenSystemBusWithOptions(options Options) (*Provider, error) {
-	conn, err := dbus.ConnectSystemBus()
+	handler := newCallSignalHandler()
+	conn, err := dbus.ConnectSystemBus(dbus.WithSignalHandler(handler))
 	if err != nil {
 		return nil, fmt.Errorf("connect to system D-Bus: %w", err)
 	}
@@ -235,6 +230,7 @@ func OpenSystemBusWithOptions(options Options) (*Provider, error) {
 		_ = conn.Close()
 		return nil, err
 	}
+	handler.provider.Store(provider)
 	stopChanges, err := provider.startSystemBusChangeWatcher(conn)
 	if err != nil {
 		_ = conn.Close()
@@ -307,6 +303,7 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 	if err != nil {
 		return domain.Snapshot{}, err
 	}
+	callWatermark := p.callLifecycle.watermark()
 	objects, err := p.managedObjects(ctx, operation)
 	if err != nil {
 		return domain.Snapshot{}, err
@@ -330,14 +327,16 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 		return domain.Snapshot{}, err
 	}
 	parsed := ParseManagedObjects(objects, identity)
+	observedAt := p.now().UTC()
+	if !p.projectCallLifecycle(&parsed, callWatermark, observedAt) {
+		return domain.Snapshot{}, domain.Unavailable(operation, "ModemManager changed during the snapshot", nil)
+	}
 	p.initializeVoiceModel(ctx, operation, &parsed)
 	if err := p.refreshAuthoritativeATCalls(ctx, operation, &parsed); err != nil {
 		return domain.Snapshot{}, err
 	}
 	p.projectServingRadios(ctx, operation, &parsed)
 	p.projectDesiredRadioState(parsed.Lines)
-	observedAt := p.now().UTC()
-	p.projectTerminatedCalls(&parsed, observedAt)
 	revision, err := snapshotRevision(
 		parsed.Lines,
 		parsed.Calls,
@@ -537,6 +536,7 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 		"call_path", callPath,
 	)
 	callID := parsed.ids.callID(callPath)
+	p.seedOutgoingCall(parsed.ids, callPath, line, linePath, request.Number)
 	if _, err := p.call(
 		ctx,
 		callPath,
@@ -990,48 +990,6 @@ func (p *Provider) controlCall(
 	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: call.ID}, nil
 }
 
-func (p *Provider) projectTerminatedCalls(parsed *ParsedObjects, observedAt time.Time) {
-	p.snapshotMu.Lock()
-	defer p.snapshotMu.Unlock()
-
-	lineIndexes := make(map[string]int, len(parsed.Lines))
-	for index := range parsed.Lines {
-		lineIndexes[parsed.Lines[index].ID] = index
-	}
-
-	currentCalls := make(map[string]struct{}, len(parsed.Calls))
-	for _, call := range parsed.Calls {
-		currentCalls[call.ID] = struct{}{}
-		if call.StateCode == callStateTerminated {
-			p.terminalCalls[call.ID] = terminalCallProjection{
-				call:      call,
-				expiresAt: observedAt.Add(terminalCallRetention),
-			}
-			continue
-		}
-		delete(p.terminalCalls, call.ID)
-	}
-
-	for id, projection := range p.terminalCalls {
-		if _, current := currentCalls[id]; current {
-			continue
-		}
-		lineIndex, linePresent := lineIndexes[projection.call.LineID]
-		if !linePresent || !observedAt.Before(projection.expiresAt) {
-			delete(p.terminalCalls, id)
-			continue
-		}
-		parsed.Calls = append(parsed.Calls, projection.call)
-		if !containsString(parsed.Lines[lineIndex].CallIDs, id) {
-			parsed.Lines[lineIndex].CallIDs = append(parsed.Lines[lineIndex].CallIDs, id)
-			sort.Strings(parsed.Lines[lineIndex].CallIDs)
-		}
-	}
-	sort.Slice(parsed.Calls, func(i, j int) bool {
-		return parsed.Calls[i].ID < parsed.Calls[j].ID
-	})
-}
-
 func (p *Provider) runtimeVersion(ctx context.Context, operation string) (string, error) {
 	body, err := p.call(
 		ctx,
@@ -1148,6 +1106,7 @@ func (p *Provider) snapshotContent(
 	if err != nil {
 		return ParsedObjects{}, err
 	}
+	callWatermark := p.callLifecycle.watermark()
 	objects, err := p.managedObjects(ctx, operation)
 	if err != nil {
 		return ParsedObjects{}, err
@@ -1156,7 +1115,12 @@ func (p *Provider) snapshotContent(
 	if err != nil {
 		return ParsedObjects{}, err
 	}
-	return ParseManagedObjects(objects, identity), nil
+	parsed := ParseManagedObjects(objects, identity)
+	observedAt := p.now().UTC()
+	if !p.projectCallLifecycle(&parsed, callWatermark, observedAt) {
+		return ParsedObjects{}, domain.Unavailable(operation, "ModemManager changed during the snapshot", nil)
+	}
+	return parsed, nil
 }
 
 func (p *Provider) resolveProviderIdentity(
@@ -1185,15 +1149,13 @@ func (p *Provider) resolveProviderIdentity(
 	}
 	if previousEpoch != "" && previousEpoch != epoch {
 		p.messageProperties.clear()
-		p.snapshotMu.Lock()
-		p.terminalCalls = make(map[string]terminalCallProjection)
-		p.snapshotMu.Unlock()
 		p.telemetryMu.Lock()
 		p.signalSetupStates = make(map[string]signalSetupState)
 		p.telemetryMu.Unlock()
 		p.servingRadioMu.Lock()
 		p.servingRadioStates = make(map[string]servingRadioState)
 		p.servingRadioMu.Unlock()
+		p.callLifecycle.clear()
 		p.clearATCallState()
 		p.clearVoiceProbes()
 	}
@@ -1213,15 +1175,13 @@ func (p *Provider) clearProviderIdentity() {
 
 	p.ids.clearProviderEpoch()
 	p.messageProperties.clear()
-	p.snapshotMu.Lock()
-	p.terminalCalls = make(map[string]terminalCallProjection)
-	p.snapshotMu.Unlock()
 	p.telemetryMu.Lock()
 	p.signalSetupStates = make(map[string]signalSetupState)
 	p.telemetryMu.Unlock()
 	p.servingRadioMu.Lock()
 	p.servingRadioStates = make(map[string]servingRadioState)
 	p.servingRadioMu.Unlock()
+	p.callLifecycle.clear()
 	p.clearATCallState()
 	p.clearVoiceProbes()
 }

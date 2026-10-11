@@ -524,72 +524,33 @@ func callRecordResource(path string) (callRecordPath, bool) {
 }
 
 func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
-	if api.communications == nil {
-		writeError(response, http.StatusServiceUnavailable, "communications_unavailable", "Live communications are unavailable", "")
-		return
-	}
-	if api.callLeases == nil {
-		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
-		return
-	}
-	var input startCallRequest
-	if !decodeJSONBody(response, request, &input) {
-		return
-	}
-	if !api.requireLineAccess(response, request, input.LineID) {
-		return
-	}
-	owner, err := api.callLeaseOwner(request.Context())
-	if err != nil {
-		api.writeCallLeaseError(response, request, "validate browser call owner", err)
-		return
-	}
-	holderID := owner.HolderID
-	requestID, ok := commandRequestID(response, request, input.RequestID)
-	if !ok {
-		return
-	}
-	if input.RecordingEnabled != nil {
-		if api.recordings == nil {
-			writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call recording is unavailable", "")
-			return
-		}
-		preparedRequestID, err := api.recordings.PrepareOutgoing(
-			request.Context(),
-			requestID,
-			*input.RecordingEnabled,
-		)
+	writeError(response, http.StatusConflict, "outgoing_media_required", "Prepare outgoing media before committing the call", "")
+}
+
+// commitPreparedCall is the typed dispatch path for a validated media preparation.
+func (api *API) commitPreparedCall(response http.ResponseWriter, request *http.Request, preparation *outgoingPreparation) {
+	input := preparation.input
+	holderID := preparation.owner.HolderID
+	requestID := input.RequestID
+	if api.recordings != nil && (preparation.recordingChoice != nil || *input.RecordingEnabled) {
+		preparedRequestID, err := api.recordings.PrepareOutgoing(request.Context(), requestID, *input.RecordingEnabled)
 		if err != nil {
 			api.writeRecordingError(response, request, "prepare outgoing call recording", err, nil)
 			return
 		}
 		requestID = preparedRequestID
-	} else if api.recordings != nil {
-		settings, err := api.recordings.Settings(request.Context())
-		if err != nil {
-			api.writeRecordingError(response, request, "load outgoing call recording default", err, nil)
-			return
-		}
-		if settings.DefaultEnabled {
-			preparedRequestID, err := api.recordings.PrepareOutgoing(
-				request.Context(),
-				requestID,
-				true,
-			)
-			if err != nil {
-				api.writeRecordingError(response, request, "prepare outgoing call recording", err, nil)
-				return
-			}
-			requestID = preparedRequestID
-		}
 	}
 	startInput := communication.StartCallInput{
 		RequestID:    requestID,
 		RequestScope: holderID,
 		LineID:       input.LineID,
 		Number:       input.Number,
+		ReadyToDial: func() bool {
+			leases, ok := api.preparationLease()
+			return ok && preparation.session != nil && preparation.session.TransportReady() && !preparation.cancelRequested.Load() && leases.RequireOutgoing(preparation.id, holderID) == nil
+		},
 	}
-	replayedCall, replayed, err := api.communications.ReplayStartCall(
+	_, replayed, err := api.communications.ReplayStartCall(
 		request.Context(),
 		startInput,
 	)
@@ -598,44 +559,13 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if replayed {
-		controlState := calllease.ControlOccupied
-		if state, stateErr := api.callLeases.ControlState(
-			request.Context(),
-			replayedCall.ID,
-			holderID,
-		); stateErr == nil {
-			controlState = state
-		}
-		response.Header().Set("Cache-Control", "no-store")
-		writeJSON(response, http.StatusCreated, callSessionEnvelope{
-			Call: callSession(replayedCall, controlState),
-		})
+		// A different preparation cannot inherit an already dispatched request.
+		// Retries for this preparation are handled before entering this path.
+		api.callLeases.ReleaseOutgoing(preparation.id, holderID)
+		writeError(response, http.StatusConflict, "call_request_conflict", "Call request was already dispatched; use its original preparation", "request_id")
 		return
 	}
-	reservation, err := api.callLeases.ReserveOutgoingFor(
-		request.Context(),
-		requestID,
-		input.LineID,
-		owner,
-	)
-	if err != nil {
-		api.writeCallLeaseError(response, request, "reserve outgoing call line", err)
-		return
-	}
-	if !reservation.Created {
-		// The request that created the single reservation is its only dispatcher.
-		// A concurrent retry must not race it to the durable command journal: if
-		// the retry won that race, the creator could otherwise release the record
-		// while the retry was still creating the hardware call.
-		writeError(
-			response,
-			http.StatusConflict,
-			"call_request_in_progress",
-			"The same call request is already in progress",
-			"request_id",
-		)
-		return
-	}
+
 	reservationActive := true
 	releaseReservation := func() {
 		if !reservationActive {
@@ -643,7 +573,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		}
 		reservationActive = false
 		released, releaseErr := api.callLeases.ReleaseOutgoing(
-			requestID,
+			preparation.id,
 			holderID,
 		)
 		if releaseErr != nil {
@@ -664,9 +594,10 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 
 	call, err := api.communications.StartCall(request.Context(), startInput)
 	if err != nil {
+		api.logger.Warn("outgoing call dispatch failed", "component", "calls", "preparation_id", preparation.id, "request_id", requestID, "failure_code", communicationErrorClass(err), "elapsed_ms", time.Since(preparation.created).Milliseconds())
 		if errors.Is(err, communication.ErrStartCallOutcomeIndeterminate) {
 			if resolutionErr := api.callLeases.AwaitOutgoingResolution(
-				requestID,
+				preparation.id,
 				holderID,
 			); resolutionErr == nil {
 				reservationActive = false
@@ -687,7 +618,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 	}
 	if _, err := api.callLeases.ActivateOutgoing(
 		request.Context(),
-		requestID,
+		preparation.id,
 		call.ID,
 		holderID,
 	); err != nil {
@@ -713,21 +644,20 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	reservationActive = false
-	api.logger.Info(
-		"call started",
-		"line_id",
-		call.LineID,
-		"call_id",
-		call.ID,
-		"request_id",
-		requestID,
-		"phase",
-		call.Phase,
-	)
+	preparation.call = call
+	api.logger.Info("outgoing media call binding", "component", "calls", "preparation_id", preparation.id, "request_id", requestID, "call_id", call.ID, "elapsed_ms", time.Since(preparation.created).Milliseconds())
+	if err := api.bindOutgoingMedia(request.Context(), preparation); err != nil {
+		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(request.Context()), callControlRollbackTimeout)
+		_ = api.communications.EndCall(rollbackContext, call.ID)
+		cancel()
+		preparation.state = preparationFailed
+		api.writeCallMediaError(response, request, err)
+		return
+	}
+	preparation.state = preparationCommitted
+
 	api.publishLiveState()
-	writeJSON(response, http.StatusCreated, callSessionEnvelope{
-		Call: callSession(call, calllease.ControlOwned),
-	})
+	writeJSON(response, http.StatusCreated, callSessionEnvelope{Call: callSession(call, calllease.ControlOwned)})
 }
 
 func (api *API) activeCalls(response http.ResponseWriter, request *http.Request) {

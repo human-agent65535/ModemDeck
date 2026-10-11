@@ -16,6 +16,10 @@ final class Owner {
     var microphoneLevel = -20.0, capturedFrames = 50, sentPackets = 50, receivedPackets = 50
     var activated = true, muted = false
     var connectionStartedAt = ProcessInfo.processInfo.systemUptime, stageStartedAt = ProcessInfo.processInfo.systemUptime
+    struct Preparation { let preparationId: String }
+    let preparation: Preparation? = nil
+    let diagnosticSessionID: String? = nil
+    let ownerToken = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     var connectionStage = "connected", testCall = false, callID = "call_0123456789abcdef0123456789abcdef"
     let credential = Credential()
     func exercise() {
@@ -32,12 +36,12 @@ final class Owner {
         updateServerAudioStatistics(input)
         precondition(serverReceivedPackets == 825 && serverAudioDropFields.count == names.count)
         for (index, name) in names.enumerated() { precondition(recorded["server_" + name] == String(index + 1)) }
-        precondition(recorded.count == names.count + 5 && recorded["pcm"] == nil && recorded["device_name"] == nil)
+        precondition(recorded.count == names.count + 7 && recorded["pcm"] == nil && recorded["device_name"] == nil)
         updateServerAudioStatistics(["received_packets": -1, "neteq_concealed_samples": -3, "neteq_target_delay_ms": "arbitrary"])
         precondition(serverReceivedPackets == 825 && recorded["server_neteq_concealed_samples"] == "1")
         precondition(recorded.count <= 32)
         recordConnectionEvent("audio_statistics", fields: localAudioStatisticsFields())
-        precondition(recorded.count == 22 && recorded.count <= 32)
+        precondition(recorded.count == 24 && recorded.count <= 32)
         precondition(recorded["input_route"] == "microphone" && recorded["channels"] == "1")
         precondition(recorded["capture_dropped_frames"] == "1" && recorded["server_neteq_concealed_samples"] == nil,
                      "Local and server statistics must each remain within the API field-count contract")

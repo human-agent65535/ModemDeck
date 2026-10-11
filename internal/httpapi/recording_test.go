@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/gorilla/websocket"
+	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -414,73 +417,42 @@ func TestRecordingRoutesRejectPathTraversalBeforeService(t *testing.T) {
 	}
 }
 
-func TestStartCallRecordingOverrideIsOptional(t *testing.T) {
-	t.Run("omitted follows default", func(t *testing.T) {
-		communications := &fakeCommunications{call: store.Call{ID: "call-default"}}
-		recordings := &fakeRecordingService{}
-		api, err := New(&fakeRepository{}, Options{
-			Communications:        communications,
-			Recording:             recordings,
-			CallLeases:            &fakeCallLeases{},
-			disableAuthentication: true,
+func TestPreparedStartCallRecordingOverrideIsOptional(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprint("explicit=", explicit), func(t *testing.T) {
+			f := outgoingHTTP(t)
+			recordings := &fakeRecordingService{}
+			f.api.recordings = recordings
+			input := `{"request_id":"recording-request","line_id":"line","number":"+81000000001"`
+			if explicit {
+				input += `,"recording_enabled":false`
+			}
+			input += `}`
+			response := f.request(t, "POST", "/api/v1/calls/prepare", input, 201)
+			var p struct {
+				ID string `json:"preparation_id"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &p); err != nil {
+				t.Fatal(err)
+			}
+			if recordings.prepareCalls != 0 || f.communications.startCalls != 0 {
+				t.Fatal("prepare mutated recording or dialed")
+			}
+			conn := f.socket(t, p.ID)
+			_ = conn.WriteMessage(websocket.BinaryMessage, callmedia.SocketFrame(0, 0, validOutgoingOpus(t)))
+			var ready map[string]any
+			if err := conn.ReadJSON(&ready); err != nil {
+				t.Fatal(err)
+			}
+			f.request(t, "POST", "/api/v1/calls/preparations/"+p.ID+"/commit", `{"audio_running":true}`, 201)
+			if explicit && (recordings.prepareCalls != 1 || recordings.preparedEnabled) {
+				t.Fatal("explicit false was not retained")
+			}
+			if !explicit && recordings.prepareCalls != 0 {
+				t.Fatal("omitted override did not follow default")
+			}
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		request := httptest.NewRequest(
-			http.MethodPost,
-			"/api/v1/calls",
-			bytes.NewBufferString(
-				`{"request_id":"request-default","line_id":"line-1","number":"+818000000077"}`,
-			),
-		)
-		request.Header.Set("Content-Type", "application/json")
-		response := httptest.NewRecorder()
-		api.ServeHTTP(response, request)
-		if response.Code != http.StatusCreated {
-			t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
-		}
-		if recordings.prepareCalls != 0 ||
-			communications.startInput.RequestID != "request-default" {
-			t.Fatalf(
-				"prepare calls = %d, start input = %+v",
-				recordings.prepareCalls,
-				communications.startInput,
-			)
-		}
-	})
-
-	t.Run("explicit false is prepared", func(t *testing.T) {
-		communications := &fakeCommunications{call: store.Call{ID: "call-override"}}
-		recordings := &fakeRecordingService{preparedRequestID: "request-recording-off"}
-		api, err := New(&fakeRepository{}, Options{
-			Communications:        communications,
-			Recording:             recordings,
-			CallLeases:            &fakeCallLeases{},
-			disableAuthentication: true,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		request := httptest.NewRequest(
-			http.MethodPost,
-			"/api/v1/calls",
-			bytes.NewBufferString(
-				`{"line_id":"line-1","number":"+818000000077","recording_enabled":false}`,
-			),
-		)
-		request.Header.Set("Content-Type", "application/json")
-		response := httptest.NewRecorder()
-		api.ServeHTTP(response, request)
-		if response.Code != http.StatusCreated {
-			t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
-		}
-		if recordings.prepareCalls != 1 ||
-			recordings.preparedEnabled ||
-			communications.startInput.RequestID != "request-recording-off" {
-			t.Fatalf("recording service = %+v, start input = %+v", recordings, communications.startInput)
-		}
-	})
+	}
 }
 
 func TestIncomingAnswerPersistsRecordingChoiceBeforeModemAnswer(t *testing.T) {

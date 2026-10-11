@@ -157,7 +157,20 @@ func (s *Session) socketReceiveLoop() error {
 		if err != nil {
 			return err
 		}
+		bound := true
+		if s.bound != nil {
+			select {
+			case <-s.bound:
+			default:
+				bound = false
+			}
+		}
+		s.codecMu.Lock()
 		duration, err := s.codec.PacketDuration(payload)
+		if !bound && err == nil && duration == defaultFramePeriod {
+			_, err = s.codec.Decode(payload)
+		}
+		s.codecMu.Unlock()
 		if err != nil || duration != defaultFramePeriod {
 			return ErrInvalidAudio
 		}
@@ -168,14 +181,16 @@ func (s *Session) socketReceiveLoop() error {
 			}
 		}
 		previousSequence, previousTimestamp = sequence, timestamp
-		if err := s.socket.receiver.Enqueue(payload, uint16(sequence), timestamp*3, time.Since(s.socket.epoch)); err != nil {
-			if errors.Is(err, audiocore.ErrInvalidPacket) {
-				return ErrInvalidAudio
+		if bound {
+			if err := s.socket.receiver.Enqueue(payload, uint16(sequence), timestamp*3, time.Since(s.socket.epoch)); err != nil {
+				if errors.Is(err, audiocore.ErrInvalidPacket) {
+					return ErrInvalidAudio
+				}
+				if errors.Is(err, audiocore.ErrBackpressure) {
+					return ErrBackpressure
+				}
+				return fmt.Errorf("insert socket Opus: %w", errors.Join(ErrCodec, err))
 			}
-			if errors.Is(err, audiocore.ErrBackpressure) {
-				return ErrBackpressure
-			}
-			return fmt.Errorf("insert socket Opus: %w", errors.Join(ErrCodec, err))
 		}
 		s.stats.receivedPackets.Add(1)
 		s.stats.receivedBytes.Add(uint64(len(payload)))
@@ -190,6 +205,9 @@ func (s *Session) socketReceiveLoop() error {
 // The hub is the sole playout owner. This worker only attaches the receiver
 // after the first valid packet and waits for cancellation; it has no timer.
 func (s *Session) socketPlaybackLoop() error {
+	if err := s.waitBinding(); err != nil {
+		return err
+	}
 	if err := s.waitSocketAudio(); err != nil {
 		return err
 	}
@@ -225,6 +243,9 @@ func (s *Session) pullPCM10(now time.Time) ([]byte, error) {
 }
 
 func (s *Session) socketCaptureLoop() error {
+	if err := s.waitBinding(); err != nil {
+		return err
+	}
 	if err := s.waitSocketAudio(); err != nil {
 		return err
 	}

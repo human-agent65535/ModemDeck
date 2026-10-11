@@ -97,15 +97,19 @@ type Owner struct {
 // deadline for ending the call; it never makes the call available to another
 // holder.
 type record struct {
-	requestID  string
-	callID     string
-	lineID     string
-	holderID   string
-	subjectID  string
-	createdAt  time.Time
-	orphanAt   time.Time
-	mediaAlive bool
-	ending     bool
+	requestID    string
+	callID       string
+	lineID       string
+	holderID     string
+	subjectID    string
+	createdAt    time.Time
+	orphanAt     time.Time
+	mediaAlive   bool
+	preparing    bool
+	dispatching  bool
+	revoked      bool
+	prepareUntil time.Time
+	ending       bool
 }
 
 type Manager struct {
@@ -180,6 +184,16 @@ func (m *Manager) ReserveOutgoingFor(
 	lineID string,
 	owner Owner,
 ) (OutgoingReservation, error) {
+	return m.reserveOutgoingFor(ctx, requestID, lineID, owner, false)
+}
+
+func (m *Manager) reserveOutgoingFor(
+	ctx context.Context,
+	requestID string,
+	lineID string,
+	owner Owner,
+	prepared bool,
+) (OutgoingReservation, error) {
 	owner, err := normalizeOwner(owner)
 	if err != nil {
 		return OutgoingReservation{}, err
@@ -222,11 +236,13 @@ func (m *Manager) ReserveOutgoingFor(
 		}
 	}
 	record := &record{
-		requestID: requestID,
-		lineID:    lineID,
-		holderID:  holderID,
-		subjectID: owner.SubjectID,
-		createdAt: now,
+		requestID:    requestID,
+		lineID:       lineID,
+		holderID:     holderID,
+		subjectID:    owner.SubjectID,
+		createdAt:    now,
+		preparing:    prepared,
+		prepareUntil: now.Add(m.duration),
 	}
 	m.records = append(m.records, record)
 	return outgoingReservationStatus(record, holderID, true), nil
@@ -267,7 +283,7 @@ func (m *Manager) ActivateOutgoing(
 	if reservation.callID != "" && reservation.callID != callID {
 		return Status{}, ErrInvalidArgument
 	}
-	if reservation.ending {
+	if reservation.ending || reservation.revoked || (reservation.preparing && !now.Before(reservation.prepareUntil)) {
 		return Status{}, ErrCallNotActive
 	}
 	if existing := m.findCallLocked(callID); existing != nil && existing != reservation {
@@ -287,6 +303,8 @@ func (m *Manager) ActivateOutgoing(
 			return Status{}, ErrHolderBusy
 		}
 	}
+	reservation.preparing = false
+	reservation.dispatching = false
 	reservation.callID = callID
 	reservation.orphanAt = now.Add(m.duration)
 	return statusFor(reservation), nil
@@ -563,6 +581,7 @@ func (m *Manager) revokeOwned(matches func(*record) bool) []string {
 			continue
 		}
 		record.mediaAlive = false
+		record.revoked = true
 		if record.callID == "" {
 			if record.orphanAt.IsZero() {
 				record.orphanAt = now.Add(m.duration)
@@ -637,6 +656,9 @@ func (m *Manager) ReconcileAuthoritativeCalls(ctx context.Context, calls []store
 			rec = m.matchPendingCallLocked(call, !startupSnapshot)
 			if rec != nil {
 				rec.callID = callID
+				if rec.revoked {
+					rec.orphanAt = now
+				}
 			}
 		}
 		if rec == nil {
@@ -669,7 +691,7 @@ func (m *Manager) ReconcileAuthoritativeCalls(ctx context.Context, calls []store
 	}
 	for index := 0; index < len(m.records); {
 		record := m.records[index]
-		if record.callID == "" && !record.ending && !record.orphanAt.IsZero() {
+		if record.callID == "" && !record.preparing && !record.revoked && !record.ending && !record.orphanAt.IsZero() {
 			// This snapshot was captured after the dial became indeterminate and
 			// contains no call that can belong to it. The complete absence resolves
 			// the reservation without inventing another state.
@@ -739,7 +761,7 @@ func (m *Manager) expiredCalls() []expiredCall {
 	for index := 0; index < len(m.records); {
 		record := m.records[index]
 		if record.callID == "" && record.requestID != "" &&
-			!record.orphanAt.IsZero() && !now.Before(record.orphanAt) {
+			((record.preparing && !now.Before(record.prepareUntil)) || (!record.orphanAt.IsZero() && !now.Before(record.orphanAt))) {
 			m.removeRecordLocked(record)
 			continue
 		}
@@ -834,7 +856,7 @@ func (m *Manager) matchPendingCallLocked(call store.Call, allowLineMatch bool) *
 	}
 	if requestID != "" {
 		record := m.findRequestLocked(requestID)
-		if record != nil && record.callID == "" && record.lineID == lineID {
+		if record != nil && !record.preparing && record.callID == "" && record.lineID == lineID {
 			return record
 		}
 	}
@@ -843,7 +865,7 @@ func (m *Manager) matchPendingCallLocked(call store.Call, allowLineMatch bool) *
 	}
 	var matched *record
 	for _, record := range m.records {
-		if record.callID != "" || record.lineID != lineID {
+		if record.preparing || record.callID != "" || record.lineID != lineID {
 			continue
 		}
 		if matched != nil {
@@ -987,7 +1009,7 @@ func (m *Manager) leaseableCall(ctx context.Context, callID string) (store.Call,
 
 func leaseablePhase(phase string) bool {
 	switch strings.ToLower(strings.TrimSpace(phase)) {
-	case "dialing", "ringing", "connecting", "active":
+	case "dialing", "ringing", "ringing-out", "connecting", "active":
 		return true
 	default:
 		return false
@@ -1003,4 +1025,109 @@ func normalizeContext(ctx context.Context) context.Context {
 		return context.Background()
 	}
 	return ctx
+}
+
+// RequireOutgoing validates the same credential reservation before media or dial.
+func (m *Manager) RequireOutgoing(requestID, holderID string) error {
+	requestID, holderID, err := normalizeReservationAndHolder(requestID, holderID)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.findRequestLocked(requestID)
+	if r == nil {
+		return ErrReservationNotFound
+	}
+	if r.holderID != holderID {
+		return ErrNotOwner
+	}
+	if r.revoked || r.ending || ((r.preparing || r.dispatching) && !m.now().Before(r.prepareUntil)) {
+		return ErrCallNotActive
+	}
+	return nil
+}
+
+// BeginOutgoing atomically consumes the preparation before the sole dial dispatch.
+func (m *Manager) BeginOutgoing(requestID, holderID string) error {
+	requestID, holderID, err := normalizeReservationAndHolder(requestID, holderID)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.findRequestLocked(requestID)
+	if r == nil {
+		return ErrReservationNotFound
+	}
+	if r.holderID != holderID {
+		return ErrNotOwner
+	}
+	if r.revoked || r.ending || !r.preparing || !m.now().Before(r.prepareUntil) {
+		return ErrCallNotActive
+	}
+	r.preparing = false
+	r.dispatching = true
+	return nil
+}
+
+// RenewOutgoing extends only an unconsumed preparation owned by this credential.
+func (m *Manager) RenewOutgoing(requestID, holderID string, duration time.Duration) (time.Time, error) {
+	requestID, holderID, err := normalizeReservationAndHolder(requestID, holderID)
+	if err != nil || duration <= 0 || duration > time.Minute {
+		return time.Time{}, ErrInvalidArgument
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.findRequestLocked(requestID)
+	if r == nil {
+		return time.Time{}, ErrReservationNotFound
+	}
+	if r.holderID != holderID {
+		return time.Time{}, ErrNotOwner
+	}
+	if !r.preparing || r.revoked || r.ending || !m.now().Before(r.prepareUntil) {
+		return time.Time{}, ErrCallNotActive
+	}
+	r.prepareUntil = m.now().UTC().Add(duration)
+	return r.prepareUntil, nil
+}
+
+// PrepareOutgoingFor uses the ordinary immutable owner reservation with a
+// bounded pre-dial deadline; authoritative snapshots cannot consume it yet.
+func (m *Manager) PrepareOutgoingFor(ctx context.Context, id, line string, owner Owner) (OutgoingReservation, error) {
+	return m.reserveOutgoingFor(ctx, id, line, owner, true)
+}
+
+// CancelOutgoing revokes the same reservation, including an indeterminate
+// in-flight dial. A later authoritative match expires immediately, not after
+// another grace window. The returned known call can be ended by HTTP now.
+func (m *Manager) CancelOutgoing(id, holder string) (string, error) {
+	id, holder, err := normalizeReservationAndHolder(id, holder)
+	if err != nil {
+		return "", err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.findRequestLocked(id)
+	if r == nil {
+		return "", nil
+	}
+	if r.holderID != holder {
+		return "", ErrNotOwner
+	}
+	r.revoked = true
+	r.mediaAlive = false
+	if r.preparing {
+		m.removeRecordLocked(r)
+		return "", nil
+	}
+	if r.callID != "" {
+		r.ending = true
+		return r.callID, nil
+	}
+	if r.orphanAt.IsZero() {
+		r.orphanAt = m.now().UTC().Add(m.duration)
+	}
+	return "", nil
 }

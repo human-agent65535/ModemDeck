@@ -783,6 +783,7 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
 }
 
 export function createFixtureGateway(options: FixtureGatewayOptions = {}): ModemDeckGateway {
+  const fixturePreparations = new Map<string, { lineKey: string; number: string; recordingEnabled?: boolean; call?: CallSession }>()
   const diagnosticLogs = clone(diagnosticLogFixtures)
   const diagnosticLogSubscribers = new Map<
     number,
@@ -2291,8 +2292,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (activeCall.direction === 'outgoing') {
         const previousPhase = activeCall.phase
         callPolls += 1
-        if (activeCall.phase === 'dialing' && callPolls >= 1) activeCall.phase = 'ringing'
-        else if (activeCall.phase === 'ringing' && callPolls >= 2) {
+        if (activeCall.phase === 'dialing' && callPolls >= 1) activeCall.phase = 'ringing-out'
+        else if (activeCall.phase === 'ringing-out' && callPolls >= 2) {
           activeCall.phase = 'active'
           activeCall.active_at = new Date().toISOString()
           activeCall.bearer = 'volte'
@@ -2316,11 +2317,17 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
     },
 
-    async startCall(
-      lineKey: string,
-      number: string,
-      recordingEnabled?: boolean
-    ): Promise<CallSession> {
+    async prepareCall(lineKey, number, recordingEnabled) {
+      const id = crypto.randomUUID()
+      recordingEnabled = recordingEnabled ?? recordingSettings.default_enabled
+      fixturePreparations.set(id, { lineKey, number, recordingEnabled })
+      return { preparation_id: id, recording_enabled: recordingEnabled, media_socket_path: `/api/v1/calls/preparations/${id}/media/ws`, expires_at: new Date(Date.now() + 20000).toISOString() }
+    },
+    async commitCallPreparation(id) {
+      const input = fixturePreparations.get(id)
+      if (!input) throw new ApiError('Preparation expired', 404)
+      if (input.call) return clone(input.call)
+      const { lineKey, number, recordingEnabled } = input
       const dialTarget = normalizeDialTarget(number)
       if (dialTarget.error) {
         throw new ApiError('Dial target is invalid', 400, 'invalid_argument', 'number')
@@ -2360,8 +2367,19 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         direction: activeCall.direction,
         state: activeCall.phase
       })
+      input.call = clone(activeCall)
       return clone(activeCall)
     },
+
+    async cancelCallPreparation(id) {
+      const call = fixturePreparations.get(id)?.call
+      if (call && activeCall?.id === call.id) {
+        activeCall.phase = 'ended'
+        activeCall.ended_at = new Date().toISOString()
+      }
+      fixturePreparations.delete(id)
+    },
+    async renewCallPreparation() {},
 
     async callAction(
       id: string,

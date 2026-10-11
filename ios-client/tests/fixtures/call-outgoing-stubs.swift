@@ -1,6 +1,6 @@
 import Foundation
 private var pending: ((Result<Void, Error>) -> Void)?
-final class Audio { func connect(completion: @escaping (Result<Void, Error>) -> Void) { pending = completion } }
+final class Audio { var onBecameActive: (() -> Void)?; func connect(completion: @escaping (Result<Void, Error>) -> Void) { pending = completion } }
 enum EndReason { case failed }
 final class Provider {
     var connected = 0, ended = 0
@@ -28,9 +28,9 @@ final class Coordinator {
     static func main() {
         let c = Coordinator(), id = UUID()
         c.begin(id); c.cleanupCall(id)
-        pending?(.success(()))
+        pending?(.success(())); c.callAudioSessions[id]?.onBecameActive?()
         precondition(c.callProvider.connected == 0 && c.answeredCallUUIDs.isEmpty)
-        c.begin(id); pending?(.success(()))
+        c.begin(id); pending?(.success(())); c.callAudioSessions[id]?.onBecameActive?()
         precondition(c.callProvider.connected == 1 && c.answeredCallUUIDs.contains(id))
     }
 }

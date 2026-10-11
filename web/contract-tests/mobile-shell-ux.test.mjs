@@ -116,11 +116,8 @@ test('ringing calls animate the central call action and remain restorable when m
   assert.match(ui, /uiState\.callMinimized = true/)
   assert.match(dialer, /showingCall \? minimizeCallSurface\(\) : closeDialer\(\)/)
   assert.match(dialer, /<Minus v-if="showingCall"/)
-  assert.match(callSurface, /const recordingAdjustable = computed/)
-  assert.match(
-    callSurface,
-    /v-if="recordingAdjustable"[\s\S]*call-footer-action--recording/
-  )
+  assert.match(callSurface, /recordingAdjustable = computed\(\(\) => active\.value/)
+  assert.match(callSurface, /v-if="recordingAdjustable"/)
 })
 
 test('a minimized connected call animates the existing phone audio waves', async () => {

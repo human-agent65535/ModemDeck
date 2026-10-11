@@ -703,6 +703,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     private let api: ModemDeckAPIClient
     private var recordingGeneration = 0
     private var recordingSnapshotCallID = ""
+    private var outgoingRecordingSnapshots: [String: Bool] = [:]
     private var dtmfQueue: [DTMFRequest] = []
 
     init(api: ModemDeckAPIClient) {
@@ -854,7 +855,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
         busy = true
         errorMessage = ""
         defer { busy = false }
-        var createdCallID: String?
+        var preparationID: String?
         do {
             let microphoneGranted = await withCheckedContinuation {
                 (continuation: CheckedContinuation<Bool, Never>) in
@@ -870,25 +871,27 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 )
             }
             try ModemDeckPushCoordinator.shared.validateOutgoingCallStart()
-            let callSession = try await api.startCall(
+            let preparation = try await api.prepareCall(
                 lineID: lineID,
                 number: number,
                 recordingEnabled: recording
             )
-            createdCallID = callSession.id
+            preparationID = preparation.preparationId
+            outgoingRecordingSnapshots = [preparation.preparationId: preparation.recordingEnabled]
             try await withCheckedThrowingContinuation { continuation in
                 ModemDeckPushCoordinator.shared.startOutgoingCall(
-                    callID: callSession.id,
-                    lineID: callSession.lineId,
-                    remoteNumber: callSession.remoteNumber,
-                    displayName: callSession.displayName ?? displayName
+                    callID: preparation.preparationId,
+                    lineID: lineID,
+                    remoteNumber: number,
+                    displayName: displayName,
+                    preparation: preparation
                 ) { result in
                     continuation.resume(with: result.map { _ in () })
                 }
             }
         } catch {
-            if let createdCallID {
-                try? await api.callAction(callID: createdCallID, action: "hangup")
+            if let preparationID {
+                try? await api.cancelCallPreparation(preparationID)
             }
             ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
@@ -1060,6 +1063,12 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
 
     private func reconcileRecording(for call: ModemDeckPresentedCall) {
         guard !call.testCall else { return }
+        if let snapshot = outgoingRecordingSnapshots[call.callID] {
+            recordingEnabled = snapshot
+            recordingStatus = snapshot ? "pending" : "off"
+            recordingReady = true
+            return
+        }
         if call.direction == "incoming", call.state == "ringing" {
             guard !recordingReady else { return }
             let generation = recordingGeneration
@@ -1180,7 +1189,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
         let environment = ProcessInfo.processInfo.environment
         guard environment["MODEMDECK_UAT_MODE"] == "1",
               let state = environment["MODEMDECK_UAT_CALL_STATE"],
-              ["ringing", "connecting", "active"].contains(state) else {
+              ["ringing", "ringing-out", "connecting", "active"].contains(state) else {
             return
         }
         let dynamic = environment["MODEMDECK_UAT_TEST_AUDIO_DYNAMIC"] == "1"
@@ -1195,7 +1204,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
         let phase = !dynamic || elapsed < 6 ? "speak" : (elapsed < 9 ? "playback" : "pause")
         let remaining = dynamic ? Int(max(0, (elapsed < 6 ? 6 - elapsed : (elapsed < 9 ? 9 - elapsed : 10 - elapsed)) * 1000)) : 3000
         let level = dynamic ? (elapsed < 2 ? -70 : (elapsed < 4 ? Int(-24 + sin(elapsed * 12) * 12) : -96)) : -24
-        callStateDidChange([
+        var fixture: [String: Any] = [
             "callID": "uat-call-surface", "lineID": "uat-line-a", "remoteNumber": "+1 202 555 0102",
             "displayName": "UAT Call", "direction": state == "ringing" ? "incoming" : "outgoing",
             "state": state, "testCall": audioTest, "testAudio": audioTest,
@@ -1203,9 +1212,15 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             "microphoneDBFS": level, "serverInputDBFS": -26, "capturedPeakDBFS": -18,
             "receivedPackets": 120, "localCapturedFrames": 160, "localSentPackets": 150,
             "mediaState": "active", "muted": false,
-            "createdAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime)),
-            "activeAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime))
-        ])
+            "createdAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime))
+        ]
+        if state == "active" {
+            fixture["activeAt"] = ISO8601DateFormatter().string(from: Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime))
+        }
+        if state != "active", state != "ringing", !audioTest {
+            outgoingRecordingSnapshots = ["uat-call-surface": ProcessInfo.processInfo.environment["MODEMDECK_UAT_RECORDING_ENABLED"] == "1"]
+        }
+        callStateDidChange(fixture)
         if dynamic {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 self?.publishUATCallState(state: state, audioTest: audioTest, dynamic: dynamic, startedAt: startedAt)

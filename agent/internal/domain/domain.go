@@ -161,6 +161,11 @@ type CallAudioFormat struct {
 }
 
 type Call struct {
+	ConnectedAt     time.Time        `json:"connected_at,omitempty"`
+	TerminatedAt    time.Time        `json:"terminated_at,omitempty"`
+	StateRevision   uint64           `json:"state_revision,omitempty"`
+	StateSource     string           `json:"state_source,omitempty"`
+	ReportedState   string           `json:"reported_state,omitempty"`
 	ID              string           `json:"id"`
 	LineID          string           `json:"line_id"`
 	Number          string           `json:"number"`

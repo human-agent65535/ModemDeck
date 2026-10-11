@@ -724,6 +724,8 @@ export default {
     detailPlaceholder: '通话详情会显示在这里'
   },
   dialer: {
+    recordingEnabled: '通话录音已开启',
+    recordingDisabled: '通话录音已关闭',
     title: '拨号',
     line: '通话线路',
     lineUnsupported: '不支持拨号',

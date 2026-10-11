@@ -288,7 +288,7 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
     static func route(_ path: String) -> String {
         // Replace ALL non-schema components, even if a contact name resembles a URL.
         let known: Set<String> = ["api", "v1", "mobile", "session", "bootstrap", "pairing", "push", "call-tests", "test-call",
-            "calls", "active", "media", "lease", "answer", "hangup", "reject", "hold", "resume", "mute", "dtmf", "recording",
+            "calls", "active", "media", "lease", "prepare", "preparations", "commit", "answer", "hangup", "reject", "hold", "resume", "mute", "dtmf", "recording",
             "recordings", "audio", "segments", "contacts", "batch", "messages", "threads", "state", "read", "read-all", "unread-summary",
             "events", "runtime", "settings", "system", "lines", "devices", "users", "account", "sessions", "password", "profile",
             "telegram", "units", "diagnostics", "logs", "health", "external-access", "status", "favorite", "contact"]
@@ -305,7 +305,7 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
             "input_route": ["none", "microphone", "receiver", "speaker", "bluetooth", "headphones", "external"],
             "output_route": ["none", "microphone", "receiver", "speaker", "bluetooth", "headphones", "external"],
             "http_protocol": ["h2", "h3", "http/1.1", "other"],
-            "stage": ["idle", "waiting_for_active_call", "connecting_wss", "reconnecting_wss", "connected"],
+            "stage": ["idle", "waiting_for_active_call", "connecting_wss", "reconnecting_wss", "connected", "preparing_audio", "committing_outgoing", "waiting_for_remote"],
             "method": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
             "error_domain": ["url", "cocoa", "osstatus", "callkit", "call_audio", "api", "other"],
             "reason": ["dns", "tls", "timeout", "authentication", "address_family", "unreachable", "other"],
@@ -316,6 +316,8 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
                 result[key] = String(number)
             } else if flags.contains(key), ["true", "false"].contains(value) { result[key] = value
             } else if enums[key]?.contains(value) == true { result[key] = value
+            } else if key == "preparation_id", value.range(of: "^prepare_[0-9a-f]{32}$", options: .regularExpression) != nil { result[key] = value
+            } else if key == "session_id", let identifier = UUID(uuidString: value) { result[key] = identifier.uuidString.lowercased()
             } else if key == "route" { result[key] = route(value) }
         }
     }

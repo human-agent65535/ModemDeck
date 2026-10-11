@@ -289,3 +289,26 @@ func TestNetEqDiagnosticFieldsAcceptCountersWithoutAllowingPayloads(t *testing.T
 		}
 	}
 }
+
+func TestOutgoingPreparationDiagnosticCorrelationIsBounded(t *testing.T) {
+	for key, values := range map[string][]string{
+		"session_id":     {"e0ad6f06-5a06-4a61-9e0c-cb6fd2d38657"},
+		"preparation_id": {"prepare_0123456789abcdef0123456789abcdef"},
+		"request_id":     {"e0ad6f06-5a06-4a61-9e0c-cb6fd2d38657", "prepare_0123456789abcdef0123456789abcdef"},
+		"stage":          {"preparing_audio", "committing_outgoing", "waiting_for_remote"},
+		"route":          {"/api/v1/calls/prepare", "/api/v1/calls/preparations/:id/commit", "/api/v1/calls/preparations/:id/media/ws"},
+	} {
+		for _, value := range values {
+			if !validMobileDiagnosticField(key, value) {
+				t.Errorf("safe correlation rejected: %s=%s", key, value)
+			}
+		}
+	}
+	for _, key := range []string{"session_id", "preparation_id", "request_id"} {
+		for _, value := range []string{"+81000000001", "secret-token", "prepare_secret-number"} {
+			if validMobileDiagnosticField(key, value) {
+				t.Errorf("unsafe correlation accepted: %s", key)
+			}
+		}
+	}
+}

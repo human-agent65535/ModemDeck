@@ -41,10 +41,9 @@ test('recording semantics reserve waveform for recordings and record controls fo
   ])
 
   assert.match(history, /AudioLines/)
-  assert.match(surface, /AudioLines/)
-  assert.match(surface, /Circle/)
-  assert.match(surface, /Square/)
-  assert.match(dialer, /Circle/)
+  assert.doesNotMatch(surface, /AudioLines|call-surface__recording-segments/)
+  assert.match(surface, /<Circle v-else[\s\S]*fill="currentColor"/)
+  assert.match(dialer, /dialer-recording-note/)
   for (const contents of [history, surface, dialer]) {
     assert.doesNotMatch(contents, /CassetteTape/)
   }

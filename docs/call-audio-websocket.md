@@ -12,6 +12,63 @@ request host; native authenticated upgrades may omit Origin. A call lease must
 already be held by this authenticated session/device. Renew it through the
 existing HTTP lease endpoint.
 
+## Outgoing preparation before dial
+
+A new outgoing call must use the preparation protocol. Direct
+`POST /api/v1/calls` returns `409 outgoing_media_required`; callers must migrate
+before deploying this API. Incoming calls and audio tests keep their existing
+call and socket routes.
+
+1. `POST /api/v1/calls/prepare` with the existing
+   `{request_id?, line_id, number, recording_enabled?}` body returns 201 with
+   `{preparation_id, media_socket_path, expires_at, recording_enabled}`. This reserves the existing
+   authenticated credential's line/owner; it does not dial or open hardware PCM.
+   `recording_enabled` is the effective choice: an explicit override, otherwise
+   the server default read once at preparation. Commit keeps that choice even
+   if the default changes. Preparation only reads settings; it creates no
+   recording session. Retries compare the original optional override, not the
+   resolved value. Clients display this metadata without querying call recording
+   using the temporary preparation ID.
+2. Open the returned socket path with the normal authenticated upgrade and
+   `start` message. Its `ready` includes `hardware_media:false`, proving server
+   transport readiness only. Start the actual local capture/render engine and
+   send real 20 ms Opus frames (encoded silence is valid when muted).
+3. After decoding a valid uplink frame, the server sends
+   `{type:"uplink_ready", preparation_id}`. Prepared audio is validated and
+   discarded, so it never plays to a future callee. There is no pre-dial jitter
+   queue or second PCM pipeline.
+4. Only after the local engine is actually running and `uplink_ready` arrives,
+   `POST /api/v1/calls/preparations/{id}/commit` with
+   `{audio_running:true}` returns 201 with the normal `{call}` envelope. The
+   server rejects expired, revoked, cancelled, unready, or disconnected media.
+   A repeated commit returns the same call; it never dispatches another dial.
+5. The same Session, transport and media owner bind to that authoritative call.
+   The sole NetEq receiver uses the hardware's 8/16 kHz rate. The server waits
+   for lifecycle evidence of real PCM availability, including outgoing early
+   media when available, and emits `{type:"bound", call_id, hardware_media:true}`
+   only after the shared endpoint starts. `ready` does not promise hardware
+   audio, and a ringing call need not yet have PCM.
+
+Preparations expire after 30 seconds. `PUT /api/v1/calls/preparations/{id}/lease`
+with `{}` returns 200 `{preparation_id, expires_at}` and extends that same
+reservation by 30 seconds. Renew while waiting for microphone permission or
+CallKit activation; after commit use the normal call lease. No hardware bind
+poller is added: binding waits on the existing authoritative lifecycle.
+
+`DELETE /api/v1/calls/preparations/{id}` returns 204 and cancels preparation
+without dialing. If commit is already in flight, it cancels dispatch and ends
+any resulting owned call, including a commit whose HTTP response was lost.
+An indeterminate hardware command retains the existing bounded ownership
+reservation until the authoritative snapshot resolves it. The API never guesses
+another hardware call's identity. A cancelled/failed preparation requires a new
+request ID; an unchanged request ID replays its preparation, while changed line,
+number or recording preferences return a conflict.
+
+Prepare/commit/bind/cancel and socket handshake/first-valid-uplink/close are
+recorded through the existing structured diagnostic logger with opaque request,
+preparation and call IDs, elapsed times and bounded failure codes. Numbers,
+credentials and audio payloads are excluded.
+
 After upgrade the client sends one JSON text message within five seconds:
 
 ```json

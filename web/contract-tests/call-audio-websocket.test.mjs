@@ -11,7 +11,7 @@ const mediaSource = readFileSync(new URL('../src/state/callMedia.ts', import.met
 const mediaAST = ts.createSourceFile('media.ts', mediaSource, ts.ScriptTarget.Latest, true)
 function mediaFunctions(names) {
   return ts.transpileModule(mediaAST.statements.filter(s => ts.isFunctionDeclaration(s) && names.includes(s.name?.text))
-    .map(s => s.getText(mediaAST)).join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+    .map(s => s.getText(mediaAST).replace(/^export /, '')).join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
 }
 function transport() {
   let now = 0, connection
@@ -20,7 +20,7 @@ function transport() {
     ingressCapacity: 200, sendCapacity: 100, resetSequence: true, ready: false,
     node: { port: { postMessage: m => posted.push(m) } }, sentFrames: 0, receivedFrames: 0 }
   const owner = { ownerToken: 'owner-a' }
-  const ctx = vm.createContext({ ArrayBuffer, performance: { now: () => now },
+  const ctx = vm.createContext({ URL, preparationMedia: undefined, logPreparation() {}, settlePreparationMedia() {}, ArrayBuffer, URL, preparationMedia: undefined, logPreparation() {}, settlePreparationMedia() {}, performance: { now: () => now },
     audioRuntime: runtime, socket: undefined, connectTimeoutID: undefined, socketWatchdogID: undefined,
     MEDIA_CONNECT_TIMEOUT_MS: 5000, MEDIA_WRITE_TIMEOUT_MS: 2000, CALL_AUDIO_FORMAT,
     callMediaState: {}, isCurrent: (id, token) => id === 'call-a' && token === 1,
@@ -95,7 +95,7 @@ test('recovery releases only media immediately, backs off within one deadline an
     ['isCurrent', 'beginRecoveryWindow', 'recoverConnection'].includes(statement.name?.text)).map(statement => statement.getText(ast)).join('\n')
   const timers = [], releases = [], opened = []
   const owner = { ownerToken: 'owner-a' }
-  const context = vm.createContext({ generation: 1, currentCallID: 'call-a', audioRuntime: { recoveryAttempts: 0 },
+  const context = vm.createContext({ URL, preparationMedia: undefined, logPreparation() {}, settlePreparationMedia() {}, generation: 1, currentCallID: 'call-a', audioRuntime: { recoveryAttempts: 0 },
     recoveryTimeoutID: undefined, reconnectTimeoutID: undefined, callMediaState: {},
     MEDIA_RECOVERY_TIMEOUT_MS: 15000, MEDIA_RECONNECT_DELAY_MS: 500, translate: key => key,
     clearSocketResources() {}, failConnection() {},
@@ -134,7 +134,7 @@ test('repeated ready then early transport failures cannot restart the recovery d
   const timers = new Map(), intervals = new Map(), cleared = []
   const runtime = { context: { currentTime: 0, state: 'running' }, contextEpoch: 0, sentBytes: 0, pendingWrites: [], node: { port: { postMessage() {} } }, ready: false,
     lastActivity: Date.now(), recoveryAttempts: 0, sentFrames: 0, receivedFrames: 0, lastSentAt: -Infinity, lastReceivedAt: -Infinity }
-  const context = vm.createContext({ URL, performance: { now: () => now }, generation: 1, currentCallID: 'call-a',
+  const context = vm.createContext({ URL, preparationMedia: undefined, logPreparation() {}, settlePreparationMedia() {}, URL, performance: { now: () => now }, generation: 1, currentCallID: 'call-a',
     audioRuntime: runtime, socket: undefined, connectTimeoutID: undefined, reconnectTimeoutID: undefined,
     recoveryTimeoutID: undefined, socketWatchdogID: undefined, socketBufferedSince: undefined,
     MEDIA_CONNECT_TIMEOUT_MS: 5000, MEDIA_RECOVERY_TIMEOUT_MS: 15000, MEDIA_RECONNECT_DELAY_MS: 500,
@@ -196,7 +196,7 @@ test('a recovery deadline resets only after at least one second of useful duplex
   const code = ast.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'settleMediaRecovery').getText(ast)
   let now = 999, cleared = 0
   const runtime = { stableSince: 0, lastSentAt: 999, lastReceivedAt: 999, sentFrames: 40, receivedFrames: 40, realOutputSamples: 48000, lastRealRenderUs: 999000, pendingWrites: [], recoveryAttempts: 5 }
-  const context = vm.createContext({ recoveryTimeoutID: 1, socketBufferedSince: undefined,
+  const context = vm.createContext({ URL, preparationMedia: undefined, logPreparation() {}, settlePreparationMedia() {}, recoveryTimeoutID: 1, socketBufferedSince: undefined,
     MEDIA_STABLE_WINDOW_MS: 1000, MEDIA_STABLE_FRAMES: 40, performance: { now: () => now },
     MEDIA_HEALTH_INTERVAL_MS: 1000, MEDIA_WRITE_TIMEOUT_MS: 2000,
     clearRecoveryWindow: () => { cleared++ } })
@@ -293,7 +293,11 @@ test('production device state callback resets the owner; Resume handles interrup
     await t.ctx.playRemoteAudio()
     assert.equal(resumes, state === 'closed' ? 0 : 1)
     assert.equal(t.ctx.callMediaState.playbackBlocked, state === 'closed')
-    if (state !== 'closed') assert.equal(t.posted.at(-1).type, 'activate')
+    if (state !== 'closed') {
+      assert.equal(t.posted.at(-2).type, 'activate')
+      assert.equal(t.posted.at(-1).type, 'ringback')
+      assert.equal(t.posted.at(-1).enabled, false)
+    }
   }
 })
 
@@ -336,7 +340,7 @@ test('PLC-only reception cannot clear the recovery budget without real shared-co
   let cleared = 0
   const runtime = { stableSince: 0, lastSentAt: 2000, lastReceivedAt: 2000, sentFrames: 100, receivedFrames: 100,
     realOutputSamples: 0, lastRealRenderUs: 0, pendingWrites: [], recoveryAttempts: 4 }
-  const context = vm.createContext({ recoveryTimeoutID: 1, performance: { now: () => 2000 }, MEDIA_HEALTH_INTERVAL_MS: 1000,
+  const context = vm.createContext({ URL, preparationMedia: undefined, logPreparation() {}, settlePreparationMedia() {}, recoveryTimeoutID: 1, performance: { now: () => 2000 }, MEDIA_HEALTH_INTERVAL_MS: 1000,
     MEDIA_STABLE_WINDOW_MS: 1000, MEDIA_STABLE_FRAMES: 40, clearRecoveryWindow: () => { cleared++ } })
   vm.runInContext(mediaFunctions(['settleMediaRecovery']), context)
   context.settleMediaRecovery(runtime)
@@ -351,7 +355,7 @@ const workletCode = ts.transpileModule(workletSource, { compilerOptions: { targe
 function worklet(rate = 48000, createCore = createAudioCore) {
   let Processor
   const messages = []
-  const context = vm.createContext({ sampleRate: rate, currentTime: 0, createAudioCore: createCore, Float32Array, Uint8Array, BigInt,
+  const context = vm.createContext({ URL, preparationMedia: undefined, logPreparation() {}, settlePreparationMedia() {}, sampleRate: rate, currentTime: 0, createAudioCore: createCore, Float32Array, Uint8Array, BigInt,
     AudioWorkletProcessor: class { port = { postMessage: m => messages.push(m), onmessage: undefined } },
     registerProcessor: (_name, value) => { Processor = value } })
   vm.runInContext(workletCode, context)
@@ -553,4 +557,58 @@ test('shared receiver rejects non-negotiated stereo and40ms Opus before NetEq in
     assert.equal(w.messages.filter(message => message.type === 'received').length, 0)
     w.dispose()
   }
+})
+
+
+test('ringback uses the existing Worklet renderer and stops at active phase or early media', () => {
+  const w = worklet()
+  w.post({ type: 'ringback', enabled: true })
+  const ringing = w.render()
+  assert.ok(ringing.some(sample => Math.abs(sample) > .01))
+  w.post({ type: 'ringback', enabled: false })
+  assert.ok(w.render().every(sample => sample === 0))
+  w.post({ type: 'ringback', enabled: true })
+  w.post({ type: 'packet', payload: tonePackets[0], sequence: 0, timestamp: 0, nowUs: 0 })
+  assert.equal(w.p.earlyMedia, false)
+  for (let i = 0; i < 10; i++) w.render()
+  assert.equal(w.p.earlyMedia, true)
+  assert.equal(w.p.ringback, true)
+  w.dispose()
+  assert.ok(w.render().every(sample => sample === 0))
+})
+
+test('outgoing readiness requires actual encoding, uplink acknowledgement, and running output', () => {
+  let resolved = 0
+  const ctx = vm.createContext({ preparationMedia: {encoded:false,uplinkReady:false,timeout:1,resolve:()=>resolved++},
+    fixtureMode:false,WebSocket:{OPEN:1},socket:{readyState:1},audioRuntime:{ready:true,context:{state:'running'}},callMediaState:{playbackBlocked:false},audioState:{outputRoutingError:''},window:{clearTimeout(){}} })
+  vm.runInContext(mediaFunctions(['settlePreparationMedia', 'preparedCallMediaIsReady']), ctx)
+  ctx.settlePreparationMedia(); assert.equal(resolved,0)
+  ctx.preparationMedia.uplinkReady=true;ctx.settlePreparationMedia();assert.equal(resolved,0)
+  ctx.preparationMedia.encoded=true;ctx.audioRuntime.context.state='suspended';ctx.settlePreparationMedia();assert.equal(resolved,0)
+  ctx.audioRuntime.context.state='running';ctx.callMediaState.playbackBlocked=true;ctx.settlePreparationMedia();assert.equal(resolved,0)
+  ctx.callMediaState.playbackBlocked=false;ctx.settlePreparationMedia();assert.equal(resolved,1)
+})
+
+test('hardware silence does not suppress local ringback', () => {
+  const w=worklet();w.post({type:'ringback',enabled:true})
+  w.post({type:'packet',payload:new Uint8Array([0xf8,0xff,0xfe]),sequence:0,timestamp:0,nowUs:0})
+  for(let i=0;i<12;i++) w.render()
+  assert.equal(w.p.earlyMedia,false)
+  assert.ok(w.render().some(sample=>Math.abs(sample)>.01))
+  w.dispose()
+})
+
+test('ringing-out and active preserve prepared socket owner and update only renderer cadence', () => {
+  const posted=[],runtime={contextEpoch:7,node:{port:{postMessage:message=>posted.push(message)}}}
+  let stopped=0
+  const ctx=vm.createContext({preparationMedia:{id:'p1',callID:'c1'},audioRuntime:runtime,browserSoundState:{waiting:true},fixtureCallMediaPreview:false,
+    attemptedCallID:'',setIdle:()=>stopped++})
+  vm.runInContext(mediaFunctions(['syncCallMedia']),ctx)
+  ctx.syncCallMedia({id:'c1',phase:'ringing-out'})
+  assert.equal(posted.at(-1).enabled,true)
+  ctx.syncCallMedia({id:'c1',phase:'active'})
+  assert.equal(posted.at(-1).enabled,false)
+  assert.equal(ctx.audioRuntime,runtime);assert.equal(stopped,0)
+  ctx.syncCallMedia({id:'c1',phase:'ended'})
+  assert.equal(stopped,1)
 })

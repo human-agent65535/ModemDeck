@@ -163,12 +163,24 @@ struct ModemDeckMediaRecoveryHealth {
     }
 }
 
+/// Commit is monotonic and needs local engine and server uplink evidence.
+struct ModemDeckOutgoingPreparationGate {
+    private(set) var commitStarted = false
+    private(set) var cancelled = false
+    mutating func beginCommit(socketReady: Bool, audioRunning: Bool, uplinkReady: Bool) -> Bool {
+        guard !cancelled, !commitStarted, socketReady, audioRunning, uplinkReady else { return false }
+        commitStarted = true
+        return true
+    }
+    mutating func cancel() { cancelled = true }
+}
+
 /// One media owner for real and server test calls. CallKit alone activates audio.
 final class ModemDeckCallAudioSession: NSObject {
     typealias ConnectionCompletion = (Result<Void, Error>) -> Void
     static let activationChanged = Notification.Name("ModemDeckCallAudioActivation")
     private static var audioActivated = false
-    let callID: String
+    private(set) var callID: String
     var onRemoteEnded: (() -> Void)?
     var onFailed: ((Error) -> Void)?
     var onBecameActive: (() -> Void)?
@@ -177,6 +189,14 @@ final class ModemDeckCallAudioSession: NSObject {
     var onMicrophoneLevelChanged: ((Int?) -> Void)?
     var onMediaStateChanged: ((String) -> Void)?
     var onLocalAudioCountsChanged: ((Int, Int) -> Void)?
+    var onPreparedCallCommitted: ((ModemDeckCallSession) -> Void)?
+    private var preparation: ModemDeckCallPreparation?
+    private var diagnosticSessionID: String?
+    private var uplinkReady = false
+    private var preparationGate = ModemDeckOutgoingPreparationGate()
+    private var preparationCommitted = false
+    private var boundCallID: String?
+    private let ringback = ModemDeckRingbackRenderer()
     private let credential: ModemDeckCredential
     private let testCall: Bool
     private let ownerToken = UUID().uuidString.lowercased()
@@ -266,7 +286,7 @@ final class ModemDeckCallAudioSession: NSObject {
             self?.queue.async { [weak self] in
                 guard let self, !self.stopped else { return }
                 self.activated = active
-                if active { self.startAudioIfReady() } else { self.stopAudio() }
+                if active { self.recordConnectionEvent("callkit_audio_activated"); self.startAudioIfReady() } else { self.stopAudio() }
             }
         }
         configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil) { [weak self] event in
@@ -305,7 +325,9 @@ final class ModemDeckCallAudioSession: NSObject {
     }
     func applyRuntimeState(phase: String) {
         queue.async { [weak self] in
-            guard let self, !self.stopped, phase == "active", !self.reportedActive else { return }
+            guard let self, !self.stopped else { return }
+            self.ringback.setEnabled(phase == "ringing-out")
+            guard phase == "active", !self.reportedActive else { return }
             self.reportedActive = true
             DispatchQueue.main.async { [weak self] in self?.onBecameActive?() }
         }
@@ -328,6 +350,63 @@ final class ModemDeckCallAudioSession: NSObject {
             self.startTelemetry(); self.waitForActiveCall()
         }
     }
+    func connectPreparation(_ preparation: ModemDeckCallPreparation, completion: @escaping ConnectionCompletion) {
+        queue.async { [weak self] in
+            guard let self, !self.stopped, !self.connecting else {
+                DispatchQueue.main.async { completion(.failure(ModemDeckCallAudioError.callEnded)) }; return
+            }
+            self.preparation = preparation
+            self.diagnosticSessionID = preparation.clientSessionID
+            self.connecting = true; self.connectCompletion = completion
+            self.connectDeadline = Date().addingTimeInterval(20)
+            self.connectionStartedAt = ProcessInfo.processInfo.systemUptime
+            self.setConnectionStage("preparing_audio")
+            self.recordConnectionEvent("outgoing_prepared")
+            if self.activated { self.recordConnectionEvent("callkit_audio_activated") }
+            let timeout = DispatchWorkItem { [weak self] in self?.failMedia(ModemDeckCallAudioError.timedOut) }
+            self.connectTimeout = timeout
+            self.queue.asyncAfter(deadline: .now() + 20, execute: timeout)
+            self.startTelemetry(); self.startLeaseHeartbeat(); self.openSocket()
+        }
+    }
+
+    private func commitPreparationIfReady() {
+        guard !stopped, let preparation, ready, activated, engine?.isRunning == true,
+              uplinkReady, !preparationCommitted else { return }
+        guard preparationGate.beginCommit(socketReady: ready, audioRunning: activated && engine?.isRunning == true, uplinkReady: uplinkReady) else { return }
+        setConnectionStage("committing_outgoing")
+        recordConnectionEvent("outgoing_commit_started")
+        request(path: preparationPath(preparation.preparationId) + "/commit", method: "POST",
+                json: ["audio_running": true]) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let data):
+                let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+                guard let response = try? decoder.decode(ModemDeckCallResponse.self, from: data) else {
+                    if !self.stopped { self.failMedia(ModemDeckCallAudioError.invalidResponse) }; return
+                }
+                // stopLocked's DELETE preparation owns cancellation, including
+                // a commit accepted before its HTTP response reaches this queue.
+                guard !self.stopped else { return }
+                if let bound = self.boundCallID, bound != response.call.id {
+                    self.failMedia(ModemDeckCallAudioError.invalidResponse); return
+                }
+                self.callID = response.call.id
+                self.preparationCommitted = true
+                self.setConnectionStage("waiting_for_remote")
+                self.recordConnectionEvent("outgoing_commit_completed")
+                DispatchQueue.main.async { [weak self] in self?.onPreparedCallCommitted?(response.call) }
+                self.finishConnection(.success(()))
+            case .failure(let error):
+                if !self.stopped { self.failMedia(error) }
+            }
+        }
+    }
+
+    private func preparationPath(_ id: String) -> String {
+        "/api/v1/calls/preparations/" + (id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")
+    }
+
     func setMuted(_ muted: Bool) {
         queue.async { [weak self] in
             guard let self, !self.stopped else { return }
@@ -348,7 +427,7 @@ final class ModemDeckCallAudioSession: NSObject {
         guard !stopped else { return }
         setConnectionStage(reconnectAttempts == 0 ? "connecting_wss" : "reconnecting_wss")
         do {
-            var request = try authorizedRequest(credential: credential, path: callPath("media/ws"), method: "GET", timeout: 12)
+            var request = try authorizedRequest(credential: credential, path: preparationCommitted ? callPath("media/ws") : (preparation.map { $0.mediaSocketPath } ?? callPath("media/ws")), method: "GET", timeout: 12)
             guard let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false), components.scheme == "https" else {
                 throw ModemDeckCallAudioError.invalidResponse
             }
@@ -402,7 +481,22 @@ final class ModemDeckCallAudioSession: NSObject {
             guard resetMediaForReady() else { return }
             setConnectionStage("connected"); publishMediaState(activated && engine?.isRunning == true ? "active" : "waiting_for_audio")
             startLeaseHeartbeat(); startTestPhaseUpdates()
-            finishConnection(.success(())); startAudioIfReady()
+            recordConnectionEvent("wss_ready")
+            if preparation == nil { finishConnection(.success(())) }
+            startAudioIfReady()
+        case "uplink_ready":
+            guard preparation != nil else { return }
+            uplinkReady = true; recordConnectionEvent("outgoing_uplink_ready")
+            commitPreparationIfReady()
+        case "bound":
+            guard preparation != nil, let id = json["call_id"] as? String,
+                  !id.isEmpty, json["hardware_media"] as? Bool == true else {
+                failMedia(ModemDeckCallAudioError.invalidResponse); return
+            }
+            if preparationCommitted && id != callID { failMedia(ModemDeckCallAudioError.invalidResponse); return }
+            boundCallID = id
+            setConnectionStage("connected")
+            recordConnectionEvent("outgoing_media_bound")
         case "stats":
             if let audio = json["audio"] as? [String: Any] { updateServerAudioStatistics(audio) }
         case "ended": stopLocked(notifyRemoteEnd: true)
@@ -453,6 +547,11 @@ final class ModemDeckCallAudioSession: NSObject {
     }
     private func transportFailed(task: URLSessionWebSocketTask?, error: Error) {
         guard !stopped, let task, socket === task else { return }
+        if preparation != nil && !preparationCommitted {
+            // A disconnected reservation cannot prove current uplink readiness.
+            // Close it and let an explicit retry create a fresh reservation.
+            failMedia(error); return
+        }
         recordConnectionEvent("wss_disconnected", error: error)
         socket = nil; ready = false; sending = false; pingInFlight = false
         task.cancel(with: .goingAway, reason: nil)
@@ -504,7 +603,8 @@ final class ModemDeckCallAudioSession: NSObject {
             case .success(let data):
                 guard let state = try? JSONDecoder().decode(ModemDeckActiveCallsResponse.self, from: data),
                       let call = state.calls.first(where: { $0.id == self.callID }),
-                      call.phase == "active", call.controlState == "owned", call.mediaAvailable else {
+                      (call.phase == "active" || (self.preparationCommitted && ["dialing", "ringing-out"].contains(call.phase))),
+                      call.controlState == "owned", call.mediaAvailable else {
                     self.failMedia(ModemDeckCallAudioError.callEnded); return
                 }
                 guard Date() < deadline else { self.failMedia(ModemDeckCallAudioError.timedOut); return }
@@ -526,6 +626,8 @@ final class ModemDeckCallAudioSession: NSObject {
             try configureVoiceGraph(engine)
             try startVoiceGraph(engine)
             recordConnectionEvent("voice_processing_started")
+            if preparation != nil { recordConnectionEvent("outgoing_engine_ready") }
+            commitPreparationIfReady()
         } catch {
             recordConnectionEvent("audio_engine_failed", error: error)
             failMedia(error)
@@ -544,7 +646,7 @@ final class ModemDeckCallAudioSession: NSObject {
         // Hardware/echo-reference channels are not separate telephone channels.
         if renderer == nil { renderedSampleCount = 0 }
         let renderer = try self.renderer ?? ModemDeckAudioRenderer()
-        let source = AVAudioSourceNode(format: format) { [renderer] silence, timestamp, frameCount, output in
+        let source = AVAudioSourceNode(format: format) { [renderer, ringback] silence, timestamp, frameCount, output in
             guard let memory = output.pointee.mBuffers.mData else { return kAudio_ParamError }
             let samples = memory.assumingMemoryBound(to: Float.self)
             let hostTime = timestamp.pointee.mFlags.contains(.hostTimeValid)
@@ -554,6 +656,7 @@ final class ModemDeckCallAudioSession: NSObject {
             if result < 0 {
                 samples.initialize(repeating: 0, count: Int(frameCount)); silence.pointee = true
             } else { silence.pointee = false }
+            ringback.mix(samples, count: Int(frameCount))
             return noErr
         }
         self.renderer = renderer; sourceNode = source
@@ -865,7 +968,7 @@ final class ModemDeckCallAudioSession: NSObject {
     }
     private func stopLocked(notifyRemoteEnd: Bool) {
         guard !stopped else { return }
-        recordConnectionEvent("stopped"); stopped = true
+        recordConnectionEvent("stopped"); stopped = true; preparationGate.cancel()
         socket?.cancel(with: .normalClosure, reason: nil); socket = nil; ready = false
         stopAudio(); sendQueue.removeAll()
         leaseTimer?.cancel(); leaseTimer = nil
@@ -874,7 +977,8 @@ final class ModemDeckCallAudioSession: NSObject {
         connectTimeout?.cancel(); connectTimeout = nil
         reconnectTimeout?.cancel(); reconnectTimeout = nil
         urlSession.invalidateAndCancel()
-        if mediaClaimed { releaseMedia() }
+        if let preparation { cancelPreparation(preparation.preparationId) }
+        else if mediaClaimed { releaseMedia() }
         publishMediaState("ended")
         if let completion = connectCompletion {
             connectCompletion = nil
@@ -890,7 +994,8 @@ final class ModemDeckCallAudioSession: NSObject {
         ModemDeckDiagnostics.shared.record(.audio, event, callID: callID, fields: [
             "elapsed_ms": String(Int((ProcessInfo.processInfo.systemUptime - connectionStartedAt) * 1000)),
             "stage_elapsed_ms": String(Int((ProcessInfo.processInfo.systemUptime - stageStartedAt) * 1000)),
-            "stage": connectionStage, "test_call": String(testCall)].merging(fields) { _, new in new },
+            "stage": connectionStage, "test_call": String(testCall), "session_id": diagnosticSessionID ?? ownerToken,
+            "preparation_id": preparation?.preparationId ?? ""].merging(fields) { _, new in new },
             error: error, scope: credential.callControlScope)
     }
 
@@ -966,7 +1071,7 @@ final class ModemDeckCallAudioSession: NSObject {
             guard let self, !self.stopped, !self.leaseRequestInFlight else { return }
             self.leaseRequestInFlight = true
             self.request(
-                path: self.callPath("lease"),
+                path: self.preparation != nil && !self.preparationCommitted ? self.preparationPath(self.preparation!.preparationId) + "/lease" : self.callPath("lease"),
                 method: "PUT",
                 json: [:]
             ) { [weak self] result in
@@ -1016,6 +1121,12 @@ final class ModemDeckCallAudioSession: NSObject {
         }
         testPhaseTimer = timer
         timer.resume()
+    }
+
+    private func cancelPreparation(_ id: String) {
+        guard let request = try? authorizedRequest(credential: credential, path: preparationPath(id), method: "DELETE", timeout: 8) else { return }
+        let session = ModemDeckDiagnostics.urlSession(configuration: .ephemeral)
+        session.diagnosticDataTask(with: request) { _, _, _ in session.finishTasksAndInvalidate() }.resume()
     }
 
     private func releaseMedia(completion: @escaping (Bool) -> Void = { _ in }) {
@@ -1215,6 +1326,41 @@ final class ModemDeckTestCallTone {
             try audioSession.overrideOutputAudioPort(.none)
         } catch {
             ModemDeckDiagnostics.shared.record(.audio, "route_restore_failed", error: error)
+        }
+    }
+}
+
+/// Progress tone shares the same VoiceProcessingIO source. Only the render
+/// thread owns tone time and early-media suppression. Control updates use a
+/// nonblocking snapshot; contention never blocks the real-time callback.
+private final class ModemDeckRingbackRenderer {
+    private let lock = NSLock()
+    private var requestedEnabled = false
+    private var renderEnabled = false
+    private var heardEarlyMedia = false
+    private var sample: Int64 = 0
+    func setEnabled(_ enabled: Bool) {
+        lock.lock(); requestedEnabled = enabled; lock.unlock()
+    }
+    func mix(_ output: UnsafeMutablePointer<Float>, count: Int) {
+        if lock.try() {
+            renderEnabled = requestedEnabled
+            lock.unlock()
+        }
+        // Inspect the existing NetEq output before mixing the local tone.
+        // Encoded silence/zero PCM is not evidence of audible remote media.
+        if !heardEarlyMedia {
+            for index in 0..<count where abs(output[index]) > 0.003 {
+                heardEarlyMedia = true; break
+            }
+        }
+        guard renderEnabled, !heardEarlyMedia else { sample = 0; return }
+        for index in 0..<count {
+            let t = Double(sample) / 16_000
+            if sample % 96_000 < 32_000 {
+                output[index] += Float((sin(2 * .pi * 440 * t) + sin(2 * .pi * 480 * t)) * 0.08)
+            }
+            sample += 1
         }
     }
 }

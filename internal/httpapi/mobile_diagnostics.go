@@ -32,10 +32,11 @@ type mobileDiagnosticBatch struct {
 }
 
 var (
-	diagnosticUUID    = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	diagnosticCallID  = regexp.MustCompile(`^(call_[A-Za-z0-9_-]{24}|call_[0-9a-f]{32}|(test-|call-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
-	diagnosticName    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
-	diagnosticVersion = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
+	diagnosticUUID          = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	diagnosticPreparationID = regexp.MustCompile(`^prepare_[0-9a-f]{32}$`)
+	diagnosticCallID        = regexp.MustCompile(`^(call_[A-Za-z0-9_-]{24}|call_[0-9a-f]{32}|(test-|call-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
+	diagnosticName          = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	diagnosticVersion       = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
 )
 
 // Paired devices append bounded, structured diagnostics to the existing operator
@@ -130,6 +131,12 @@ func validMobileDiagnosticField(key, value string) bool {
 		return false
 	}
 	switch key {
+	case "session_id":
+		return diagnosticUUID.MatchString(value)
+	case "preparation_id":
+		return diagnosticPreparationID.MatchString(value)
+	case "request_id":
+		return diagnosticUUID.MatchString(value) || diagnosticPreparationID.MatchString(value)
 	case "elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "error_code", "http_status", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets", "playback_pending", "playback_underruns", "playback_resets",
 		"capture_dropped_frames", "send_dropped_frames", "receive_stale_frames", "receive_invalid_frames", "playback_dropped_frames",
 		"server_dropped_packets", "server_dropped_source_early_packets", "server_dropped_source_late_packets",
@@ -149,7 +156,7 @@ func validMobileDiagnosticField(key, value string) bool {
 	case "http_protocol":
 		return diagnosticChoice(value, "h2 h3 http/1.1 other")
 	case "stage":
-		return diagnosticChoice(value, "idle waiting_for_active_call connecting_wss reconnecting_wss connected")
+		return diagnosticChoice(value, "idle preparing_audio committing_outgoing waiting_for_remote waiting_for_active_call connecting_wss reconnecting_wss connected")
 	case "method":
 		return diagnosticChoice(value, "GET POST PUT PATCH DELETE HEAD")
 	case "error_domain":
@@ -167,7 +174,7 @@ func validMobileDiagnosticField(key, value string) bool {
 			return false
 		}
 		for _, part := range parts {
-			if !diagnosticChoice(part, ":id api v1 mobile session bootstrap pairing push call-tests test-call calls active media ws lease answer hangup reject hold resume mute dtmf recording recordings audio segments contacts batch messages threads state read read-all unread-summary events runtime settings system lines devices users account sessions password profile telegram units diagnostics logs health external-access status favorite contact") {
+			if !diagnosticChoice(part, ":id api v1 mobile session bootstrap pairing push call-tests test-call calls prepare preparations commit active media ws lease answer hangup reject hold resume mute dtmf recording recordings audio segments contacts batch messages threads state read read-all unread-summary events runtime settings system lines devices users account sessions password profile telegram units diagnostics logs health external-access status favorite contact") {
 				return false
 			}
 		}

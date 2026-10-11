@@ -711,6 +711,8 @@ export default {
     "detailPlaceholder": "Chi tiết cuộc gọi sẽ xuất hiện ở đây"
   },
   "dialer": {
+    "recordingEnabled": "Đã bật ghi âm cuộc gọi",
+    "recordingDisabled": "Đã tắt ghi âm cuộc gọi",
     "title": "Quay số",
     "line": "Đường dây gọi",
     "lineUnsupported": "Gọi không được hỗ trợ",

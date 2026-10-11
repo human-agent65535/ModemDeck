@@ -36,8 +36,9 @@ type Core struct {
 }
 
 type callLifetime struct {
-	ctx    context.Context
-	cancel context.CancelFunc
+	prepared bool
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 type mediaOwner struct {
@@ -209,12 +210,18 @@ func (c *Core) ReconcileActiveCalls(ctx context.Context, activeCallIDs []string)
 	c.authority = active
 	c.authorityKnown = true
 	stale := make(map[string]struct{})
-	for callID := range c.lifetimes {
+	for callID, lifetime := range c.lifetimes {
+		if lifetime.prepared {
+			continue
+		}
 		if _, exists := active[callID]; !exists {
 			stale[callID] = struct{}{}
 		}
 	}
 	for callID := range c.owners {
+		if lifetime := c.lifetimes[callID]; lifetime != nil && lifetime.prepared {
+			continue
+		}
 		if _, exists := active[callID]; !exists {
 			stale[callID] = struct{}{}
 		}
@@ -491,6 +498,10 @@ func (c *Core) releaseReservation(callID string, owner *mediaOwner) {
 	c.mu.Lock()
 	if c.owners[callID] == owner && owner != nil && owner.session == nil {
 		delete(c.owners, callID)
+		if lifetime := c.lifetimes[callID]; lifetime != nil && lifetime.prepared {
+			lifetime.cancel()
+			delete(c.lifetimes, callID)
+		}
 		owner.cancel()
 		owner.finish()
 	}
@@ -559,11 +570,14 @@ func (c *Core) releaseWhenDone(
 	select {
 	case <-session.events.connected:
 		c.mu.Lock()
+		callID = session.CallID()
 		if c.owners[callID] == owner && owner.session == session {
 			owner.connected = true
 			// Serialize callbacks with owner removal so an old owner's disconnect
 			// can never arrive after a replacement owner's connection.
-			c.notifyOwnerState(callID, true)
+			if lifetime := c.lifetimes[callID]; lifetime != nil && !lifetime.prepared {
+				c.notifyOwnerState(callID, true)
+			}
 		}
 		c.mu.Unlock()
 	case <-session.Done():
@@ -571,6 +585,7 @@ func (c *Core) releaseWhenDone(
 
 	<-session.Done()
 	c.mu.Lock()
+	callID = session.CallID()
 	if c.owners[callID] == owner && owner.session == session {
 		if len(c.finalStats) >= 256 {
 			for id := range c.finalStats {
@@ -579,10 +594,14 @@ func (c *Core) releaseWhenDone(
 			}
 		}
 		c.finalStats[callID] = session.Statistics()
-		if owner.connected {
+		if owner.connected && (c.lifetimes[callID] == nil || !c.lifetimes[callID].prepared) {
 			c.notifyOwnerState(callID, false)
 		}
 		delete(c.owners, callID)
+		if lifetime := c.lifetimes[callID]; lifetime != nil && lifetime.prepared {
+			lifetime.cancel()
+			delete(c.lifetimes, callID)
+		}
 		owner.cancel()
 		owner.finish()
 	}
