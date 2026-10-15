@@ -103,6 +103,43 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 	if err != nil || confirmed {
 		t.Fatalf("second confirmation = %t, %v", confirmed, err)
 	}
+	lastSeen := func() string {
+		t.Helper()
+		var value string
+		if err := repository.database.QueryRowContext(ctx,
+			`SELECT last_seen_at FROM modemdeck_ios_pairing_credentials WHERE token_digest = ?`,
+			digest[:],
+		).Scan(&value); err != nil {
+			t.Fatalf("read last_seen_at: %v", err)
+		}
+		return value
+	}
+	const stale = "2000-01-01 00:00:00"
+	if _, err := repository.database.ExecContext(ctx,
+		`UPDATE modemdeck_ios_pairing_credentials SET last_seen_at = datetime('now', '-10 seconds') WHERE token_digest = ?`,
+		digest[:],
+	); err != nil {
+		t.Fatal(err)
+	}
+	unchanged := lastSeen()
+	if _, err := repository.ConfirmIOSPairingCredential(ctx, digest, device); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastSeen(); got != unchanged {
+		t.Fatalf("unchanged device rewrote last_seen_at within a minute: %q -> %q", unchanged, got)
+	}
+	if _, err := repository.database.ExecContext(ctx,
+		`UPDATE modemdeck_ios_pairing_credentials SET last_seen_at = ? WHERE token_digest = ?`,
+		stale, digest[:],
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ConfirmIOSPairingCredential(ctx, digest, device); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastSeen(); got == stale {
+		t.Fatal("stale last_seen_at was not refreshed")
+	}
 	status, err = repository.IOSPairingStatus(ctx, member.ID)
 	if err != nil ||
 		!status.HasCredential ||

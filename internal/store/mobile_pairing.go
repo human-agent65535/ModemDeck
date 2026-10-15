@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -332,43 +333,96 @@ func (s *Store) IOSPairingPrincipalByTokenDigest(
 	return principal, true, nil
 }
 
+// iosDeviceColumns lists the reported device fields in a fixed order. Every
+// statement below builds its SQL fragment and arguments from this one list.
+var iosDeviceColumns = [...]string{
+	"device_name",
+	"device_model",
+	"device_model_identifier",
+	"os_name",
+	"os_version",
+	"app_version",
+	"app_build",
+}
+
+func iosDeviceValues(device mobilepairing.DeviceInfo) [len(iosDeviceColumns)]string {
+	return [...]string{
+		device.Name,
+		device.Model,
+		device.ModelIdentifier,
+		device.OSName,
+		device.OSVersion,
+		device.AppVersion,
+		device.AppBuild,
+	}
+}
+
+// iosDeviceSQL returns an assignment list that keeps a column when its new
+// value is empty, a predicate that is true when any non-empty value differs,
+// and the arguments for either fragment (each value is bound twice).
+func iosDeviceSQL(device mobilepairing.DeviceInfo) (assignments, changed string, args []any) {
+	values := iosDeviceValues(device)
+	set := make([]string, 0, len(iosDeviceColumns))
+	differs := make([]string, 0, len(iosDeviceColumns))
+	for index, column := range iosDeviceColumns {
+		set = append(set, column+" = CASE WHEN ? <> '' THEN ? ELSE "+column+" END")
+		differs = append(differs, "(? <> '' AND "+column+" IS NOT ?)")
+		args = append(args, values[index], values[index])
+	}
+	return strings.Join(set, ",\n\t\t\t"), strings.Join(differs, "\n\t\t\t\tOR "), args
+}
+
+const iosPairingUserAllowed = `EXISTS (
+				SELECT 1
+				FROM modemdeck_users AS user
+				WHERE user.id = modemdeck_ios_pairing_credentials.user_id
+					AND user.enabled = 1
+					AND user.ios_pairing_enabled = 1
+			)`
+
 func (s *Store) ConfirmIOSPairingCredential(
 	ctx context.Context,
 	digest mobilepairing.TokenDigest,
 	device mobilepairing.DeviceInfo,
 ) (bool, error) {
 	hasDevice := device != (mobilepairing.DeviceInfo{})
+	assignments, changed, deviceArgs := iosDeviceSQL(device)
+	// Every authenticated iOS request lands here. A read decides whether a write
+	// is needed, so steady traffic does not take SQLite's write lock: an active
+	// credential changes only for new device details or a stale last-seen time.
+	var current int
+	err := s.database.QueryRowContext(
+		ctx,
+		`SELECT 1
+		 FROM modemdeck_ios_pairing_credentials
+		 WHERE token_digest = ?
+			AND activated_at IS NOT NULL
+			AND (
+				NOT ?
+				OR (
+					last_seen_at >= datetime('now', '-60 seconds')
+					AND NOT (`+changed+`)
+				)
+			)`,
+		slices.Concat([]any{digest[:], hasDevice}, deviceArgs)...,
+	).Scan(&current)
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("read iOS pairing credential state: %w", err)
+	}
 	result, err := s.database.ExecContext(
 		ctx,
 		`UPDATE modemdeck_ios_pairing_credentials
 		 SET activated_at = CURRENT_TIMESTAMP,
-			device_name = CASE WHEN ? <> '' THEN ? ELSE device_name END,
-			device_model = CASE WHEN ? <> '' THEN ? ELSE device_model END,
-			device_model_identifier = CASE WHEN ? <> '' THEN ? ELSE device_model_identifier END,
-			os_name = CASE WHEN ? <> '' THEN ? ELSE os_name END,
-			os_version = CASE WHEN ? <> '' THEN ? ELSE os_version END,
-			app_version = CASE WHEN ? <> '' THEN ? ELSE app_version END,
-			app_build = CASE WHEN ? <> '' THEN ? ELSE app_build END,
+			`+assignments+`,
 			last_seen_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE last_seen_at END,
 			updated_at = CURRENT_TIMESTAMP
 		 WHERE token_digest = ?
 			AND activated_at IS NULL
-			AND EXISTS (
-				SELECT 1
-				FROM modemdeck_users AS user
-				WHERE user.id = modemdeck_ios_pairing_credentials.user_id
-					AND user.enabled = 1
-					AND user.ios_pairing_enabled = 1
-			)`,
-		device.Name, device.Name,
-		device.Model, device.Model,
-		device.ModelIdentifier, device.ModelIdentifier,
-		device.OSName, device.OSName,
-		device.OSVersion, device.OSVersion,
-		device.AppVersion, device.AppVersion,
-		device.AppBuild, device.AppBuild,
-		hasDevice,
-		digest[:],
+			AND `+iosPairingUserAllowed,
+		slices.Concat(deviceArgs, []any{hasDevice, digest[:]})...,
 	)
 	if err != nil {
 		return false, fmt.Errorf("confirm iOS pairing credential: %w", err)
@@ -386,32 +440,13 @@ func (s *Store) ConfirmIOSPairingCredential(
 	_, err = s.database.ExecContext(
 		ctx,
 		`UPDATE modemdeck_ios_pairing_credentials
-		 SET device_name = CASE WHEN ? <> '' THEN ? ELSE device_name END,
-			device_model = CASE WHEN ? <> '' THEN ? ELSE device_model END,
-			device_model_identifier = CASE WHEN ? <> '' THEN ? ELSE device_model_identifier END,
-			os_name = CASE WHEN ? <> '' THEN ? ELSE os_name END,
-			os_version = CASE WHEN ? <> '' THEN ? ELSE os_version END,
-			app_version = CASE WHEN ? <> '' THEN ? ELSE app_version END,
-			app_build = CASE WHEN ? <> '' THEN ? ELSE app_build END,
+		 SET `+assignments+`,
 			last_seen_at = CURRENT_TIMESTAMP,
 			updated_at = CURRENT_TIMESTAMP
 		 WHERE token_digest = ?
 			AND activated_at IS NOT NULL
-			AND EXISTS (
-				SELECT 1
-				FROM modemdeck_users AS user
-				WHERE user.id = modemdeck_ios_pairing_credentials.user_id
-					AND user.enabled = 1
-					AND user.ios_pairing_enabled = 1
-			)`,
-		device.Name, device.Name,
-		device.Model, device.Model,
-		device.ModelIdentifier, device.ModelIdentifier,
-		device.OSName, device.OSName,
-		device.OSVersion, device.OSVersion,
-		device.AppVersion, device.AppVersion,
-		device.AppBuild, device.AppBuild,
-		digest[:],
+			AND `+iosPairingUserAllowed,
+		slices.Concat(deviceArgs, []any{digest[:]})...,
 	)
 	if err != nil {
 		return false, fmt.Errorf("refresh iOS pairing device: %w", err)
