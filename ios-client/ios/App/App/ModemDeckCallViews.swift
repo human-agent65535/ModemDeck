@@ -33,7 +33,10 @@ private final class ModemDeckDTMFTonePlayer {
     ]
 
     func play(_ digit: String) {
-        guard let pair = frequencies[digit] else { return }
+        // During a call CallKit owns the voice-processing session; a second
+        // engine there can disturb call audio, so keys keep only haptics.
+        guard !ModemDeckCallAudioSession.callAudioActive,
+              let pair = frequencies[digit] else { return }
         let sampleRate = 44_100.0
         let duration = 0.12
         let frameCount = AVAudioFrameCount(sampleRate * duration)
@@ -1696,6 +1699,8 @@ private final class ModemDeckRecordingPlayer: NSObject, ObservableObject, AVAudi
     private let callID: String
     private let segmentID: String
     private var player: AVAudioPlayer?
+    /// True while this player holds the media session it activated.
+    private var ownsPlaybackSession = false
 
     init(api: ModemDeckAPIClient, callID: String, segmentID: String) {
         self.api = api
@@ -1708,9 +1713,10 @@ private final class ModemDeckRecordingPlayer: NSObject, ObservableObject, AVAudi
             if player.isPlaying {
                 player.pause()
                 playing = false
+                deactivatePlaybackSession()
             } else {
-                player.play()
-                playing = true
+                activatePlaybackSession()
+                playing = player.play()
             }
             return
         }
@@ -1724,6 +1730,7 @@ private final class ModemDeckRecordingPlayer: NSObject, ObservableObject, AVAudi
                 player.delegate = self
                 player.prepareToPlay()
                 self.player = player
+                activatePlaybackSession()
                 playing = player.play()
             } catch {
                 ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
@@ -1736,7 +1743,42 @@ private final class ModemDeckRecordingPlayer: NSObject, ObservableObject, AVAudi
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor [weak self] in
             self?.playing = false
+            self?.deactivatePlaybackSession()
         }
+    }
+
+    /// Calls leave the shared session in playAndRecord/voiceChat, which routes
+    /// playback to the receiver; the default category obeys the silent switch.
+    /// Recordings use media playback unless CallKit owns a live call session.
+    private func activatePlaybackSession() {
+        guard !ModemDeckCallAudioSession.callAudioActive else { return }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .spokenAudio)
+            try session.setActive(true)
+            ownsPlaybackSession = true
+        } catch {
+            ModemDeckDiagnostics.shared.record(.audio, "recording_session_failed", error: error)
+        }
+    }
+
+    /// Lets other apps resume after a pause, the end, or leaving the screen.
+    private func deactivatePlaybackSession() {
+        guard ownsPlaybackSession else { return }
+        ownsPlaybackSession = false
+        Self.releasePlaybackSession()
+    }
+
+    deinit {
+        // The detail view went away, possibly mid-playback; the player stops
+        // with this object, so hand the session back as well.
+        player?.stop()
+        if ownsPlaybackSession { Self.releasePlaybackSession() }
+    }
+
+    private nonisolated static func releasePlaybackSession() {
+        guard !ModemDeckCallAudioSession.callAudioActive else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
 

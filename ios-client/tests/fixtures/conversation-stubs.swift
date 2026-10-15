@@ -16,7 +16,7 @@ enum ModemDeckDateText { static func date(_ value: String) -> Date? { ISO8601Dat
  func messagePage(lineID: String, peer: String, cursor: String = "") async throws -> ModemDeckMessagesResponse { cursor.isEmpty ? response : (older ?? response) }
  func cacheMessages(_ messages: [ModemDeckMessage], lineID: String, peer: String) { cache = messages }
  func markThreadRead(lineID: String, peer: String, throughMessageID: Int64) async throws -> Summary { Summary() }
- func sendMessage(lineID: String, to: String, content: String) async throws -> ModemDeckMessage { fatalError() }
+ func sendMessage(lineID: String, to: String, content: String, attempt: String) async throws -> ModemDeckMessage { fatalError() }
 }
 @MainActor final class ModemDeckMessagesStore {
  func apply(_ action: Action, to ids: Set<String>) {}
@@ -54,6 +54,13 @@ enum ModemDeckDateText { static func date(_ value: String) -> Date? { ISO8601Dat
   precondition(draft.text == "message A", "a retyped draft must survive an earlier send")
   draft.clear(ifRevision: draft.revision)
   precondition(draft.text.isEmpty)
+  draft.text = "ok"
+  let firstAttempt = draft.sendAttempt
+  draft.text = "ok"
+  precondition(draft.sendAttempt == firstAttempt, "rewriting the same text must retry the same SMS")
+  draft.text = "ok!"
+  draft.text = "ok"
+  precondition(draft.sendAttempt != firstAttempt, "the same words typed again are a new SMS")
   print("authoritative cache reconciliation and draft revisions passed")
  }
 }

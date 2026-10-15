@@ -215,6 +215,35 @@ test('terminal VoIP pushes close the same CallKit UUID without reviving ended ca
   assert.match(native, /settleProviderCallActions\(for: uuid\)/)
 })
 
+test('every VoIP push that must be reported reaches CallKit', async () => {
+  const native = await source('ios/App/App/ModemDeckNative.swift')
+  const body = name => {
+    const start = native.indexOf(`private func ${name}(`)
+    assert.ok(start >= 0, `${name} is missing`)
+    const end = native.indexOf('\n    private func ', start + 1)
+    return native.slice(start, end)
+  }
+
+  // Until a new incoming call claims its UUID, no path may finish the push
+  // without reporting: PushKit kills the app and later stops VoIP delivery.
+  const incoming = body('reportIncomingCall')
+  const beforeClaim = incoming.slice(0, incoming.indexOf('callIDsByUUID[uuid] = callID'))
+  assert.doesNotMatch(beforeClaim, /\bcompletion\(\)/)
+  assert.equal(beforeClaim.match(/reportUnpresentedPush\(/g)?.length, 2)
+
+  const terminal = body('reportTerminalCall')
+  const beforeReport = terminal.slice(0, terminal.indexOf('guard mustReport else'))
+  assert.doesNotMatch(beforeReport, /\bcompletion\(\)\n\s*return/)
+  assert.match(beforeReport, /satisfyPushReport\(uuid: uuid, call: call, mustReport: mustReport\)/)
+
+  const placeholder = body('reportUnpresentedPush')
+  assert.match(placeholder, /guard mustReport else/)
+  assert.match(placeholder, /configureCallHistory\(enabled: false\)[\s\S]*reportNewIncomingCall\(with: reportUUID/)
+  assert.match(placeholder, /reportCall\(with: reportUUID, endedAt: Date\(\), reason: \.remoteEnded\)/)
+  assert.match(placeholder, /configureCallHistory\(enabled: previousRecents\)/)
+  assert.match(body('satisfyPushReport'), /self\.callIDsByUUID\[uuid\] == nil/)
+})
+
 test('tracked iOS configuration contains no personal signing identity', async () => {
   const [project, sharedConfig, capacitorConfig] = await Promise.all([
     source('ios/App/App.xcodeproj/project.pbxproj'),
@@ -829,11 +858,23 @@ test('native call reconciliation scopes snapshots to the current call stream', a
 })
 
 test('unresolved native writes retain one operation identity across ambiguous responses', async () => {
-  const api = await source('ios/App/App/ModemDeckAPI.swift')
+  const [api, session, communication] = await Promise.all([
+    source('ios/App/App/ModemDeckAPI.swift'),
+    source('ios/App/App/ModemDeckSession.swift'),
+    source('ios/App/App/ModemDeckCommunicationViews.swift')
+  ])
 
-  assert.match(api, /An unresolved operation identity must survive indefinitely/)
-  assert.doesNotMatch(api, /retentionInterval|updatedAt <|addingTimeInterval/)
   assert.match(api, /status == 408 \|\| status == 409 \|\| status == 425/)
+  // The SMS identity belongs to one send of one draft, not to its text: an
+  // unedited retry reuses it, while the same words sent later are a new SMS.
+  assert.match(api, /kind: "send-message",\s*parts: \[lineID, to, content, attempt\]/)
+  assert.match(session, /@Published var text = "" \{\s*didSet \{\s*revision \+= 1[\s\S]*?if text != oldValue \{ sendAttempt = UUID\(\)\.uuidString \}/)
+  assert.match(communication, /let attempt = draft\.sendAttempt[\s\S]*store\.send\(value, attempt: attempt\)/)
+  assert.equal(
+    communication.match(/\.onChange\(of: content\) \{ _ in sendAttempt = UUID\(\)\.uuidString \}/g)?.length,
+    2
+  )
+  assert.equal(communication.match(/sendMessage\([^)]*attempt: attempt\)/g)?.length, 2)
 })
 
 test('native contacts support full editing and destructive selection actions', async () => {

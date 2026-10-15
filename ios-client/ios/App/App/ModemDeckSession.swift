@@ -1322,8 +1322,17 @@ final class ModemDeckContactsStore: ObservableObject {
 
 @MainActor
 final class ModemDeckMessageDraft: ObservableObject {
-    @Published var text = "" { didSet { revision += 1 } }
+    @Published var text = "" {
+        didSet {
+            revision += 1
+            // Bindings can rewrite the same text; only a real edit is a new SMS.
+            if text != oldValue { sendAttempt = UUID().uuidString }
+        }
+    }
     private(set) var revision = 0
+    /// Stays the same until the text changes, so resending an unedited draft
+    /// retries the same SMS instead of sending another one.
+    private(set) var sendAttempt = UUID().uuidString
 
     func clear(ifRevision expected: Int) {
         if revision == expected { text = "" }
@@ -1628,7 +1637,7 @@ final class ModemDeckConversationStore: ObservableObject {
         }
     }
 
-    func send(_ content: String) async -> Bool {
+    func send(_ content: String, attempt: String) async -> Bool {
         let normalized = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, !sending else { return false }
         sending = true
@@ -1637,7 +1646,8 @@ final class ModemDeckConversationStore: ObservableObject {
             let message = try await api.sendMessage(
                 lineID: thread.lineId,
                 to: thread.peer,
-                content: normalized
+                content: normalized,
+                attempt: attempt
             )
             revision += 1
             messages.append(message)

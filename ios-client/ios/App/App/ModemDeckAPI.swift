@@ -771,6 +771,7 @@ private final class ModemDeckOperationJournal {
 
     private let defaults: UserDefaults
     private let storageKey = "modemdeck.pending-operation-identities.v1"
+    private static let retention: TimeInterval = 7 * 24 * 60 * 60
     private let lock = NSLock()
 
     init(defaults: UserDefaults = .standard) {
@@ -782,9 +783,10 @@ private final class ModemDeckOperationJournal {
         let now = Date().timeIntervalSince1970
         lock.lock()
         defer { lock.unlock() }
-        // An unresolved operation identity must survive indefinitely. Expiring it
-        // can turn an ambiguous timeout into a second SMS or modem call later.
-        var entries = load()
+        // Identities include a per-draft send attempt, so an unresolved entry
+        // is only reused while that draft can still be resent. Drafts live in
+        // memory; entries older than a week can never be matched again.
+        var entries = load().filter { now - $0.value.updatedAt < Self.retention }
         if let existing = entries[fingerprint] {
             entries[fingerprint] = Entry(requestID: existing.requestID, updatedAt: now)
             save(entries)
@@ -978,7 +980,10 @@ final class ModemDeckAPIClient {
         offlineCache.write(messages, key: messageCacheKey(lineID: lineID, peer: peer))
     }
 
-    func sendMessage(lineID: String, to: String, content: String) async throws -> ModemDeckMessage {
+    /// `attempt` identifies one send from one draft. Tapping send again on the
+    /// same unedited draft reuses it, so an ambiguous timeout is retried without
+    /// a second SMS; an edited draft or a later message gets a new identity.
+    func sendMessage(lineID: String, to: String, content: String, attempt: String) async throws -> ModemDeckMessage {
         struct Payload: Encodable {
             let requestId: String
             let lineId: String
@@ -987,7 +992,7 @@ final class ModemDeckAPIClient {
         }
         let operation = try operationIdentity(
             kind: "send-message",
-            parts: [lineID, to, content]
+            parts: [lineID, to, content, attempt]
         )
         let payload = Payload(
             requestId: operation.requestID,
@@ -1657,7 +1662,7 @@ final class ModemDeckAPIClient {
             let serverError = try? decoder.decode(ModemDeckServerError.self, from: payload)
             let message = serverError?.message?.trimmingCharacters(in: .whitespacesAndNewlines)
             if response.statusCode == 401, !pairingVerification {
-                DispatchQueue.main.async {
+                await MainActor.run {
                     guard self.isCurrentCredential(credential) else { return }
                     NotificationCenter.default.post(
                         name: .modemDeckAuthenticationFailed,

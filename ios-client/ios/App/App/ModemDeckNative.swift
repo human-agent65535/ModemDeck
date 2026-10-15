@@ -1341,11 +1341,12 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             )
             return
         }
-        reportIncomingCall(from: call, completion: completion)
+        reportIncomingCall(from: call, mustReport: mustReport, completion: completion)
     }
 
     private func reportIncomingCall(
         from call: [AnyHashable: Any],
+        mustReport: Bool,
         completion: @escaping () -> Void
     ) {
         ModemDeckDiagnostics.shared.record(.push, "voip_incoming_received", callID: stringValue(call["call_id"]))
@@ -1354,7 +1355,12 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
               let uuidText = stringValue(call["uuid"]),
               let uuid = UUID(uuidString: uuidText) else {
             ModemDeckDiagnostics.shared.record(.push, "invalid_incoming_identity")
-            completion()
+            reportUnpresentedPush(
+                uuid: stringValue(call["uuid"]).flatMap(UUID.init(uuidString:)),
+                call: call,
+                mustReport: mustReport,
+                completion: completion
+            )
             return
         }
 
@@ -1377,12 +1383,10 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         update.supportsUngrouping = false
         update.supportsDTMF = !isTestCall
 
-        if endedCallUUIDs.contains(uuid) {
-            completion()
-            return
-        }
-        if callIDsByUUID[uuid] != nil {
-            completion()
+        // A late push for an ended call, or a duplicate for one already shown,
+        // starts nothing new but must still be reported to CallKit.
+        if endedCallUUIDs.contains(uuid) || callIDsByUUID[uuid] != nil {
+            reportUnpresentedPush(uuid: uuid, call: call, mustReport: mustReport, completion: completion)
             return
         }
 
@@ -1455,21 +1459,25 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         guard let uuidText = stringValue(call["uuid"]),
               let uuid = UUID(uuidString: uuidText) else {
             ModemDeckDiagnostics.shared.record(.push, "invalid_terminal_identity")
-            completion()
+            reportUnpresentedPush(uuid: nil, call: call, mustReport: mustReport, completion: completion)
             return
         }
         let callExists = callIDsByUUID[uuid] != nil ||
             callController.callObserver.calls.contains(where: { $0.uuid == uuid })
         if endedCallUUIDs.contains(uuid) && !callExists {
-            completion()
+            reportUnpresentedPush(uuid: uuid, call: call, mustReport: mustReport, completion: completion)
             return
         }
 
         let reason = callEndedReason(from: call, uuid: uuid)
         if callExists {
-            reportCallEnded(with: uuid, endedAt: Date(), reason: reason)
-            cleanupCall(uuid)
-            completion()
+            // CallKit rejects the duplicate report for a live UUID; making it
+            // still satisfies PushKit before the call is ended normally.
+            satisfyPushReport(uuid: uuid, call: call, mustReport: mustReport) {
+                self.reportCallEnded(with: uuid, endedAt: Date(), reason: reason)
+                self.cleanupCall(uuid)
+                completion()
+            }
             return
         }
 
@@ -1495,6 +1503,69 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                         endedAt: Date(),
                         reason: reason
                     )
+                }
+                completion()
+            }
+        }
+    }
+
+    /// PushKit terminates apps that finish a VoIP push without reporting a call,
+    /// and repeated misses stop VoIP delivery. For a push that presents no new
+    /// call, report a placeholder outside Recents and end it at once. A UUID
+    /// CallKit already shows is re-reported instead, which CallKit rejects.
+    private func reportUnpresentedPush(
+        uuid: UUID?,
+        call: [AnyHashable: Any],
+        mustReport: Bool,
+        completion: @escaping () -> Void
+    ) {
+        guard mustReport else {
+            completion()
+            return
+        }
+        if let uuid, callIDsByUUID[uuid] != nil ||
+            callController.callObserver.calls.contains(where: { $0.uuid == uuid }) {
+            satisfyPushReport(uuid: uuid, call: call, mustReport: true, completion: completion)
+            return
+        }
+        // A fresh UUID keeps the placeholder apart from the ended call's state.
+        let reportUUID = UUID()
+        let previousRecents = callProvider.configuration.includesCallsInRecents
+        configureCallHistory(enabled: false)
+        callProvider.reportNewIncomingCall(with: reportUUID, update: callUpdate(from: call)) { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self else {
+                    completion()
+                    return
+                }
+                if error == nil {
+                    self.callProvider.reportCall(with: reportUUID, endedAt: Date(), reason: .remoteEnded)
+                }
+                self.configureCallHistory(enabled: previousRecents)
+                ModemDeckDiagnostics.shared.record(.push, "voip_placeholder_reported")
+                completion()
+            }
+        }
+    }
+
+    /// Reports a UUID CallKit already shows. CallKit answers with
+    /// callUUIDAlreadyExists and keeps the call; the report satisfies PushKit.
+    private func satisfyPushReport(
+        uuid: UUID,
+        call: [AnyHashable: Any],
+        mustReport: Bool,
+        completion: @escaping () -> Void
+    ) {
+        guard mustReport else {
+            completion()
+            return
+        }
+        callProvider.reportNewIncomingCall(with: uuid, update: callUpdate(from: call)) { [weak self] error in
+            DispatchQueue.main.async {
+                // If the original report already failed and was cleaned up,
+                // this report created an untracked call: end it at once.
+                if error == nil, let self, self.callIDsByUUID[uuid] == nil {
+                    self.callProvider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
                 }
                 completion()
             }

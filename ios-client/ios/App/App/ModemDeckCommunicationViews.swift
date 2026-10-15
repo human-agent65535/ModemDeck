@@ -1363,6 +1363,7 @@ struct ModemDeckDirectMessageView: View {
     @Environment(\.presentationMode) private var presentationMode
 
     @State private var content = ""
+    @State private var sendAttempt = UUID().uuidString
     @State private var sending = false
     @State private var errorMessage = ""
 
@@ -1403,6 +1404,8 @@ struct ModemDeckDirectMessageView: View {
         .background(Color.mdBackground)
         .navigationBarHidden(true)
         .modemDeckInteractiveBack()
+        // An edited draft is a new message; an unedited one is a retry.
+        .onChange(of: content) { _ in sendAttempt = UUID().uuidString }
     }
 
     private var composer: some View {
@@ -1436,10 +1439,11 @@ struct ModemDeckDirectMessageView: View {
         guard controller.isOnline, let line = defaultLine else { return }
         let message = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
+        let attempt = sendAttempt
         sending = true
         Task {
             do {
-                _ = try await controller.api.sendMessage(lineID: line.id, to: number, content: message)
+                _ = try await controller.api.sendMessage(lineID: line.id, to: number, content: message, attempt: attempt)
                 Task { await controller.messagesStore.load() }
                 content = ""
                 errorMessage = ""
@@ -1459,6 +1463,7 @@ struct ModemDeckNewMessageView: View {
     @State private var selectedLineID = ""
     @State private var recipient = ""
     @State private var content = ""
+    @State private var sendAttempt = UUID().uuidString
     @State private var sending = false
     @State private var errorMessage = ""
 
@@ -1567,6 +1572,8 @@ struct ModemDeckNewMessageView: View {
         }
         .onAppear { chooseLine() }
         .onChange(of: lines.map(\.id)) { _ in chooseLine() }
+        // An edited draft is a new message; an unedited one is a retry.
+        .onChange(of: content) { _ in sendAttempt = UUID().uuidString }
         .interactiveDismissDisabled(sending)
     }
 
@@ -1603,11 +1610,12 @@ struct ModemDeckNewMessageView: View {
         guard controller.isOnline, let line = selectedLine, valid, !sending else { return }
         let number = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
         let message = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attempt = sendAttempt
         sending = true
         errorMessage = ""
         Task {
             do {
-                _ = try await controller.api.sendMessage(lineID: line.id, to: number, content: message)
+                _ = try await controller.api.sendMessage(lineID: line.id, to: number, content: message, attempt: attempt)
                 Task { await controller.messagesStore.load() }
                 onSent()
                 presentationMode.wrappedValue.dismiss()
@@ -2441,8 +2449,9 @@ struct ModemDeckConversationView: View {
                     Button {
                         let value = draft.text
                         let revision = draft.revision
+                        let attempt = draft.sendAttempt
                         Task {
-                            if await store.send(value) {
+                            if await store.send(value, attempt: attempt) {
                                 draft.clear(ifRevision: revision)
                                 scrollToBottomRequest += 1
                             }

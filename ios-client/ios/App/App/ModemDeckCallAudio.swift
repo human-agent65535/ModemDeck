@@ -180,6 +180,9 @@ final class ModemDeckCallAudioSession: NSObject {
     typealias ConnectionCompletion = (Result<Void, Error>) -> Void
     static let activationChanged = Notification.Name("ModemDeckCallAudioActivation")
     private static var audioActivated = false
+    /// True while CallKit has activated the voice session. Other playback must
+    /// not change the shared session category then. Read on the main queue.
+    static var callAudioActive: Bool { audioActivated }
     private(set) var callID: String
     var onRemoteEnded: (() -> Void)?
     var onFailed: ((Error) -> Void)?
