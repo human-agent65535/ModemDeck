@@ -182,6 +182,8 @@ deployment-check:
 	./deploy/tests/run.sh
 
 web-install:
+	# Docker needs the nested volume mountpoint before the source becomes read-only.
+	mkdir -p "$(CURDIR)/web/node_modules"
 	$(WEB_NODE_RO) npm ci --include=dev --no-audit --no-fund
 
 web-test: web-install

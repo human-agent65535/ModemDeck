@@ -51,6 +51,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
           INCLUDE_HARDWARE: ${{ inputs.include_hardware }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -77,9 +78,14 @@ jobs:
           namespace="$(printf '%s' "${REPOSITORY_OWNER}" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
           build_date="$(git show -s --format=%cI "${vcs_ref}")"
           previous_tag=""
+          # A pushed tag can have failed checks and no published images. Only
+          # completed stable releases can supply images for the retain path.
+          published_tags="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')"
           if git rev-parse --verify "${vcs_ref}^" >/dev/null 2>&1; then
             while IFS= read -r candidate; do
-              if [[ "${candidate}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              if [[ "${candidate}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] &&
+                grep -Fxq -- "${candidate}" <<<"${published_tags}"; then
                 previous_tag="${candidate}"
                 break
               fi
