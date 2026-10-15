@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -588,6 +589,7 @@ func TestCommandRejectsConflictingRequestIdentities(t *testing.T) {
 	api, err := New(&fakeRepository{}, Options{
 		Communications:        communications,
 		CallLeases:            &fakeCallLeases{},
+		CallMedia:             &httpSocketMedia{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -595,7 +597,7 @@ func TestCommandRejectsConflictingRequestIdentities(t *testing.T) {
 	}
 	request := httptest.NewRequest(
 		http.MethodPost,
-		"/api/v1/calls",
+		"/api/v1/calls/prepare",
 		bytes.NewBufferString(`{"request_id":"body-id","line_id":"line-1","number":"+818012345678"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
@@ -827,263 +829,34 @@ func TestSecondBrowserCannotAnswerClaimedIncomingCall(t *testing.T) {
 	}
 }
 
-func TestStartCallClaimsTheDialingBrowser(t *testing.T) {
-	t.Parallel()
-
-	leases := &fakeCallLeases{}
-	communications := &fakeCommunications{call: store.Call{
-		ID:           "call-app-1",
-		LineID:       "line-stable",
-		Direction:    "outgoing",
-		RemoteNumber: "+818012345678",
-		Phase:        "dialing",
-	}}
-	communications.onStart = func() {
-		if leases.reserves != 1 || leases.activations != 0 {
-			t.Fatalf("lease state before modem start = %+v", leases)
-		}
-	}
-	api, err := New(&fakeRepository{}, Options{
-		Communications:        communications,
-		CallLeases:            leases,
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/calls",
-		bytes.NewBufferString(
-			`{"request_id":"request-call-1","line_id":"line-stable","number":"+818012345678"}`,
-		),
-	)
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-
-	api.ServeHTTP(response, request)
-
-	if response.Code != http.StatusCreated {
-		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
-	}
-	if leases.reserves != 1 ||
-		leases.activations != 1 ||
-		leases.releases != 0 ||
-		leases.reservationID != "request-call-1" ||
-		leases.lineID != "line-stable" ||
-		leases.callID != "call-app-1" ||
-		leases.holderID != developmentCallLeaseHolderID {
-		t.Fatalf("outgoing lease = %+v", leases)
-	}
-	if communications.startInput.RequestScope != developmentCallLeaseHolderID {
-		t.Fatalf("start request scope = %q", communications.startInput.RequestScope)
-	}
-	var body callSessionEnvelope
-	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Call.ControlState != string(calllease.ControlOwned) {
-		t.Fatalf("control state = %q", body.Call.ControlState)
-	}
-}
-
-func TestCompletedStartCallReplayBypassesEphemeralReservation(t *testing.T) {
-	t.Parallel()
-
-	communications := &fakeCommunications{
-		call: store.Call{
-			ID:           "call-app-replayed",
-			LineID:       "line-stable",
-			Direction:    "outgoing",
-			RemoteNumber: "+818012345678",
-			Phase:        "active",
-		},
-		startReplay: true,
-	}
-	leases := &fakeCallLeases{control: calllease.ControlOwned}
-	api, err := New(&fakeRepository{}, Options{
-		Communications:        communications,
-		CallLeases:            leases,
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/calls",
-		bytes.NewBufferString(
-			`{"request_id":"request-call-replayed","line_id":"line-stable","number":"+818012345678"}`,
-		),
-	)
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-
-	api.ServeHTTP(response, request)
-
-	if response.Code != http.StatusCreated {
-		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
-	}
-	if communications.startCalls != 0 || leases.reserves != 0 || leases.activations != 0 {
-		t.Fatalf("durable replay reached mutation path: communications=%+v leases=%+v", communications, leases)
-	}
-	if communications.replayStartInput.RequestScope != developmentCallLeaseHolderID ||
-		communications.replayStartInput.RequestID != "request-call-replayed" {
-		t.Fatalf("replay input = %+v", communications.replayStartInput)
-	}
-	if leases.reads != 1 || leases.callID != "call-app-replayed" {
-		t.Fatalf("replayed control projection = %+v", leases)
-	}
-}
-
-func TestConcurrentStartRetryDoesNotDispatchOrReleaseOriginalReservation(t *testing.T) {
-	t.Parallel()
-
-	leases := &fakeCallLeases{reserveReplay: true}
-	communications := &fakeCommunications{}
-	api, err := New(&fakeRepository{}, Options{
-		Communications:        communications,
-		CallLeases:            leases,
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/calls",
-		bytes.NewBufferString(
-			`{"request_id":"request-call-1","line_id":"line-stable","number":"+818012345678"}`,
-		),
-	)
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-
-	api.ServeHTTP(response, request)
-
-	assertAPIError(t, response, http.StatusConflict, "call_request_in_progress")
-	if leases.reserves != 1 || leases.releases != 0 {
-		t.Fatalf("outgoing lease = %+v", leases)
-	}
-	if communications.startCalls != 0 {
-		t.Fatalf("concurrent retry dispatched %d call commands", communications.startCalls)
-	}
-}
-
-func TestIndeterminateStartCallRetainsReservationForSnapshotResolution(t *testing.T) {
-	t.Parallel()
-	communications := &fakeCommunications{
-		startError: errors.Join(
-			communication.ErrStartCallOutcomeIndeterminate,
-			communication.ErrUnavailable,
-		),
-	}
-	leases := &fakeCallLeases{}
-	api, err := New(&fakeRepository{}, Options{
-		Communications:        communications,
-		CallLeases:            leases,
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/calls",
-		bytes.NewBufferString(
-			`{"request_id":"request-indeterminate","line_id":"line-1","number":"+818012345678"}`,
-		),
-	)
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	api.ServeHTTP(response, request)
-
-	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
-	}
-	if leases.awaits != 1 || leases.releases != 0 {
-		t.Fatalf("reservation operations = await %d, release %d", leases.awaits, leases.releases)
-	}
-}
-
-func TestStartCallClaimFailureEndsOnlyCreatedCall(t *testing.T) {
-	t.Parallel()
-
-	communications := &fakeCommunications{call: store.Call{
-		ID:        "call-app-2",
-		LineID:    "line-stable-2",
-		Direction: "outgoing",
-		Phase:     "dialing",
-	}}
-	leases := &fakeCallLeases{activateErr: calllease.ErrCallNotActive}
-	api, err := New(&fakeRepository{}, Options{
-		Communications:        communications,
-		CallLeases:            leases,
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/calls",
-		bytes.NewBufferString(
-			`{"request_id":"request-call-2","line_id":"line-stable-2","number":"+818012345678"}`,
-		),
-	)
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-
-	api.ServeHTTP(response, request)
-
-	if response.Code != http.StatusConflict {
-		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
-	}
-	if communications.endCallID != "call-app-2" {
-		t.Fatalf("ended call = %q, want call-app-2", communications.endCallID)
-	}
-	if leases.releases != 1 {
-		t.Fatalf("reservation releases = %d, want 1", leases.releases)
-	}
-}
-
-func TestBrowserCannotStartASecondOwnedCall(t *testing.T) {
-	t.Parallel()
-
-	communications := &fakeCommunications{call: store.Call{
-		ID:        "call-app-3",
-		LineID:    "line-stable-3",
-		Direction: "outgoing",
-		Phase:     "dialing",
-	}}
-	leases := &fakeCallLeases{reserveErr: calllease.ErrHolderBusy}
-	api, err := New(&fakeRepository{}, Options{
-		Communications:        communications,
-		CallLeases:            leases,
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/calls",
-		bytes.NewBufferString(
-			`{"request_id":"request-call-3","line_id":"line-stable-3","number":"+818012345678"}`,
-		),
-	)
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-
-	api.ServeHTTP(response, request)
-
-	assertAPIError(t, response, http.StatusConflict, "browser_call_busy")
-	if communications.startInput.LineID != "" || communications.endCallID != "" {
-		t.Fatalf(
-			"busy browser reached modem control: start %+v, end %q",
-			communications.startInput,
-			communications.endCallID,
-		)
+func TestLegacyDirectOutgoingCallRequiresPreparedMedia(t *testing.T) {
+	for _, scenario := range []string{"fresh", "durable replay", "concurrent retry", "dial failure", "ownership failure", "holder busy"} {
+		t.Run(scenario, func(t *testing.T) {
+			communications := &fakeCommunications{startReplay: scenario == "durable replay"}
+			leases := &fakeCallLeases{}
+			switch scenario {
+			case "concurrent retry":
+				leases.reserveReplay = true
+			case "dial failure":
+				communications.startError = communication.ErrUnavailable
+			case "ownership failure":
+				leases.activateErr = calllease.ErrCallNotActive
+			case "holder busy":
+				leases.reserveErr = calllease.ErrHolderBusy
+			}
+			api, err := New(&fakeRepository{}, Options{Communications: communications, CallLeases: leases, disableAuthentication: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/calls", strings.NewReader(`{"request_id":"legacy","line_id":"line","number":"+81000000001"}`))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			api.ServeHTTP(response, request)
+			assertAPIError(t, response, http.StatusConflict, "outgoing_media_required")
+			if communications.startCalls != 0 || leases.reserves != 0 || leases.activations != 0 {
+				t.Fatal("legacy path bypassed media", communications.startCalls)
+			}
+		})
 	}
 }
 
@@ -1295,7 +1068,7 @@ func TestCommunicationErrorsHaveStableHTTPMapping(t *testing.T) {
 			)
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
-			api.ServeHTTP(response, request)
+			api.writeCommunicationError(response, request, "start call", test.err)
 			assertAPIError(t, response, test.wantStatus, test.wantCode)
 			if test.wantCode == "internal_error" &&
 				bytes.Contains(response.Body.Bytes(), []byte("secret dependency failure")) {

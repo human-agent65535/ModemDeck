@@ -73,27 +73,13 @@ test('pre-call delete stays in the number field and the call action owns a foote
   assert.doesNotMatch(dialer, /class="dialer-actions"/)
 })
 
-test('per-call recording is a footer action and does not crowd the search area', async () => {
+test('recording is a default status note, and native call actions remain accessible', async () => {
   const dialer = await source('../src/components/DialerPanel.vue')
   const call = await source('../src/components/CallSurface.vue')
-
-  assert.match(
-    dialer,
-    /class="dialer-primary-actions keypad-action-grid"[\s\S]*class="dialer-recording-action keypad-action-item"[\s\S]*class="dialer-primary-action keypad-action-item"/
-  )
-  assert.match(dialer, /:aria-pressed="dialerRecordingState\.enabled"/)
-  assert.doesNotMatch(dialer, /<label class="dialer-recording">/)
-  assert.doesNotMatch(dialer, /dialer-recording-action__state/)
-  assert.doesNotMatch(call, /call-footer-action__state|recording-choice|is-changing/)
-  assert.match(call, /:aria-pressed="callRecordingState\.enabled"/)
-  assert.match(
-    dialer,
-    /\.dialer-recording-action:not\(\.is-active\):hover:not\(:disabled\)/
-  )
-  assert.match(
-    call,
-    /\.call-footer-action:not\(\.is-active\):hover:not\(:disabled\)/
-  )
+  assert.match(dialer, /class="dialer-recording-note"/)
+  assert.doesNotMatch(dialer, /dialer-recording-action|changeRecording/)
+  assert.match(call, /v-if="recordingAdjustable"[\s\S]*@click="toggleRecording"/)
+  assert.match(call, /<template v-if="incoming">[\s\S]*call-primary-action--start[\s\S]*@click="rejectCall"[\s\S]*call-primary-action--end[\s\S]*@click="answerCall"/)
 })
 
 test('dial and in-call keypads share a bottom-aligned interaction stage', async () => {
@@ -122,11 +108,11 @@ test('dial and in-call keypads share a bottom-aligned interaction stage', async 
   )
   assert.match(
     dialer,
-    /class="dialer-primary-actions keypad-action-grid"[\s\S]*class="dialer-recording-action keypad-action-item"[\s\S]*class="dialer-primary-action keypad-action-item"/
+    /class="dialer-primary-actions keypad-action-grid"[\s\S]*class="dialer-primary-action keypad-action-item"/
   )
   assert.match(
     call,
-    /class="call-surface__primary-actions keypad-action-grid"[\s\S]*class="call-footer-action call-footer-action--recording keypad-action-item"[\s\S]*class="call-primary-action call-primary-action--center keypad-action-item"[\s\S]*class="call-footer-action call-footer-action--keypad keypad-action-item"/
+    /class="call-surface__primary-actions keypad-action-grid"[\s\S]*class="call-primary-action call-primary-action--center keypad-action-item"[\s\S]*class="call-footer-action call-footer-action--keypad keypad-action-item"/
   )
   assert.doesNotMatch(
     dialer,

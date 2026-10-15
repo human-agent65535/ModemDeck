@@ -1,0 +1,3 @@
+# Preserve exact compiler output and verbatim upstream license aggregation.
+web/src/state/audioCore.mjs whitespace=-blank-at-eol
+third_party/audio/LICENSES.txt whitespace=-blank-at-eof

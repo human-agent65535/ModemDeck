@@ -349,9 +349,6 @@ func (runtime *DockerRuntime) composeUp(
 	}
 	if values["MODEMDECK_CLOUDFLARE_ENABLED"] == "true" {
 		arguments = append(arguments, "-f", filepath.Join(runtime.deploymentDir, "docker-compose.cloudflare.yml"))
-		if values["MODEMDECK_CLOUDFLARE_TURN_KEY_ID"] != "" {
-			arguments = append(arguments, "-f", filepath.Join(runtime.deploymentDir, "docker-compose.cloudflare-turn.yml"))
-		}
 	}
 	arguments = append(
 		arguments,

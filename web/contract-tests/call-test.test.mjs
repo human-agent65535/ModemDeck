@@ -203,7 +203,7 @@ test('empty real-call snapshots preserve diagnostics and stale diagnostic cleanu
     ['syncCallMedia', 'shutdownCallMedia', 'stopCallTestMedia'].includes(statement.name?.text))
     .map(statement => statement.getText(ast).replace(/^export /, '')).join('\n')
   const state = { callID: '', status: 'idle' }
-  const context = vm.createContext({ mediaTarget: 'calls', attemptedCallID: '', fixtureCallMediaPreview: true,
+  const context = vm.createContext({ preparationMedia: undefined, mediaTarget: 'calls', attemptedCallID: '', fixtureCallMediaPreview: true,
     callMediaState: state, setIdle: () => { state.callID = ''; state.status = 'idle' } })
   vm.runInContext(ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context)
   context.syncCallMedia({ id: 'test-a', phase: 'active', media_available: true }, 'call-tests')

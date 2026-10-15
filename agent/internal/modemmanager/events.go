@@ -157,6 +157,7 @@ func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) 
 				if signal == nil {
 					continue
 				}
+				p.logCallSignal(signal)
 				if systemBusSignalRequiresRadioReconcile(signal) {
 					p.publishRadioLifecycle()
 				}

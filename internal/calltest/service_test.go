@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
-	"net"
 	"sync"
 	"testing"
 	"time"
@@ -13,21 +12,11 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
-	"github.com/pion/turn/v5"
-	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 type localPush chan string
 
 func (p localPush) SendAudioTestCall(_ context.Context, _, _, id string) error { p <- id; return nil }
-
-type localRTC struct{ server rtcconfig.ICEServer }
-
-func (r localRTC) Generate(context.Context) (rtcconfig.Configuration, error) {
-	return rtcconfig.Configuration{ICEServers: []rtcconfig.ICEServer{r.server}}, nil
-}
 
 func receive[T any](t *testing.T, values <-chan T) T {
 	t.Helper()
@@ -42,29 +31,11 @@ func receive[T any](t *testing.T, values <-chan T) T {
 }
 
 // This covers the actual scheduled call -> answer -> authoritative registration
-// -> relay-only SDP/ICE -> production Opus/PCM -> playback -> hangup path. Its
-// TURN server and push sender are local; it cannot contact a paired device.
-func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
-	connection, err := net.ListenPacket("udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	relay, err := turn.NewServer(turn.ServerConfig{
-		Realm: "local-test",
-		AuthHandler: func(attributes *turn.RequestAttributes) (string, []byte, bool) {
-			return attributes.Username, turn.GenerateAuthKey("test", "local-test", "test-password"), attributes.Username == "test"
-		},
-		PacketConnConfigs: []turn.PacketConnConfig{{PacketConn: connection,
-			RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{RelayAddress: net.ParseIP("127.0.0.1"), Address: "127.0.0.1"}}},
-	})
-	if err != nil {
-		_ = connection.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = relay.Close() })
-	provider := localRTC{server: rtcconfig.ICEServer{URLs: []string{"turn:" + connection.LocalAddr().String() + "?transport=udp"}, Username: "test", Credential: "test-password"}}
+// -> authenticated WSS owner -> production Opus/PCM -> playback -> hangup path.
+// The in-memory transport and push sender cannot contact a paired device.
+func TestCallTestUsesProductionWSSRuntimeForAudioAndOwnership(t *testing.T) {
 	push := make(localPush, 1)
-	service := New(push, provider, nil)
+	service := New(push, nil)
 	t.Cleanup(service.Close)
 	status, err := service.Start("user", "device")
 	if err != nil {
@@ -88,33 +59,6 @@ func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
 	if err != nil || len(projection.Calls) != 1 || projection.Calls[0].ControlState != calllease.ControlOwned {
 		t.Fatalf("answered projection = %+v, %v", projection, err)
 	}
-	configuration, err := service.Configuration(context.Background(), status.ID, owner)
-	if err != nil || !configuration.RelayOnly {
-		t.Fatalf("relay configuration = %+v, %v", configuration, err)
-	}
-
-	peer, err := webrtc.NewPeerConnection(webrtc.Configuration{ICETransportPolicy: webrtc.ICETransportPolicyRelay,
-		ICEServers: []webrtc.ICEServer{{URLs: provider.server.URLs, Username: provider.server.Username, Credential: provider.server.Credential}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = peer.Close() })
-	track, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "audio", "local-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sender, err := peer.AddTrack(track)
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		buffer := make([]byte, 1500)
-		for {
-			if _, _, err := sender.Read(buffer); err != nil {
-				return
-			}
-		}
-	}()
 	factory, err := callmedia.NewProductionOpusFactory()
 	if err != nil {
 		t.Fatal(err)
@@ -126,17 +70,27 @@ func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
 	}
 	var workers sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(func() { cancel(); _ = peer.Close(); workers.Wait(); _ = codec.Close() })
+	t.Cleanup(func() { cancel(); workers.Wait(); _ = codec.Close() })
 	tone, playback := make(chan struct{}, 1), make(chan struct{}, 1)
-	peer.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		workers.Add(1)
+	socket := newLocalSocket()
+	if _, err := service.OpenSocket(ctx, status.ID, owner, "media-owner", socket); err != nil {
+		t.Fatal(err)
+	}
+	workers.Add(1)
+	go func() {
 		defer workers.Done()
 		for {
-			packet, _, err := remote.ReadRTP()
+			var frame []byte
+			select {
+			case frame = <-socket.outbound:
+			case <-ctx.Done():
+				return
+			}
+			_, _, payload, err := callmedia.ParseSocketFrame(frame)
 			if err != nil {
 				return
 			}
-			audio, err := codec.Decode(packet.Payload)
+			audio, err := codec.Decode(payload)
 			if err != nil {
 				return
 			}
@@ -154,24 +108,7 @@ func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
 				}
 			}
 		}
-	})
-	offer, err := peer.CreateOffer(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gathered := webrtc.GatheringCompletePromise(peer)
-	if err := peer.SetLocalDescription(offer); err != nil {
-		t.Fatal(err)
-	}
-	receive(t, gathered)
-	offerSDP := peer.LocalDescription().SDP
-	answer, err := service.Exchange(ctx, status.ID, owner, "media-owner", offerSDP)
-	if err != nil {
-		t.Fatalf("answered call cannot negotiate audio: %v", err)
-	}
-	if err := peer.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: answer}); err != nil {
-		t.Fatal(err)
-	}
+	}()
 	workers.Add(1)
 	go func() {
 		defer workers.Done()
@@ -191,13 +128,15 @@ func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
 			if err != nil {
 				return
 			}
-			if err := track.WriteSample(media.Sample{Data: encoded, Duration: format.FrameDuration}); err != nil {
+			select {
+			case socket.inbound <- callmedia.SocketFrame(uint32(frame), uint32(frame*320), encoded):
+			case <-ctx.Done():
 				return
 			}
 		}
 	}()
 	receive(t, tone)
-	if _, err := service.Exchange(ctx, status.ID, owner, "second-media-owner", offerSDP); !errors.Is(err, mediaapp.ErrConflict) {
+	if _, err := service.OpenSocket(ctx, status.ID, owner, "second-media-owner", newLocalSocket()); !errors.Is(err, mediaapp.ErrConflict) {
 		t.Fatalf("second media owner = %v", err)
 	}
 	if err := service.Release(ctx, status.ID, owner, "wrong-media-owner"); !errors.Is(err, mediaapp.ErrConflict) {
@@ -220,8 +159,8 @@ func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
 	if err != nil || len(projection.Calls) != 0 {
 		t.Fatalf("ended projection = %+v, %v", projection, err)
 	}
-	if _, err := service.Exchange(ctx, status.ID, owner, "late-owner", offerSDP); !errors.Is(err, calllease.ErrCallNotActive) {
-		t.Fatalf("late negotiation = %v", err)
+	if _, err := service.OpenSocket(ctx, status.ID, owner, "late-owner", newLocalSocket()); !errors.Is(err, calllease.ErrCallNotActive) {
+		t.Fatalf("late media attach = %v", err)
 	}
 	entry.audio.mu.Lock()
 	cleared := entry.audio.closed && len(entry.audio.clip) == 0
@@ -241,3 +180,37 @@ func spectralPower(pcm []byte, frequency float64) float64 {
 	}
 	return (real*real + imaginary*imaginary) / float64(len(pcm)*len(pcm))
 }
+
+// This transport is process-local. No network, relay service or paired device.
+type localSocket struct {
+	inbound, outbound chan []byte
+	closed            chan struct{}
+	once              sync.Once
+}
+
+func newLocalSocket() *localSocket {
+	return &localSocket{inbound: make(chan []byte, 32), outbound: make(chan []byte, 32), closed: make(chan struct{})}
+}
+func (s *localSocket) Read(ctx context.Context) ([]byte, error) {
+	select {
+	case b := <-s.inbound:
+		return b, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-s.closed:
+		return nil, callmedia.ErrTransportClosed
+	}
+}
+func (s *localSocket) Write(ctx context.Context, b []byte) error {
+	select {
+	case s.outbound <- b:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.closed:
+		return callmedia.ErrTransportClosed
+	}
+}
+func (s *localSocket) Finish(error, callmedia.AudioStatistics) {}
+func (s *localSocket) InterruptRead()                          {}
+func (s *localSocket) Close() error                            { s.once.Do(func() { close(s.closed) }); return nil }

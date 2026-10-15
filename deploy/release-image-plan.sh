@@ -21,6 +21,7 @@ component_changed() {
                 Dockerfile .dockerignore go.mod go.sum
                 LICENSE NOTICE.md THIRD_PARTY_NOTICES.md
                 scripts/docker-entrypoint.sh
+                ':(glob)third_party/audio/**'
                 ':(glob)cmd/modemdeck/*.go'
                 ':(glob)cmd/modemdeck/**/*.go'
                 ':(glob)internal/**'
@@ -34,6 +35,10 @@ component_changed() {
                 Dockerfile .dockerignore
                 LICENSE NOTICE.md THIRD_PARTY_NOTICES.md
                 scripts/nginx-entrypoint.sh
+                scripts/build-audio-core.mjs
+                ':(glob)scripts/audio-core/**'
+                ':(glob)internal/audiocore/native/**'
+                ':(glob)third_party/audio/**'
                 web/index.html web/nginx.conf web/package.json web/package-lock.json
                 web/tsconfig.json web/tsconfig.typescript7.json web/vite.config.ts
                 ':(glob)web/public/**'

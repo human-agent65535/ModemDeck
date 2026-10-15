@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 
 GO_IMAGE ?= golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
-ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.5-opus1.3.1-3
+ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.5-neteq-df21b0a
 ROOT_TOOLCHAIN_TARGET ?= go-toolchain
 NODE_IMAGE ?= node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
@@ -25,8 +25,6 @@ MODEMDECK_AGENT_GID ?= 10002
 COMPOSE_SETTINGS_KEY_FILE ?= /dev/null
 COMPOSE_ASSIGNMENT_FILE ?= $(CURDIR)/deploy/advanced-assignment.example.json
 COMPOSE_CLOUDFLARE_TOKEN_FILE ?= /dev/null
-COMPOSE_CLOUDFLARE_TURN_KEY_ID ?= 0123456789abcdef0123456789abcdef
-COMPOSE_CLOUDFLARE_TURN_TOKEN_FILE ?= /dev/null
 COMPOSE_UPDATER_TOKEN_FILE ?= /dev/null
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
@@ -234,20 +232,6 @@ compose-config:
 			-f docker-compose.cloudflare.yml \
 			config --quiet; \
 	fi
-	@if [ -f docker-compose.cloudflare-turn.yml ]; then \
-		MODEMDECK_BUILD_DATE="$(BUILD_DATE)" \
-		MODEMDECK_VCS_REF="$(VCS_REF)" \
-		MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
-		MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
-		MODEMDECK_CLOUDFLARE_TOKEN_FILE="$(COMPOSE_CLOUDFLARE_TOKEN_FILE)" \
-		MODEMDECK_CLOUDFLARE_TURN_KEY_ID="$(COMPOSE_CLOUDFLARE_TURN_KEY_ID)" \
-		MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE="$(COMPOSE_CLOUDFLARE_TURN_TOKEN_FILE)" \
-		docker compose \
-			-f docker-compose.yml \
-			-f docker-compose.cloudflare.yml \
-			-f docker-compose.cloudflare-turn.yml \
-			config --quiet; \
-	fi
 	@if [ -f docker-compose.ota.yml ]; then \
 		MODEMDECK_BUILD_DATE="$(BUILD_DATE)" \
 		MODEMDECK_VCS_REF="$(VCS_REF)" \
@@ -284,3 +268,8 @@ install-check:
 
 clean:
 	rm -rf "$(DIST_DIR)" web/dist
+
+# Rebuild the browser artifact from the same NetEq/Opus sources used by iOS and Go.
+.PHONY: audio-core
+audio-core:
+	node scripts/build-audio-core.mjs

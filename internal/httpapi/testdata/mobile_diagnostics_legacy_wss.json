@@ -1,0 +1,42 @@
+{
+  "events": [
+    {
+      "name": "audio_statistics",
+      "network": "unknown",
+      "fields": {
+        "stage": "connected",
+        "microphone_track_enabled": "true",
+        "captured_frames": "250"
+      },
+      "time_ms": 1700000000000,
+      "id": "00000000-0000-4000-8000-000000000001",
+      "category": "audio"
+    },
+    {
+      "name": "after_rejected_upload",
+      "network": "unknown",
+      "fields": {
+        "captured_frames": "500"
+      },
+      "time_ms": 1700000000001,
+      "id": "00000000-0000-4000-8000-000000000002",
+      "category": "audio"
+    },
+    {
+      "name": "current_audio_statistics",
+      "network": "unknown",
+      "fields": {
+        "stage": "connected",
+        "captured_frames": "250"
+      },
+      "time_ms": 1700000000002,
+      "id": "00000000-0000-4000-8000-000000000003",
+      "category": "audio"
+    }
+  ],
+  "app_version": "0.1.0",
+  "app_build": "30",
+  "os_version": "27.2.0",
+  "dropped": 0,
+  "schema": 1
+}

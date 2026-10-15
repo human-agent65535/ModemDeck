@@ -28,7 +28,7 @@ sudo ./install.sh
 默认安装使用发布镜像；从当前源码构建时使用 `sudo ./install.sh --git`。
 安装完成后，在宿主机打开 `https://localhost:7577` 并创建管理员。
 正式部署建议使用 [Releases](https://github.com/human-agent65535/ModemDeck/releases)
-中的稳定版本。advanced 模式、远程访问、Cloudflare Tunnel/TURN、证书和升级见
+中的稳定版本。advanced 模式、远程访问、Cloudflare Tunnel、证书和升级见
 [部署说明](deploy/README.md)。
 
 ## 界面
@@ -228,7 +228,7 @@ build the current checkout.
 When installation finishes, open `https://localhost:7577` on the host and
 create the administrator account. For production, use a stable version from
 [Releases](https://github.com/human-agent65535/ModemDeck/releases). Advanced
-mode, remote access, Cloudflare Tunnel/TURN, certificates, and upgrades are
+mode, remote access, Cloudflare Tunnel, certificates, and upgrades are
 covered in the [deployment guide](deploy/README.md).
 
 ## Interface

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/communication"
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -18,7 +18,6 @@ var (
 	ErrNotActive       = errors.New("media call is not active")
 	ErrUnavailable     = errors.New("call media is unavailable")
 	ErrConflict        = errors.New("call media is already attached")
-	ErrNegotiation     = errors.New("WebRTC negotiation failed")
 )
 
 type Refresher interface {
@@ -30,7 +29,6 @@ type CallStore interface {
 }
 
 type Core interface {
-	Exchange(context.Context, callmedia.Offer) (callmedia.ExchangeResult, error)
 	ReleaseOwner(context.Context, string, string) error
 	CloseCall(context.Context, string) error
 	ReconcileActiveCalls(context.Context, []string) error
@@ -41,83 +39,24 @@ type Service struct {
 	refresher Refresher
 	calls     CallStore
 	core      Core
-	rtc       rtcconfig.Provider
-}
-
-type Options struct {
-	RTCProvider rtcconfig.Provider
+	changedMu sync.Mutex
+	changed   chan struct{}
 }
 
 func New(
 	refresher Refresher,
 	calls CallStore,
 	core Core,
-	options ...Options,
 ) (*Service, error) {
 	if refresher == nil || calls == nil || core == nil {
 		return nil, errors.New("media service requires refresher, call store, and media core")
-	}
-	var configuration Options
-	if len(options) > 1 {
-		return nil, errors.New("media service accepts at most one options value")
-	}
-	if len(options) == 1 {
-		configuration = options[0]
 	}
 	return &Service{
 		refresher: refresher,
 		calls:     calls,
 		core:      core,
-		rtc:       configuration.RTCProvider,
+		changed:   make(chan struct{}),
 	}, nil
-}
-
-func (s *Service) Exchange(
-	ctx context.Context,
-	callID, ownerToken, offerSDP string,
-	relayOnly bool,
-) (string, error) {
-	callID = strings.TrimSpace(callID)
-	ownerToken = strings.TrimSpace(ownerToken)
-	if callID == "" || ownerToken == "" || strings.TrimSpace(offerSDP) == "" {
-		return "", fmt.Errorf(
-			"%w: call id, owner token, and SDP offer are required",
-			ErrInvalidArgument,
-		)
-	}
-	if _, err := s.refresher.Refresh(ctx); err != nil {
-		return "", fmt.Errorf("%w: authoritative call state could not be refreshed: %v", ErrUnavailable, err)
-	}
-	call, err := s.calls.CallByID(ctx, callID)
-	if errors.Is(err, store.ErrCallNotFound) {
-		return "", ErrNotFound
-	}
-	if err != nil {
-		return "", fmt.Errorf("%w: call state could not be read: %v", ErrUnavailable, err)
-	}
-	if call.Phase != "active" {
-		return "", ErrNotActive
-	}
-	if !call.MediaAvailable {
-		return "", ErrUnavailable
-	}
-	rtcConfiguration, err := s.Configuration(ctx, relayOnly)
-	if err != nil {
-		return "", err
-	}
-	result, err := s.core.Exchange(ctx, callmedia.Offer{
-		Call: callmedia.ActiveCall{
-			ID:    call.ID,
-			State: callmedia.CallStateActive,
-		},
-		OwnerToken:       ownerToken,
-		SDP:              offerSDP,
-		RTCConfiguration: rtcConfiguration,
-	})
-	if err != nil {
-		return "", classifyCoreError(err)
-	}
-	return result.AnswerSDP, nil
 }
 
 // OpenSocket validates authoritative business state before attaching to the
@@ -136,7 +75,7 @@ func (s *Service) OpenSocket(ctx context.Context, callID, ownerToken string, tra
 	if err != nil {
 		return nil, ErrUnavailable
 	}
-	if call.Phase != "active" {
+	if call.Phase != "active" && !(call.Direction == "outgoing" && (call.Phase == "dialing" || call.Phase == "connecting" || call.Phase == "ringing-out")) {
 		return nil, ErrNotActive
 	}
 	if !call.MediaAvailable {
@@ -153,22 +92,6 @@ func (s *Service) OpenSocket(ctx context.Context, callID, ownerToken string, tra
 		return nil, classifyCoreError(err)
 	}
 	return session, nil
-}
-
-// Configuration is shared by offer negotiation and temporary-call ICE setup.
-func (s *Service) Configuration(ctx context.Context, relayOnly bool) (rtcconfig.Configuration, error) {
-	if !relayOnly {
-		return rtcconfig.Configuration{}, nil
-	}
-	if s.rtc == nil {
-		return rtcconfig.Configuration{}, ErrUnavailable
-	}
-	configuration, err := s.rtc.Generate(ctx)
-	if err != nil {
-		return rtcconfig.Configuration{}, fmt.Errorf("%w: relay configuration could not be generated", ErrUnavailable)
-	}
-	configuration.RelayOnly = true
-	return configuration, nil
 }
 
 func (s *Service) ReleaseOwner(ctx context.Context, callID, ownerToken string) error {
@@ -196,7 +119,12 @@ func (s *Service) ReconcileAuthoritativeCalls(
 	for _, call := range activeCalls {
 		callIDs = append(callIDs, call.ID)
 	}
-	return s.core.ReconcileActiveCalls(ctx, callIDs)
+	err := s.core.ReconcileActiveCalls(ctx, callIDs)
+	s.changedMu.Lock()
+	close(s.changed)
+	s.changed = make(chan struct{})
+	s.changedMu.Unlock()
+	return err
 }
 
 func (s *Service) Close(ctx context.Context) error {
@@ -205,11 +133,7 @@ func (s *Service) Close(ctx context.Context) error {
 
 func classifyCoreError(err error) error {
 	switch {
-	case errors.Is(err, callmedia.ErrInvalidArgument),
-		errors.Is(err, callmedia.ErrInvalidOffer),
-		errors.Is(err, callmedia.ErrUnsupportedMedia),
-		errors.Is(err, callmedia.ErrUnsupportedCodec),
-		errors.Is(err, callmedia.ErrUnsupportedDirection):
+	case errors.Is(err, callmedia.ErrInvalidArgument):
 		return fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	case errors.Is(err, callmedia.ErrCallNotActive):
 		return ErrNotActive
@@ -217,9 +141,6 @@ func classifyCoreError(err error) error {
 		return ErrConflict
 	case errors.Is(err, callmedia.ErrNotMediaOwner):
 		return ErrConflict
-	case errors.Is(err, callmedia.ErrNegotiation),
-		errors.Is(err, callmedia.ErrGatheringTimeout):
-		return fmt.Errorf("%w: %v", ErrNegotiation, err)
 	case errors.Is(err, callmedia.ErrEndpointUnavailable),
 		errors.Is(err, callmedia.ErrUnsupported),
 		errors.Is(err, callmedia.ErrCodec):
@@ -227,4 +148,63 @@ func classifyCoreError(err error) error {
 	default:
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
+}
+
+// PrepareSocket is scoped by the authenticated reservation in HTTP, without
+// inventing an authoritative hardware call before dial.
+func (s *Service) PrepareSocket(ctx context.Context, id, token string, transport callmedia.SocketTransport) (*callmedia.Session, error) {
+	core, ok := s.core.(interface {
+		PrepareSocket(context.Context, string, string, callmedia.SocketTransport) (*callmedia.Session, error)
+	})
+	if !ok {
+		return nil, ErrUnavailable
+	}
+	session, err := core.PrepareSocket(ctx, id, token, transport)
+	if err != nil {
+		return nil, classifyCoreError(err)
+	}
+	return session, nil
+}
+
+// BindPreparedSocket waits on the same authoritative lifecycle notifications as
+// recording and leases; it does not add another hardware refresh polling loop.
+func (s *Service) BindPreparedSocket(ctx context.Context, id, callID string, session *callmedia.Session) error {
+	core, ok := s.core.(interface {
+		BindPreparedSocket(context.Context, string, callmedia.ActiveCall, *callmedia.Session) error
+	})
+	if !ok {
+		return ErrUnavailable
+	}
+	for {
+		s.changedMu.Lock()
+		changed := s.changed
+		s.changedMu.Unlock()
+		call, err := s.calls.CallByID(ctx, callID)
+		if err != nil {
+			return ErrUnavailable
+		}
+		if call.Direction != "outgoing" || (call.Phase != "dialing" && call.Phase != "connecting" && call.Phase != "ringing" && call.Phase != "ringing-out" && call.Phase != "active") {
+			return ErrNotActive
+		}
+		if call.MediaAvailable {
+			return core.BindPreparedSocket(ctx, id, callmedia.ActiveCall{ID: callID, State: callmedia.CallStateActive}, session)
+		}
+		select {
+		case <-changed:
+		case <-session.Done():
+			return ErrUnavailable
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (s *Service) ActivatePreparedSocket(ctx context.Context, id, callID string, session *callmedia.Session) error {
+	core, ok := s.core.(interface {
+		ActivatePreparedSocket(context.Context, string, callmedia.ActiveCall, *callmedia.Session) error
+	})
+	if !ok {
+		return ErrUnavailable
+	}
+	return core.ActivatePreparedSocket(ctx, id, callmedia.ActiveCall{ID: callID, State: callmedia.CallStateActive}, session)
 }

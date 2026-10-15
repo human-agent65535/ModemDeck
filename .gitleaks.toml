@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+# This source manifest contains verified SHA-256 values for upstream files.
+# Keep all other content/rules active, including non-hash values in this file.
+[[allowlists]]
+description = "Upstream audio source file checksums"
+condition = "AND"
+paths = ['''^third_party/audio/upstream\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"[^"]+": "[a-f0-9]{64}",?\s*$''']

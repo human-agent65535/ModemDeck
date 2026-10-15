@@ -28,7 +28,7 @@ const bootstrap = {
     agent_connected: true,
     dial: true,
     message: true,
-    webrtc_audio: true,
+    wss_audio: true,
     device_control: false,
     volte_control: false,
     vowifi_control: false,
@@ -316,8 +316,8 @@ function readOnlyBody(pathname) {
     return {
       state: {
         call_id: callID,
-        enabled: false,
-        status: 'off',
+        enabled: fixtureRecordingEnabled,
+        status: fixtureRecordingEnabled ? 'recording' : 'off',
         active_segment_id: null,
         last_error_code: null
       },
@@ -467,6 +467,7 @@ function unreadSummary() {
 }
 
 const diagnosticBatches = []
+let fixtureRecordingEnabled = false
 let contactDeleteDelayMS = 0
 let messageReadDelayMS = 0
 let messageReadsStarted = 0
@@ -482,6 +483,7 @@ async function fixtureWrite(request, response, pathname) {
       items.splice(0, items.length, ...structuredClone(initial[name]))
     }
     online = true
+    fixtureRecordingEnabled = false
     contactDeleteDelayMS = 0
     messageReadDelayMS = 0
     messageReadsStarted = 0
@@ -517,6 +519,10 @@ async function fixtureWrite(request, response, pathname) {
       extra.phones[0].canonical_e164 = '+12025550102'
       contacts.push(extra)
     }
+  } else if (/^\/api\/v1\/calls\/[^/]+\/recording$/.test(pathname)) {
+    fixtureRecordingEnabled = body.enabled === true
+    send(response, 200, { state: { call_id: decodeURIComponent(pathname.split('/')[4]), enabled: fixtureRecordingEnabled, status: fixtureRecordingEnabled ? 'recording' : 'off' } })
+    return
   } else if (pathname === '/__uat/connectivity') {
     online = body.online !== false
   } else if (pathname === '/api/v1/messages/read') {
@@ -609,6 +615,7 @@ const server = https.createServer(
         send(response, status, { code: 'not_found', message: 'Not found' })
       }
     } else if (mutable && (request.method === 'PATCH' || request.method === 'DELETE' ||
+      (request.method === 'PUT' && /^\/api\/v1\/calls\/[^/]+\/recording$/.test(url.pathname)) ||
       (request.method === 'POST' && url.pathname === '/api/v1/mobile/diagnostics'))) {
       try { await fixtureWrite(request, response, url.pathname) } catch { send(response, 400, { code: 'invalid_fixture_request' }) }
     } else {

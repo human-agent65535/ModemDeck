@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
-	"github.com/pion/rtp"
-	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
 )
 
 const oggPageHeaderSize = 27
@@ -63,11 +61,7 @@ func (productionWriterFactory) New(
 	if err != nil {
 		return nil, "", err
 	}
-	ogg, err := oggwriter.NewWith(
-		writerOnly{file: segment.file},
-		callmedia.RTPClockRate,
-		1,
-	)
+	ogg, err := newOpusOggWriter(writerOnly{file: segment.file})
 	if err != nil {
 		_ = segment.abort()
 		return nil, "", fmt.Errorf("create Ogg Opus stream: %w", ErrStorage)
@@ -85,23 +79,19 @@ func (productionWriterFactory) New(
 		return nil, "", fmt.Errorf("recording Opus format mismatch: %w", ErrCodec)
 	}
 	return &oggSegmentWriter{
-		format:    format,
-		codec:     codec,
-		ogg:       ogg,
-		segment:   segment,
-		timestamp: 1,
-		sequence:  1,
+		format:  format,
+		codec:   codec,
+		ogg:     ogg,
+		segment: segment,
 	}, segment.relative, nil
 }
 
 type oggSegmentWriter struct {
 	format  callmedia.PCMFormat
 	codec   callmedia.OpusCodec
-	ogg     *oggwriter.OggWriter
+	ogg     *opusOggWriter
 	segment *segmentFile
 
-	timestamp      uint32
-	sequence       uint16
 	lastSequence   uint64
 	lastPageOffset int64
 	frames         int64
@@ -136,24 +126,12 @@ func (w *oggSegmentWriter) Write(frame callmedia.DuplexFrame) error {
 	if err != nil {
 		return fmt.Errorf("locate Ogg recording page: %w", ErrStorage)
 	}
-	packet := &rtp.Packet{
-		Header: rtp.Header{
-			Version:        2,
-			PayloadType:    callmedia.OpusPayloadType,
-			SequenceNumber: w.sequence,
-			Timestamp:      w.timestamp,
-			SSRC:           1,
-		},
-		Payload: payload,
-	}
-	if err := w.ogg.WriteRTP(packet); err != nil {
+	if err := w.ogg.WriteOpus(payload); err != nil {
 		return fmt.Errorf("write Ogg Opus frame: %w", ErrStorage)
 	}
 	w.lastPageOffset = offset
 	w.lastSequence = frame.Sequence
 	w.frames++
-	w.sequence++
-	w.timestamp += w.format.RTPFrameSamples()
 	return nil
 }
 

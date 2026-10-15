@@ -19,7 +19,11 @@ test('production build splits route CSS and keeps intentional chunk groups', asy
     assert.match(config, new RegExp(`name: '${group}'`))
   }
   assert.match(config, /tags: \['\$initial'\]/)
-  assert.match(packageJSON, /vite build && npm run check:bundle/)
+  const buildSteps = JSON.parse(packageJSON).scripts.build.split('&&').map(step => step.trim())
+  const buildIndex = buildSteps.indexOf('vite build')
+  assert.ok(buildIndex >= 0)
+  assert.ok(buildSteps.indexOf('npm run check:worklet') > buildIndex, 'validate the emitted processor after bundling')
+  assert.ok(buildSteps.indexOf('npm run check:bundle') > buildIndex, 'budget the emitted production assets')
   assert.match(budget, /initialRequests: 12/)
   assert.match(budget, /javascriptGzip: 100 \* kibibyte/)
   assert.match(budget, /stylesheetGzip: 20 \* kibibyte/)

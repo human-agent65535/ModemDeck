@@ -10,6 +10,7 @@ enum Failure: Error { case ended }
     var call: Call? = Call(callID: "old-call")
     var busy = false, ending = false
     var errorMessage = ""
+    var localEndRequestedCallID: String?
     var answerCompletion: ((Result<Void, Error>) -> Void)?
     func answer() async { await perform { self.answerCompletion = $0 } }
     // INSERT_PRODUCT_METHODS

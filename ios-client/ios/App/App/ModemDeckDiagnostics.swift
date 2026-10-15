@@ -269,37 +269,14 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
         let failure = error as NSError
         let domains = [NSURLErrorDomain: "url", NSCocoaErrorDomain: "cocoa", NSOSStatusErrorDomain: "osstatus",
                        "com.apple.CallKit.error.requesttransaction": "callkit",
-                       "com.apple.CallKit.error.incomingcall": "callkit",
-                       "org.webrtc.RTCPeerConnection": "webrtc"]
+                       "com.apple.CallKit.error.incomingcall": "callkit"]
         let domain = domains[failure.domain] ?? (failure.domain.hasSuffix("ModemDeckCallAudioError") ? "call_audio" :
             (failure.domain.hasSuffix("ModemDeckAPIError") ? "api" : "other"))
         return ["error_domain": domain, "error_code": String(failure.code)]
     }
 
-    static func turnFields(_ raw: String) -> [String: String] {
-        let tls = raw.lowercased().hasPrefix("turns:")
-        guard raw.lowercased().hasPrefix("turn:") || tls,
-              let colon = raw.firstIndex(of: ":"),
-              let url = URLComponents(string: "https://" + raw[raw.index(after: colon)...]) else { return [:] }
-        let tcp = url.queryItems?.contains { $0.name == "transport" && $0.value == "tcp" } == true
-        return ["turn_transport": tls ? "tls" : (tcp ? "tcp" : "udp"),
-                "turn_port": String(url.port ?? (tls ? 5349 : 3478)),
-                "turn_host": url.host?.lowercased() == "turn.cloudflare.com" ? "cloudflare" : "other"]
-    }
-
-    static func turnFailureReason(_ text: String) -> String {
-        let value = text.lowercased()
-        if value.contains("resolve") || value.contains("dns") { return "dns" }
-        if value.contains("tls") || value.contains("ssl") || value.contains("certificate") { return "tls" }
-        if value.contains("timed out") || value.contains("timeout") { return "timeout" }
-        if value.contains("unauthoriz") || value.contains("credential") { return "authentication" }
-        if value.contains("family") || value.contains("incompatible address") { return "address_family" }
-        if value.contains("unreach") { return "unreachable" }
-        return "other"
-    }
-
     static func safeCallID(_ raw: String?) -> String? {
-        guard let raw, raw.range(of: "^(call_[A-Za-z0-9_-]{24}|(test-|call-)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$", options: .regularExpression) != nil else { return nil }
+        guard let raw, raw.range(of: "^(call_[0-9a-f]{32}|call_[A-Za-z0-9_-]{24}|(test-|call-)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$", options: .regularExpression) != nil else { return nil }
         return raw.hasPrefix("call_") ? raw : raw.lowercased()
     }
 
@@ -311,7 +288,7 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
     static func route(_ path: String) -> String {
         // Replace ALL non-schema components, even if a contact name resembles a URL.
         let known: Set<String> = ["api", "v1", "mobile", "session", "bootstrap", "pairing", "push", "call-tests", "test-call",
-            "calls", "active", "media", "ice", "lease", "answer", "hangup", "reject", "hold", "resume", "mute", "dtmf", "recording",
+            "calls", "active", "media", "lease", "prepare", "preparations", "commit", "answer", "hangup", "reject", "hold", "resume", "mute", "dtmf", "recording",
             "recordings", "audio", "segments", "contacts", "batch", "messages", "threads", "state", "read", "read-all", "unread-summary",
             "events", "runtime", "settings", "system", "lines", "devices", "users", "account", "sessions", "password", "profile",
             "telegram", "units", "diagnostics", "logs", "health", "external-access", "status", "favorite", "contact"]
@@ -320,17 +297,17 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
     }
 
     static func sanitize(_ fields: [String: String]) -> [String: String] {
-        let numbers: Set<String> = ["elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "candidates", "relay_candidates",
-            "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets"]
-        let flags: Set<String> = ["expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "microphone_track_enabled", "reused_connection"]
+        let numbers: Set<String> = ["elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "relay_candidates",
+            "error_code", "http_status", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "captured_frames", "dropped_frames", "server_received_packets", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets", "playback_pending", "playback_underruns", "playback_resets", "capture_dropped_frames", "send_dropped_frames", "receive_stale_frames", "receive_invalid_frames", "playback_dropped_frames", "server_dropped_packets", "server_dropped_source_early_packets", "server_dropped_source_late_packets", "server_dropped_queue_overflow_packets", "server_dropped_reanchor_packets", "server_dropped_playout_packets", "server_dropped_rebuffer_packets", "server_clock_reanchors", "server_playout_underruns", "server_playout_silence_frames", "server_playout_missed_ticks", "neteq_concealed_samples", "neteq_concealment_events", "neteq_inserted_samples", "neteq_removed_samples", "neteq_discarded_packets", "neteq_received_packets", "neteq_target_delay_ms", "neteq_buffer_delay_ms", "neteq_ingress_packets", "neteq_render_errors", "neteq_output_samples", "neteq_output_sample_rate",
+            "server_neteq_concealed_samples", "server_neteq_concealment_events", "server_neteq_inserted_samples", "server_neteq_removed_samples", "server_neteq_packets_discarded", "server_neteq_target_delay_ms", "server_neteq_current_delay_ms", "server_neteq_internal_sample_rate"]
+        let flags: Set<String> = ["expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "reused_connection"]
         let enums: [String: Set<String>] = [
             "input_route": ["none", "microphone", "receiver", "speaker", "bluetooth", "headphones", "external"],
             "output_route": ["none", "microphone", "receiver", "speaker", "bluetooth", "headphones", "external"],
             "http_protocol": ["h2", "h3", "http/1.1", "other"],
-            "stage": ["idle", "waiting_for_active_call", "fetching_turn_configuration", "creating_offer", "setting_local_description", "gathering_candidates", "exchanging_offer", "applying_answer", "connecting_ice", "connecting_wss", "reconnecting_wss", "connected"],
+            "stage": ["idle", "waiting_for_active_call", "connecting_wss", "reconnecting_wss", "connected", "preparing_audio", "committing_outgoing", "waiting_for_remote"],
             "method": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
-            "error_domain": ["url", "cocoa", "osstatus", "callkit", "webrtc", "call_audio", "api", "other"],
-            "turn_transport": ["udp", "tcp", "tls"], "turn_host": ["cloudflare", "other"],
+            "error_domain": ["url", "cocoa", "osstatus", "callkit", "call_audio", "api", "other"],
             "reason": ["dns", "tls", "timeout", "authentication", "address_family", "unreachable", "other"],
             "status": ["online", "offline", "checking", "paired", "unpaired", "launching", "loading", "unavailable", "authorized", "denied", "notDetermined", "not_determined", "provisional", "ephemeral", "restricted", "unknown", "granted", "undetermined"]]
         return fields.reduce(into: [:]) { result, entry in
@@ -339,6 +316,8 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
                 result[key] = String(number)
             } else if flags.contains(key), ["true", "false"].contains(value) { result[key] = value
             } else if enums[key]?.contains(value) == true { result[key] = value
+            } else if key == "preparation_id", value.range(of: "^prepare_[0-9a-f]{32}$", options: .regularExpression) != nil { result[key] = value
+            } else if key == "session_id", let identifier = UUID(uuidString: value) { result[key] = identifier.uuidString.lowercased()
             } else if key == "route" { result[key] = route(value) }
         }
     }

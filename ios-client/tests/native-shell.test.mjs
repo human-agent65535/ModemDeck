@@ -102,23 +102,22 @@ test('CallKit owns native WSS Opus audio and keeps synthetic calls local', async
     source('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved')
   ])
 
-  assert.match(project, /alta\/swift-opus\.git/)
-  assert.match(project, /kind = revision;[\s\S]*revision = 6f3cb6bd3ffed1fe5f06d00a962d5c191a50daf8;/)
-  assert.match(project, /Copus in Frameworks/)
-  assert.match(resolved, /"identity" : "swift-opus"/)
+  assert.match(project, /MDNetEq.xcframework in Frameworks/)
+  assert.doesNotMatch(project + resolved, /Copus|swift-opus/)
+  assert.match(audio, /import ModemDeckAudioCore/)
   assert.doesNotMatch(audio, /import WebRTC|RTCPeerConnection/)
   assert.match(audio, /func didActivate/)
   assert.match(audio, /guard !stopped, activated, ready, engine == nil/)
   assert.match(audio, /setVoiceProcessingEnabled\(true\)/)
   assert.match(audio, /isVoiceProcessingAGCEnabled = true/)
   assert.match(audio, /opus_encode_float/)
-  assert.match(audio, /opus_decode_float/)
+  assert.match(audio, /md_neteq_render_float/)
+  assert.match(audio, /AVAudioSourceNode/)
   assert.match(audio, /callPath\("media\/ws"\)/)
   assert.match(audio, /components\.scheme = "wss"/)
   assert.match(audio, /callPath\("media"\)/)
   assert.match(audio, /callPath\("lease"\)/)
-  assert.match(audio, /sendQueue\.count >= 4/)
-  assert.match(audio, /playbackPending >= 5/)
+  // Queue capacity and sample-age deadlines run against the product methods in state-regression.
   assert.match(audio, /reconnectAttempts < 4/)
   assert.match(audio, /timeoutIntervalForResource = 24 \* 60 \* 60/)
   assert.match(audio, /func start\(audioSession: AVAudioSession\)/)
@@ -175,7 +174,7 @@ test('native call control preserves server defaults and serializes completed DTM
   ])
 
   assert.match(delegate, /configure\(store: credentialStore\)/)
-  assert.match(app, /\.accessibilityHidden\(callController\.call != nil && callExpanded\)/)
+  assert.match(app, /\.accessibilityHidden\(callController\.visibleCall != nil && callExpanded\)/)
   assert.match(app, /\.accessibilityAddTraits\(callExpanded \? \.isModal : \[\]\)/)
   assert.match(api, /recordingEnabled: Bool\?/)
   assert.match(api, /func callRecording\(callID:/)
@@ -227,7 +226,10 @@ test('tracked iOS configuration contains no personal signing identity', async ()
     .split('\0')
     .filter(Boolean)
   const trackedEntries = await Promise.all(trackedPaths.map(async path => {
-    const data = await readFile(new URL(path, root))
+    const data = await readFile(new URL(path, root)).catch(error => {
+      if (error.code === 'ENOENT') return Buffer.alloc(0) // A tracked deletion has no packaged content.
+      throw error
+    })
     return data.includes(0) ? '' : `[${path}]\n${data.toString('utf8')}`
   }))
   const trackedConfiguration = trackedEntries.join('\n')
@@ -321,7 +323,6 @@ test('SwiftUI is the universal iPhone and iPad application root', async () => {
   assert.match(calls, /let panelWidth = min\(420/)
   assert.match(calls, /if reduceMotion \{[\s\S]*showingKeypad\.toggle\(\)/)
   assert.match(calls, /callLine\?\.capabilities\?\.sendDtmf != false/)
-  assert.match(calls, /if isActive && !call\.testCall \{[\s\S]*disabled: !canSendDTMF/)
   const scripts = JSON.parse(packageJSON).scripts
   assert.equal(scripts['run:ios:iphone'].includes('MODEMDECK_SIMULATOR_FAMILY=iphone'), true)
   assert.equal(scripts['run:ios:ipad'].includes('MODEMDECK_SIMULATOR_FAMILY=ipad'), true)
@@ -375,8 +376,9 @@ test('native API models match populated communication responses', async () => {
   assert.match(api, /let answerCall: Bool\?/)
   assert.match(api, /let sendDtmf: Bool\?/)
   assert.match(api, /let sendMessage: Bool\?/)
-  assert.match(calls, /private var recordingTitle: String/)
-  assert.match(calls, /case "recording":[\s\S]*controller\.text\("录音中", "Recording"\)/)
+  assert.match(calls, /accessibilityIdentifier\("call-recording"\)/)
+  assert.match(calls, /accessibilityIdentifier\("call-recording-status"\)/)
+  assert.match(calls, /accessibilityIdentifier\("dial-recording-status"\)/)
   assert.match(calls, /ModemDeckDialerPanel/)
   assert.match(settings, /从本机通讯录导入/)
   assert.match(settings, /开始通话测试/)
@@ -649,10 +651,11 @@ test('native communication avatars and phone copying follow the Web identity rul
   assert.match(calls, /ModemDeckRecordingRow[\s\S]*ModemDeckCommunicationAvatar\([\s\S]*channel: \.recording/)
 })
 
-test('native source-built Opus does not embed a WebRTC binary or generated dSYM phase', async () => {
+test('native NetEq links one shared static core without PeerConnection or a second Opus package', async () => {
   const project = await source('ios/App/App.xcodeproj/project.pbxproj')
   assert.doesNotMatch(project, /WebRTC|generate-webrtc-dsym/)
-  assert.match(project, /productName = Copus;/)
+  assert.match(project, /MDNetEq.xcframework/)
+  assert.doesNotMatch(project, /Copus|swift-opus|audio_core.c/)
 })
 
 test('native communication density keeps compact visuals and full touch targets', async () => {
@@ -809,7 +812,7 @@ test('CallKit foreground reconciliation opens the native active-call surface', a
     source('ios/App/App/ModemDeckNative.swift')
   ])
 
-  assert.match(app, /if let call = callController\.call[\s\S]*ModemDeckActiveCallView/)
+  assert.match(app, /if let call = callController\.visibleCall[\s\S]*ModemDeckActiveCallView/)
   assert.match(app, /UIApplication\.didBecomeActiveNotification[\s\S]*callController\.refreshFromCallKit\(\)/)
   assert.match(session, /func refreshFromCallKit\(\)[\s\S]*currentCallState/)
   assert.match(native, /answerRequestedCallUUIDs\.insert\(uuid\)[\s\S]*publishCallState\(\)/)
@@ -931,4 +934,18 @@ test('home stays a quick view with shared row actions and split detail', async (
   assert.match(home, /await calls\.mutate\(action, calls: \[call\]\)/)
   assert.match(session, /recordings\.removeAll \{ ids\.contains\(\$0\.call\.id\) \}/)
   assert.match(session, /messagesStore\.apply\(\.read, to: \[thread\.id\]\)/)
+})
+
+test('outgoing native calls require prepared media and the legacy plugin cannot directly dial', async () => {
+  const [api, native, audio] = await Promise.all([
+    source('ios/App/App/ModemDeckAPI.swift'), source('ios/App/App/ModemDeckNative.swift'),
+    source('ios/App/App/ModemDeckCallAudio.swift')
+  ])
+  assert.doesNotMatch(api, /func startCall\(/)
+  assert.match(native, /preparation: ModemDeckCallPreparation,/)
+  assert.doesNotMatch(native, /preparation: ModemDeckCallPreparation\? = nil/)
+  const plugin = native.split('@objc func startOutgoingCall(_ call: CAPPluginCall) {')[1].split('@objc func answerCall')[0]
+  assert.match(plugin, /OUTGOING_MEDIA_REQUIRED/)
+  assert.doesNotMatch(plugin, /shared\.startOutgoingCall/)
+  assert.doesNotMatch(audio, /endLateCommittedCall/)
 })

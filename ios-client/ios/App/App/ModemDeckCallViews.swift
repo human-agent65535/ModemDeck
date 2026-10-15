@@ -368,10 +368,11 @@ struct ModemDeckDialerView: View {
                     .disabled(lines.isEmpty)
                     .accessibilityLabel(controller.text("通话线路", "Calling line"))
                     .accessibilityValue(selectedLine?.displayName ?? "")
-                    Toggle(controller.text("本次录音", "Record call"), isOn: $draft.recording)
-                        .font(.footnote).tint(.mdAccent).fixedSize()
-                        .disabled(!draft.recordingInitialized)
-                        .accessibilityIdentifier("dial-recording")
+                    Text(draft.recordingInitialized
+                        ? controller.text(draft.recording ? "默认开启录音" : "默认关闭录音", draft.recording ? "Recording on by default" : "Recording off by default")
+                        : controller.text("正在读取录音设置…", "Loading recording setting…"))
+                        .font(.caption).foregroundColor(.mdMuted)
+                        .accessibilityIdentifier("dial-recording-status")
                 }
                 .frame(minHeight: 44)
 
@@ -1371,8 +1372,16 @@ private struct ModemDeckDetailAction: View {
 }
 
 struct ModemDeckCallDetailView: View {
-    let call: ModemDeckCallRecord
-    let recordings: [ModemDeckRecording]
+    private let initialCall: ModemDeckCallRecord
+    @ObservedObject private var store: ModemDeckCallsStore
+
+    private var call: ModemDeckCallRecord {
+        store.calls.first(where: { $0.id == initialCall.id }) ?? initialCall
+    }
+
+    private var recordings: [ModemDeckRecording] {
+        store.recordings.filter { $0.call.id == initialCall.id }
+    }
     @ObservedObject var controller: ModemDeckSessionController
     let contact: ModemDeckContact?
     let showsBackButton: Bool
@@ -1394,8 +1403,8 @@ struct ModemDeckCallDetailView: View {
         onChanged: @escaping () -> Void = {},
         onDeleted: @escaping (String) -> Void = { _ in }
     ) {
-        self.call = call
-        self.recordings = recordings
+        initialCall = call
+        _store = ObservedObject(wrappedValue: controller.callsStore)
         self.controller = controller
         self.contact = contact
         self.showsBackButton = showsBackButton
@@ -1732,7 +1741,12 @@ private final class ModemDeckRecordingPlayer: NSObject, ObservableObject, AVAudi
 }
 
 struct ModemDeckRecordingDetailView: View {
-    let recording: ModemDeckRecording
+    private let initialRecording: ModemDeckRecording
+    @ObservedObject private var store: ModemDeckCallsStore
+
+    private var recording: ModemDeckRecording {
+        store.recordings.first(where: { $0.id == initialRecording.id }) ?? initialRecording
+    }
     @ObservedObject var controller: ModemDeckSessionController
     let contact: ModemDeckContact?
     let showsBackButton: Bool
@@ -1753,7 +1767,8 @@ struct ModemDeckRecordingDetailView: View {
         onChanged: @escaping () -> Void = {},
         onDeleted: @escaping (String) -> Void = { _ in }
     ) {
-        self.recording = recording
+        initialRecording = recording
+        _store = ObservedObject(wrappedValue: controller.callsStore)
         self.controller = controller
         self.contact = contact
         self.showsBackButton = showsBackButton
@@ -2021,6 +2036,9 @@ struct ModemDeckMiniCallBar: View {
     @ObservedObject var controller: ModemDeckSessionController
     @ObservedObject var callController: ModemDeckCallController
     let restore: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var endedCall: ModemDeckEndedCall? { callController.endedCall?.id == call.callID ? callController.endedCall : nil }
 
     private var canEnd: Bool {
         if call.testCall || controller.bootstrap == nil { return true }
@@ -2036,7 +2054,11 @@ struct ModemDeckMiniCallBar: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(call.displayName.isEmpty ? call.remoteNumber : call.displayName)
                             .font(.subheadline.weight(.semibold)).lineLimit(1)
-                        if let value = call.activeAt, let date = ModemDeckDateText.date(value) {
+                        if let endedCall {
+                            Text(controller.text(endedCall.message.chinese, endedCall.message.english)).font(.caption)
+                        } else if callController.ending {
+                            Text(controller.text("正在结束…", "Ending…")).font(.caption)
+                        } else if let value = call.activeAt, let date = ModemDeckDateText.date(value) {
                             Text(date, style: .timer).font(.caption).monospacedDigit()
                         } else {
                             Text(controller.text("通话进行中", "Call in progress")).font(.caption)
@@ -2050,17 +2072,27 @@ struct ModemDeckMiniCallBar: View {
             .accessibilityLabel(controller.text("恢复通话", "Return to call"))
             .accessibilityValue(call.displayName.isEmpty ? call.remoteNumber : call.displayName)
             .accessibilityIdentifier("call-restore")
-            Button { Task { await callController.end() } } label: {
-                Image(systemName: "phone.down.fill")
+            Button {
+                if endedCall != nil { callController.closeEndedCall() }
+                else { Task { await callController.end() } }
+            } label: {
+                Group {
+                    if callController.ending { ProgressView().tint(.white) }
+                    else { Image(systemName: endedCall == nil ? "phone.down.fill" : "xmark") }
+                }
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
                     .background(Color(red: 0.78, green: 0.18, blue: 0.24))
                     .clipShape(Circle())
             }
-            .disabled(!canEnd || callController.ending)
-            .accessibilityLabel(controller.text("挂断", "End call"))
+            .disabled(endedCall == nil && (!canEnd || callController.ending))
+            .accessibilityLabel(endedCall == nil ? controller.text("挂断", "End call") : controller.text("关闭结束结果", "Close call result"))
+            .accessibilityIdentifier("call-mini-end")
             .padding(.trailing, 8)
         }
+        .opacity(callController.endedCallClosing ? 0 : 1)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: callController.endedCallClosing)
+        .allowsHitTesting(!callController.endedCallClosing)
         .buttonStyle(.plain).foregroundColor(.mdOnAccent)
         .background(Color.mdAccent)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -2080,8 +2112,10 @@ struct ModemDeckActiveCallView: View {
     @State private var dtmfDigits = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var isRinging: Bool { call.state == "ringing" }
-    private var isActive: Bool { call.state == "active" }
+    private var endedCall: ModemDeckEndedCall? { callController.endedCall?.id == call.callID ? callController.endedCall : nil }
+    private var isEnded: Bool { endedCall != nil }
+    private var isRinging: Bool { !isEnded && call.state == "ringing" }
+    private var isActive: Bool { !isEnded && call.state == "active" }
 
     private var callLine: ModemDeckLine? {
         guard let bootstrap = controller.bootstrap else { return nil }
@@ -2092,7 +2126,7 @@ struct ModemDeckActiveCallView: View {
     private var canAnswer: Bool {
         if call.testCall { return true }
         guard let bootstrap = controller.bootstrap else { return true }
-        return bootstrap.capabilities.webrtcAudio &&
+        return bootstrap.capabilities.wssAudio &&
             callLine?.capabilities?.answerCall == true &&
             callLine?.capabilities?.media == true
     }
@@ -2106,7 +2140,7 @@ struct ModemDeckActiveCallView: View {
     }
 
     private var canSendDTMF: Bool {
-        !call.testCall && callLine?.capabilities?.sendDtmf != false
+        !isEnded && !call.testCall && callLine?.capabilities?.sendDtmf != false
     }
 
     var body: some View {
@@ -2155,7 +2189,7 @@ struct ModemDeckActiveCallView: View {
 
     private var collapseHeader: some View {
         HStack {
-            Text(controller.text("通话", "Call")).font(.headline)
+            Text(isEnded ? controller.text("通话结果", "Call result") : controller.text("通话", "Call")).font(.headline)
             Spacer()
             Button(action: collapse) {
                 Image(systemName: "chevron.down").frame(width: 44, height: 44).contentShape(Rectangle())
@@ -2182,145 +2216,149 @@ struct ModemDeckActiveCallView: View {
             })
     }
 
+    private var isIncomingRinging: Bool { isRinging && call.direction == "incoming" }
+
     private var callStage: some View {
         VStack(spacing: 0) {
-                collapseHeader
-                Spacer(minLength: showingKeypad ? 24 : 48)
-                if !showingKeypad {
-                    Image(systemName: call.testCall ? "checkmark.shield.fill" : "person.crop.circle.fill")
-                        .font(.system(size: 92))
-                        .foregroundColor(.mdText)
-                }
-                Text(call.displayName.isEmpty ? call.remoteNumber : call.displayName)
-                    .font(.system(size: showingKeypad ? 20 : 32, weight: .semibold))
-                    .foregroundColor(.mdText)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, showingKeypad ? 0 : 22)
-                if !showingKeypad,
-                   call.displayName != call.remoteNumber,
-                   !call.remoteNumber.isEmpty {
-                    Text(call.remoteNumber)
-                        .font(.title3)
-                        .foregroundColor(.mdMuted)
-                        .padding(.top, 5)
-                }
-                Text(stateText)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundColor(.mdMuted)
-                    .padding(.top, 10)
-
-                Spacer()
-
-                if showingKeypad && isActive && canSendDTMF {
-                    ModemDeckInCallKeypad(
-                        pressedDigits: dtmfDigits,
-                        action: sendDTMF
-                    )
-                } else if isActive {
-                    if call.testAudio { testAudioFeedback.padding(.bottom, 20) }
-                    HStack(alignment: .top, spacing: 40) {
-                        ModemDeckCallControl(
-                            title: call.muted
-                                ? controller.text("取消静音", "Unmute")
-                                : controller.text("静音", "Mute"),
-                            icon: call.muted ? "mic.slash.fill" : "mic.fill",
-                            selected: call.muted,
-                            disabled: callController.muteBusy
-                        ) {
-                            Task { await callController.setMuted(!call.muted) }
+            collapseHeader
+            GeometryReader { available in
+                ScrollView {
+                    VStack(spacing: 24) {
+                        callIdentity
+                        if !isIncomingRinging && !isEnded {
+                            if call.testAudio && isActive { testAudioFeedback }
+                            auxiliaryControls
+                            if showingKeypad && isActive && canSendDTMF {
+                                ModemDeckInCallKeypad(pressedDigits: dtmfDigits, action: sendDTMF)
+                            }
                         }
-                        audioRouteControl
+                        ModemDeckInlineError(message: callController.errorMessage)
+                        if !isEnded { ModemDeckInlineError(message: audioRoute.errorMessage) }
+                        if let endedCall, !endedCall.failureMessage.isEmpty { ModemDeckInlineError(message: endedCall.failureMessage) }
                     }
-                }
-
-                ModemDeckInlineError(message: callController.errorMessage)
                     .foregroundColor(.mdText)
-                    .padding(.horizontal)
-                ModemDeckInlineError(message: audioRoute.errorMessage)
-
-                callFooter
-                    .padding(.top, 34)
-                    .padding(.bottom, 46)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, minHeight: available.size.height)
+                }
             }
-            .frame(maxWidth: 640)
-            .padding(.horizontal, 24)
-            .offset(y: collapseOffset)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: collapseOffset == 0)
-            .accessibilityAction(.escape, collapse)
+            callFooter
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+        }
+        .frame(maxWidth: 640)
+        .padding(.horizontal, 24)
+        .offset(y: collapseOffset)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: collapseOffset == 0)
+        .accessibilityAction(.escape, collapse)
     }
 
-    @ViewBuilder
-    private var callFooter: some View {
-        HStack(alignment: .top, spacing: 26) {
-            if !call.testCall {
-                ModemDeckCallFooterAction(
-                    title: recordingTitle,
-                    icon: callController.recordingEnabled ? "stop.fill" : "circle.fill",
-                    color: callController.recordingEnabled ? .red : .mdSurfaceHover,
-                    selected: callController.recordingEnabled,
-                    disabled: !callController.recordingReady ||
-                        callController.recordingBusy ||
-                        callController.busy
-                ) {
-                    Task { await callController.toggleRecording() }
-                }
-            } else {
-                Color.clear.frame(width: 62, height: 80)
+    private var callIdentity: some View {
+        VStack(spacing: 10) {
+            if !showingKeypad {
+                Image(systemName: call.testCall ? "checkmark.shield.fill" : "person.crop.circle.fill")
+                    .font(.system(size: 76))
+                    .accessibilityHidden(true)
             }
+            Text(call.displayName.isEmpty ? call.remoteNumber : call.displayName)
+                .font(showingKeypad ? .title3.weight(.semibold) : .largeTitle.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if !showingKeypad, call.displayName != call.remoteNumber, !call.remoteNumber.isEmpty {
+                Text(call.remoteNumber).font(.title3).foregroundColor(.mdMuted)
+                    .multilineTextAlignment(.center)
+            }
+            Text(stateText).font(.subheadline.weight(.medium)).foregroundColor(.mdMuted)
+                .accessibilityIdentifier(isEnded ? "call-ended-status" : "call-status")
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if !isEnded && !isActive && call.direction == "outgoing" && !call.testCall {
+                Text(callController.recordingReady
+                    ? controller.text(callController.recordingEnabled ? "录音已开启" : "录音已关闭", callController.recordingEnabled ? "Recording on" : "Recording off")
+                    : controller.text("正在读取录音设置…", "Loading recording setting…"))
+                    .font(.caption).foregroundColor(.mdMuted)
+                    .accessibilityIdentifier("call-recording-status")
+            }
+            if let elapsed = endedCall?.elapsedSeconds {
+                Text(controller.text("通话时长 ", "Duration ") + ModemDeckDateText.duration(elapsed))
+                    .font(.subheadline).monospacedDigit().foregroundColor(.mdMuted)
+                    .accessibilityIdentifier("call-ended-duration")
+            } else if !isEnded, let activeAt = call.activeAt, let date = ModemDeckDateText.date(activeAt) {
+                Text(date, style: .timer).font(.subheadline).monospacedDigit().foregroundColor(.mdMuted)
+            }
+        }
+    }
 
-            if isRinging && call.direction == "incoming" {
-                ModemDeckCallFooterAction(
-                    title: controller.text("拒绝", "Decline"),
-                    icon: "phone.down.fill",
-                    color: .red,
-                    primary: true,
-                    disabled: callController.ending || !canReject
+    private var auxiliaryControls: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
+            if isActive {
+                ModemDeckCallControl(
+                    title: call.muted ? controller.text("取消静音", "Unmute") : controller.text("静音", "Mute"),
+                    icon: call.muted ? "mic.slash.fill" : "mic.fill",
+                    selected: call.muted,
+                    disabled: callController.muteBusy
                 ) {
-                    Task { await callController.end() }
+                    Task { await callController.setMuted(!call.muted) }
                 }
-                ModemDeckCallFooterAction(
-                    title: controller.text("接听", "Answer"),
-                    icon: "phone.fill",
-                    color: .green,
-                    primary: true,
-                    disabled: callController.busy || callController.ending || !canAnswer
-                ) {
-                    Task { await callController.answer() }
-                }
-            } else {
-                ModemDeckCallFooterAction(
-                    title: controller.text("挂断", "End"),
-                    icon: "phone.down.fill",
-                    color: .red,
-                    primary: true,
-                    disabled: callController.ending || !canHangup
-                ) {
-                    Task { await callController.end() }
-                }
-                if isActive && !call.testCall {
-                    ModemDeckCallFooterAction(
-                        title: showingKeypad
-                            ? controller.text("隐藏键盘", "Hide Keypad")
-                            : controller.text("键盘", "Keypad"),
+                .accessibilityIdentifier("call-mute")
+                audioRouteControl
+            }
+            if !call.testCall {
+                if isActive {
+                    ModemDeckCallControl(
+                        title: recordingTitle,
+                        icon: callController.recordingEnabled ? "stop.fill" : "circle.fill",
+                        selected: callController.recordingEnabled,
+                        selectedColor: .red,
+                        disabled: !callController.recordingReady || callController.recordingBusy || callController.busy
+                    ) {
+                        Task { await callController.toggleRecording() }
+                    }
+                    .accessibilityIdentifier("call-recording")
+                    ModemDeckCallControl(
+                        title: showingKeypad ? controller.text("隐藏键盘", "Hide Keypad") : controller.text("键盘", "Keypad"),
                         icon: "circle.grid.3x3.fill",
-                        color: showingKeypad ? .mdAccent : .mdSurfaceHover,
                         selected: showingKeypad,
                         disabled: !canSendDTMF
                     ) {
-                        if reduceMotion {
-                            showingKeypad.toggle()
-                        } else {
-                            withAnimation(.easeOut(duration: 0.18)) {
-                                showingKeypad.toggle()
-                            }
-                        }
+                        if reduceMotion { showingKeypad.toggle() }
+                        else { withAnimation(.easeOut(duration: 0.18)) { showingKeypad.toggle() } }
                     }
-                } else {
-                    Color.clear.frame(width: 62, height: 80)
+                    .accessibilityIdentifier("call-keypad")
                 }
             }
         }
-        .frame(width: 238)
+        .frame(maxWidth: 280)
+    }
+
+    private var callFooter: some View {
+        // The incoming targets sit outside the centered end-call target, so a
+        // second tap at Answer's position cannot immediately end the call.
+        HStack(alignment: .top, spacing: 84) {
+            if isEnded {
+                ModemDeckCallPrimaryAction(title: controller.text("完成", "Done"), icon: "xmark", color: .mdAccent) {
+                    callController.closeEndedCall()
+                }
+                .accessibilityIdentifier("call-ended-done")
+            } else if isIncomingRinging {
+                ModemDeckCallPrimaryAction(
+                    title: callController.ending ? controller.text("正在结束…", "Ending…") : controller.text("拒绝", "Decline"), icon: "phone.down.fill", color: .red,
+                    busy: callController.ending, disabled: callController.ending || !canReject
+                ) { Task { await callController.end() } }
+                .accessibilityIdentifier("call-decline")
+                ModemDeckCallPrimaryAction(
+                    title: controller.text("接听", "Answer"), icon: "phone.fill", color: .green,
+                    disabled: callController.busy || callController.ending || !canAnswer
+                ) { Task { await callController.answer() } }
+                .accessibilityIdentifier("call-answer")
+            } else {
+                ModemDeckCallPrimaryAction(
+                    title: callController.ending ? controller.text("正在结束…", "Ending…") : controller.text("挂断", "End"), icon: "phone.down.fill", color: .red,
+                    busy: callController.ending, disabled: callController.ending || !canHangup
+                ) { Task { await callController.end() } }
+                .accessibilityIdentifier("call-end")
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 98, alignment: .top)
     }
 
     private func sendDTMF(_ digit: String) {
@@ -2347,8 +2385,11 @@ struct ModemDeckActiveCallView: View {
     }
 
     private var stateText: String {
+        if let endedCall { return controller.text(endedCall.message.chinese, endedCall.message.english) }
+        if callController.ending { return controller.text("正在结束…", "Ending…") }
         if call.mediaState == "reconnecting" { return controller.text("正在恢复音频连接…", "Reconnecting audio…") }
         if call.mediaState == "waiting_for_audio" { return controller.text("等待系统启用音频…", "Waiting for system audio…") }
+        if call.state == "ringing-out" { return controller.text("对方振铃中…", "Ringing…") }
         if call.testCall {
             if call.state == "connecting" { return controller.text("正在连接测试音频…", "Connecting test audio…") }
             if isActive && call.testAudio {
@@ -2481,35 +2522,37 @@ private struct ModemDeckCallFooterStyle: ButtonStyle {
     }
 }
 
-private struct ModemDeckCallFooterAction: View {
+private struct ModemDeckCallPrimaryAction: View {
     let title: String
     let icon: String
     let color: Color
-    var selected = false
-    var primary = false
+    var busy = false
     var disabled = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: primary ? 23 : 20, weight: .bold))
-                    .foregroundColor(primary ? .white : (selected ? .mdOnAccent : .mdText))
-                    .frame(width: primary ? 62 : 48, height: primary ? 62 : 48)
+            VStack(spacing: 8) {
+                Group {
+                    if busy { ProgressView().tint(.white) }
+                    else { Image(systemName: icon) }
+                }
+                    .font(.system(size: 23, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 62, height: 62)
                     .background(color)
                     .clipShape(Circle())
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(selected ? .mdAccent : .mdMuted)
-                    .lineLimit(1)
+                Text(title).font(.caption.weight(.medium)).foregroundColor(.mdMuted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(width: 62)
-            .frame(minHeight: 80, alignment: .top)
+            .frame(width: 76)
+            .frame(minHeight: 88, alignment: .top)
+            .contentShape(Rectangle())
         }
         .buttonStyle(ModemDeckCallFooterStyle())
         .disabled(disabled)
-        .opacity(disabled ? 0.5 : 1)
+        .opacity(disabled && !busy ? 0.5 : 1)
     }
 }
 

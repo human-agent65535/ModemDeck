@@ -1,89 +1,179 @@
+import createAudioCore from './audioCore.mjs'
+import type { AudioCoreModule } from './audioCore.ts'
+
 declare const sampleRate: number
 declare const currentTime: number
 declare class AudioWorkletProcessor {
   readonly port: MessagePort
   constructor()
 }
-declare function registerProcessor(name: string, processor: typeof AudioWorkletProcessor): void
+declare function registerProcessor(name: string, processor: new (options: AudioWorkletNodeOptions) => AudioWorkletProcessor): void
 
-// One worklet owns capture framing and bounded playback, at the device's native
-// sample rate. Web Audio handles AEC/AGC/NS on the getUserMedia capture stream.
+type AudioMessage = {
+  type: string
+  epoch: number
+  nowUs: number
+  contextTime: number
+  sequence?: number
+  timestamp: number
+  payload: Uint8Array
+  enabled?: boolean
+}
+
+// One rendering owner runs the real shared NetEq receiver and Opus encoder.
+// Only transport packets cross MessagePort; there is no second PCM jitter queue.
 class CallAudioProcessor extends AudioWorkletProcessor {
-  private capture = new Float32Array(320)
+  private readonly core: AudioCoreModule
+  private receiver = 0
+  private encoder = 0
+  private readonly input: number
+  private readonly encoded: number
+  private readonly output: number
+  private readonly packet: number
+  private readonly stats: number
+  private readonly statsView: DataView
+  private ringback = false
+  private ringbackStart = 0
+  private earlyMedia = false
+  private hasRemotePacket = false
+  private healthFrames = 0
+  private captureEnergy = 0
+  private captureSamples = 0
+  private epoch = 0
+  private active = false
+  private failed = false
   private captureSize = 0
-  private captureIndex = 0
-  private capturePhase = 0
-  private previousInput = 0
-  private playback = new Float32Array(1600)
-  private playbackHead = 0
-  private playbackSize = 0
-  private playbackPhase = 0
-  private playing = false
+  private sequence = 0
+  private pendingSends = 0
+  private originUs = 0
+  private originContextTime = 0
 
-  constructor() {
+  constructor(options: AudioWorkletNodeOptions) {
     super()
-    this.port.onmessage = ({ data }: MessageEvent<{ type: string; pcm?: Float32Array; sentAt?: number }>) => {
-      if (data.type === 'clear') {
-        this.playbackHead = 0
-        this.playbackSize = 0
-        this.playbackPhase = 0
-        this.playing = false
-      } else if (data.type === 'play' && data.pcm && currentTime - (data.sentAt ?? currentTime) <= 0.1) {
-        // A fixed ring avoids allocation/copying on the realtime audio thread.
-        // Latest audio wins after a stall, with at most 100 ms queued.
-        for (const sample of data.pcm) {
-          if (this.playbackSize === this.playback.length) {
-            this.playbackHead = (this.playbackHead + 1) % this.playback.length
-            this.playbackSize -= 1
-            this.playbackPhase = 0
+    // The supported synchronous wasmBinary entry compiles during setup. No
+    // fetch, compile, allocation of PCM blocks or decoder creation in process.
+    if (sampleRate !== 48000) throw new Error('Call audio requires a 48 kHz AudioContext')
+    this.core = createAudioCore({ locateFile: name => name, wasmBinary: options.processorOptions.wasmBinary as ArrayBuffer, print() {}, printErr() {} })
+    this.input = this.core._malloc(960 * 4)
+    this.encoded = this.core._malloc(1275)
+    this.output = this.core._malloc(2048 * 4)
+    this.packet = this.core._malloc(1275)
+    this.stats = this.core._malloc(256)
+    this.statsView = new DataView(this.core.HEAPU8.buffer, this.stats, 136)
+    if (!this.input || !this.encoded || !this.output || !this.packet || !this.stats) throw new Error('Call audio allocation failed')
+    this.port.onmessage = ({ data }: MessageEvent<AudioMessage>) => {
+      try {
+        if (data.type === 'activate') {
+          this.deactivate()
+          this.epoch = data.epoch
+          this.originUs = data.nowUs
+          this.originContextTime = data.contextTime
+          if (data.sequence !== undefined) this.sequence = data.sequence >>> 0
+          this.receiver = this.core._md_neteq_create(sampleRate)
+          this.encoder = this.core._md_opus_encoder_create(48000, 1)
+          if (!this.receiver || !this.encoder) throw new Error('Call audio initialization failed')
+          this.failed = false
+          this.active = true
+        } else if (data.type === 'deactivate') {
+          this.deactivate()
+          this.epoch = data.epoch
+        } else if (data.epoch === this.epoch && this.active) {
+          if (data.type === 'ringback') {
+            if (data.enabled && !this.ringback) this.ringbackStart = currentTime
+            this.ringback = Boolean(data.enabled)
+          } else if (data.type === 'stats') {
+            if (this.core._md_neteq_get_stats(this.receiver, this.stats) !== 0) throw new Error('Call audio stats failed')
+            // Copy the C ABI snapshot; never transfer the Wasm heap.
+            this.port.postMessage({ type: 'stats', epoch: this.epoch, snapshot: this.core.HEAPU8.slice(this.stats, this.stats + 136) })
+          } else if (data.type === 'ack') this.pendingSends = Math.max(0, this.pendingSends - 1)
+          else if (data.type === 'packet') {
+            if (!data.payload?.length || data.payload.length > 1275) throw new Error('Invalid Opus packet')
+            this.core.HEAPU8.set(data.payload, this.packet)
+            const result = this.core._md_neteq_enqueue(this.receiver, this.packet, data.payload.length,
+              (data.sequence ?? 0) & 0xffff, (data.timestamp * 3) >>> 0, BigInt(Math.round(data.nowUs)))
+            if (result !== 0) throw new Error(result === -5 ? 'Call audio ingress backpressure' : 'Invalid call audio packet')
+            this.hasRemotePacket = true
+            this.port.postMessage({ type: 'received', epoch: this.epoch })
           }
-          this.playback[(this.playbackHead + this.playbackSize) % this.playback.length] = sample
-          this.playbackSize += 1
         }
-      }
+      } catch (error) { this.fail(error) }
     }
+    this.port.postMessage({ type: 'ready', ingressCapacity: this.core._md_audio_ingress_capacity(),
+      sendCapacity: this.core._md_audio_send_capacity(), memoryBytes: this.core.HEAPU8.buffer.byteLength,
+      shared: typeof SharedArrayBuffer !== 'undefined' && this.core.HEAPU8.buffer instanceof SharedArrayBuffer,
+      initializationTime: currentTime })
+  }
+
+  private deactivate(): void {
+    this.active = false
+    this.ringback = this.earlyMedia = this.hasRemotePacket = false
+    if (this.receiver) this.core._md_neteq_destroy(this.receiver)
+    if (this.encoder) this.core._md_opus_encoder_destroy(this.encoder)
+    this.receiver = this.encoder = 0
+    this.captureSize = this.pendingSends = this.healthFrames = 0
+    this.captureEnergy = this.captureSamples = 0
+  }
+
+  private fail(error: unknown): void {
+    if (this.failed) return
+    this.failed = true
+    this.deactivate()
+    this.port.postMessage({ type: 'error', epoch: this.epoch, message: String(error) })
   }
 
   process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const output = outputs[0]?.[0]
     if (!output) return true
-    const input = inputs[0]?.[0]
-    const ratio = 16000 / sampleRate
-    for (let i = 0; i < output.length; i += 1) {
-      const value = input?.[i] ?? 0
-      this.capturePhase += ratio
-      while (this.capturePhase >= 1) {
-        this.capturePhase -= 1
-        const fraction = 1 - this.capturePhase / ratio
-        this.capture[this.captureSize++] = this.previousInput + (value - this.previousInput) * fraction
-        if (this.captureSize === 320) {
-          const pcm = this.capture
-          this.port.postMessage({ type: 'capture', pcm, index: this.captureIndex++, time: currentTime }, [pcm.buffer])
-          this.capture = new Float32Array(320)
+    output.fill(0)
+    if (!this.active) return true
+    try {
+      if (output.length > 2048) throw new Error('Unsupported audio render quantum')
+      const nowUs = this.originUs + (currentTime - this.originContextTime) * 1e6
+      const result = this.core._md_neteq_render_float(this.receiver, BigInt(Math.round(nowUs)), this.output, output.length)
+      if (result !== output.length) throw new Error('Call audio render failed')
+      output.set(this.core.HEAPF32.subarray(this.output >> 2, (this.output >> 2) + output.length))
+      // The modem can send digital silence while alerting. Only audible
+      // remote output suppresses local ringback, through the same NetEq owner.
+      if (this.hasRemotePacket && !this.earlyMedia) {
+        for (let i = 0; i < output.length; i += 1) {
+          if (Math.abs(output[i] ?? 0) > 0.003) { this.earlyMedia = true; break }
+        }
+      }
+      // Ringback shares this renderer and output route; remote early media wins.
+      if (this.ringback && !this.earlyMedia) {
+        for (let i = 0; i < output.length; i += 1) {
+          const time = currentTime + i / sampleRate - this.ringbackStart
+          if (time % 6 < 2) output[i] = (output[i] ?? 0) + 0.08 * (Math.sin(2 * Math.PI * 440 * time) + Math.sin(2 * Math.PI * 480 * time))
+        }
+      }
+      this.healthFrames += output.length
+      if (this.healthFrames >= sampleRate / 10) {
+        this.healthFrames %= sampleRate / 10
+        if (this.core._md_neteq_get_stats(this.receiver, this.stats) !== 0) throw new Error('Call audio stats failed')
+        this.port.postMessage({ type: 'health', epoch: this.epoch,
+          captureRMS: this.captureSamples ? Math.sqrt(this.captureEnergy / this.captureSamples) : 0,
+          realOutputSamples: Number(this.statsView.getBigUint64(104, true)),
+          lastRealRenderUs: Number(this.statsView.getBigUint64(112, true)),
+          renderErrors: Number(this.statsView.getBigUint64(120, true)) })
+        this.captureEnergy = this.captureSamples = 0
+      }
+      const input = inputs[0]?.[0]
+      for (let i = 0; i < output.length; i += 1) {
+        const sample = input?.[i] ?? 0
+        this.captureEnergy += sample * sample
+        this.captureSamples += 1
+        this.core.HEAPF32[(this.input >> 2) + this.captureSize++] = sample
+        if (this.captureSize === 960) {
+          if (this.pendingSends >= this.core._md_audio_send_capacity()) throw new Error('Call audio sender backpressure')
+          const size = this.core._md_opus_encode_float(this.encoder, this.input, 960, this.encoded, 1275)
+          if (size <= 0) throw new Error('Call audio encoding failed')
+          const payload = this.core.HEAPU8.slice(this.encoded, this.encoded + size)
+          this.port.postMessage({ type: 'encoded', epoch: this.epoch, sequence: this.sequence++, captureTime: currentTime + (i + 1) / sampleRate, payload }, [payload.buffer])
+          this.pendingSends += 1
           this.captureSize = 0
         }
       }
-      this.previousInput = value
-
-      // A 40 ms prebuffer absorbs network/worker scheduling jitter. Underrun
-      // emits silence and starts a new short prebuffer instead of growing delay.
-      if (!this.playing && this.playbackSize >= 640) this.playing = true
-      if (this.playing && this.playbackSize >= 2) {
-        const first = this.playback[this.playbackHead] ?? 0
-        const second = this.playback[(this.playbackHead + 1) % this.playback.length] ?? 0
-        output[i] = first + (second - first) * this.playbackPhase
-        this.playbackPhase += ratio
-        if (this.playbackPhase >= 1) {
-          const count = Math.floor(this.playbackPhase)
-          this.playbackHead = (this.playbackHead + count) % this.playback.length
-          this.playbackSize -= count
-          this.playbackPhase -= count
-        }
-      } else {
-        output[i] = 0
-        this.playing = false
-      }
-    }
+    } catch (error) { this.fail(error) }
     return true
   }
 }

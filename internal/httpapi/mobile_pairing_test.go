@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -185,14 +183,6 @@ func TestExternalAccessStatusReportsInstallationAndConnectorState(t *testing.T) 
 				TLSVerification:   true,
 			}},
 		}},
-		RTCConfiguration: &fakeRTCConfigurationProvider{
-			configuration: rtcconfig.Configuration{
-				ICEServers: []rtcconfig.ICEServer{{
-					URLs: []string{"turns:turn.example.test:443"},
-				}},
-				RelayOnly: true,
-			},
-		},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -216,46 +206,8 @@ func TestExternalAccessStatusReportsInstallationAndConnectorState(t *testing.T) 
 		len(body.Cloudflare.APIURLs) != 1 ||
 		len(body.Cloudflare.WebURLs) != 1 ||
 		len(body.Cloudflare.OriginRoutes) != 1 ||
-		body.Cloudflare.OriginRoutes[0].HTTP2 ||
-		!body.TURN.Configured ||
-		!body.TURN.Available {
+		body.Cloudflare.OriginRoutes[0].HTTP2 {
 		t.Fatalf("external access = %+v", body)
-	}
-}
-
-func TestExternalAccessStatusReportsUnavailableTURN(t *testing.T) {
-	t.Parallel()
-
-	repository := &fakeMobilePairingRepository{
-		fakeRepository: &fakeRepository{},
-		pairing:        store.IOSPairingStatus{Allowed: true},
-	}
-	api, err := New(repository, Options{
-		disableAuthentication: true,
-		MobilePairing: fakeMobilePairingAvailability{
-			status: mobilepairing.CloudflareStatus{Enabled: true},
-		},
-		RTCConfiguration: &fakeRTCConfigurationProvider{
-			err: errors.New("TURN provider unavailable"),
-		},
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	response := httptest.NewRecorder()
-	api.ServeHTTP(
-		response,
-		httptest.NewRequest(http.MethodGet, "/api/v1/external-access/status", nil),
-	)
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
-	}
-	var body externalAccessStatusResponse
-	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if !body.TURN.Configured || body.TURN.Available {
-		t.Fatalf("TURN status = %+v", body.TURN)
 	}
 }
 

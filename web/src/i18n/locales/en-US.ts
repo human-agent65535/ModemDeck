@@ -549,12 +549,6 @@ export default {
       'At least one HTTPS route has No TLS Verify turned on, so its origin certificate is not verified. Turn it off.',
     tunnelPublicVerificationFailed:
       'The Tunnel Connector is healthy, but the public API has not verified this instance. The route may still be syncing, or its certificate or SNI configuration may be incorrect.',
-    turnTitle: "TURN relay (legacy clients)",
-    turnNotConfigured: 'Not configured',
-    turnAvailable: 'Available',
-    turnUnavailable: 'Unavailable',
-    turnCallUnavailable:
-      "TURN is only used by older clients. Current Web and iOS calls use WSS over HTTPS.",
     cloudflareRequired:
       'Enable Cloudflare Tunnel through the installer before pairing iOS.',
     cloudflareUnavailable:
@@ -692,6 +686,10 @@ export default {
     inCall: 'In call',
     ending: 'Ending call',
     ended: 'Call ended',
+    cancelled: "Call cancelled",
+    declined: "Call declined",
+    missedIncoming: "Missed call",
+    notConnected: "Not connected",
     failed: 'Call failed',
     lineInUse: 'Line in use',
     lineInUseDescription: 'This call is controlled by another signed-in session',
@@ -778,6 +776,8 @@ export default {
     detailPlaceholder: 'Call details will appear here'
   },
   dialer: {
+    recordingEnabled: 'Call recording on',
+    recordingDisabled: 'Call recording off',
     title: 'Dial',
     line: 'Calling line',
     lineUnsupported: 'Calling unsupported',
@@ -1190,7 +1190,7 @@ export default {
     failedLineCount: '{failed}/{total} failed',
     failureReason: 'Failure reason',
     httpsRequired: 'Requires a secure HTTPS context',
-    webrtcUnsupported: "This browser does not support microphone audio processing",
+    audioProcessingUnsupported: "This browser does not support microphone audio processing",
     microphonePermissionWaiting: 'Waiting for microphone permission',
     microphonePermissionRequesting: 'Requesting microphone permission',
     audioAuthorized: 'Authorized · {inputs} inputs · {outputs} outputs',
@@ -1585,8 +1585,6 @@ export default {
     microphoneTestFailed: 'Microphone test failed',
     microphoneHTTPSRequired: 'Microphone access requires HTTPS',
     callAudioFailed: 'Unable to establish call audio',
-    externalCallTURNUnavailable:
-      'TURN is unavailable. Cloudflare Web calling is unavailable.',
     audioNegotiationTimeout: 'Browser audio negotiation timed out',
     callAudioDisconnected: 'Call audio disconnected',
     callAudioConnectionFailed: 'Call audio connection failed',

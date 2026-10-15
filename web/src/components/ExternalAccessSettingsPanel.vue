@@ -8,7 +8,6 @@ import {
   LoaderCircle,
   PhoneIncoming,
   QrCode,
-  RadioTower,
   RefreshCw,
   ShieldCheck,
   Smartphone,
@@ -623,41 +622,7 @@ onBeforeUnmount(() => {
         @updated="applyOriginTLSStatus"
       />
 
-      <SettingsModuleCard
-        v-if="showConnectivity && externalAccess"
-        class="ios-card"
-        :title="t('iosPairing.turnTitle')"
-        title-id="external-turn-title"
-        surface="subtle"
-        :heading-level="headingLevel"
-        :has-body="!externalAccess.turn.available"
-      >
-        <template #icon>
-          <RadioTower :size="19" />
-        </template>
-        <template #status>
-          <span
-            class="ios-status"
-            :class="{
-              'is-active': externalAccess.turn.available
-            }"
-          >
-            {{
-              !externalAccess.turn.configured
-                ? t('iosPairing.turnNotConfigured')
-                : externalAccess.turn.available
-                  ? t('iosPairing.turnAvailable')
-                  : t('iosPairing.turnUnavailable')
-            }}
-          </span>
-        </template>
-        <div
-          v-if="!externalAccess.turn.available"
-          class="ios-notice"
-        >
-          {{ t('iosPairing.turnCallUnavailable') }}
-        </div>
-      </SettingsModuleCard>
+
 
       <SettingsModuleCard
         v-if="showPairing && pairing"

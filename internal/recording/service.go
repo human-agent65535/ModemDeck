@@ -200,7 +200,7 @@ func (s *Service) SetEnabled(
 		return store.CallRecordingState{}, ErrCallNotActive
 	}
 	switch call.Phase {
-	case "dialing", "ringing", "connecting", "active":
+	case "dialing", "ringing-out", "ringing", "connecting", "active":
 	default:
 		return store.CallRecordingState{}, ErrCallNotActive
 	}

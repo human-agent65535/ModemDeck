@@ -28,7 +28,7 @@ test('one tab exclusively owns browser call media', () => {
   )
   assert.match(
     callMedia,
-    /gateway[\s\S]*?\.releaseCallMedia\(callID, ownership\.ownerToken\)/
+    /gateway[\s\S]*?\.releaseCallMedia\(ownership.releaseCallID \|\| callID, ownership\.ownerToken\)/
   )
 })
 

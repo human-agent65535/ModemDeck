@@ -23,18 +23,20 @@ test('runtime state applies active recording truth without another request', asy
   assert.doesNotMatch(runtime, /refreshRecordingWorkspace\(false\)/)
 })
 
-test('the active call surface shows each recording segment and its live duration', async () => {
-  const surface = await source('../src/components/CallSurface.vue')
+test('pre-connect recording is read-only and active calls keep recording controls without live segments', async () => {
+  const [surface, dialer, history, recordings] = await Promise.all([
+    source('../src/components/CallSurface.vue'),
+    source('../src/components/DialerPanel.vue'),
+    source('../src/components/CallHistoryListItem.vue'),
+    source('../src/components/RecordingList.vue')
+  ])
 
-  assert.match(surface, /callRecordingState\.segments/)
-  assert.match(surface, /segment\.segment_index/)
-  assert.match(surface, /recordingSegmentDuration\(segment\)/)
-  assert.match(surface, /isActiveRecordingSegment\(segment\)/)
-  assert.match(surface, /callRecordingState\.recordingStatus === 'recording'/)
-  assert.match(surface, /t\('calls\.recordingPending'\)/)
-  assert.match(surface, /t\('calls\.recordingFailed'\)/)
-  assert.match(surface, /class="call-surface__recording-segments"/)
-  assert.match(surface, /<AudioLines :size="14"/)
-  assert.match(surface, /<Circle v-else :size="20" fill="currentColor"/)
-  assert.doesNotMatch(surface, /CassetteTape/)
+  assert.doesNotMatch(surface, /recordingSegments|call-surface__recording-segments|CallRecordingSegment|AudioLines/)
+  assert.match(surface, /const recordingAdjustable = computed\(\(\) => !isTestCall\.value && active\.value && owned\.value && !occupied\.value\)/)
+  assert.match(surface, /callState\.outgoingRecordingEnabled/)
+  assert.match(surface, /<p v-if="recordingLabel" class="call-surface__recording" role="status">/)
+  assert.match(surface, /void setCallRecordingEnabled\(!callRecordingState\.enabled\)/)
+  assert.match(dialer, /dialer-recording-note/)
+  assert.match(history, /AudioLines/)
+  assert.match(recordings, /<RecordingPlayer/)
 })

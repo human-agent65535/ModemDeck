@@ -1461,11 +1461,17 @@ func upsertHardwareCall(
 	activeAt := any(nil)
 	endedAt := any(nil)
 	endReason := ""
-	if call.Phase == "active" {
+	if !call.ConnectedAt.IsZero() && !call.ConnectedAt.After(call.ObservedAt) &&
+		(call.TerminatedAt.IsZero() || !call.ConnectedAt.After(call.TerminatedAt)) {
+		activeAt = databaseTime(call.ConnectedAt)
+	} else if call.Phase == "active" {
 		activeAt = observed
 	}
 	if call.Phase == "ended" || call.Phase == "failed" {
 		endedAt = observed
+		if !call.TerminatedAt.IsZero() && !call.TerminatedAt.After(call.ObservedAt) {
+			endedAt = databaseTime(call.TerminatedAt)
+		}
 		endReason = call.StateReason
 		if endReason == "" {
 			endReason = "unknown"

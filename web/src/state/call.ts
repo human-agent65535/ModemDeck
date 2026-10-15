@@ -22,6 +22,9 @@ import {
 import { closeDialer, showCallSurface } from './ui'
 import {
   retryCallMedia,
+  prepareOutgoingCallMedia,
+  adoptPreparedCallMedia,
+  preparedCallMediaIsReady,
   shutdownCallMedia,
   syncCallMedia
 } from './callMedia'
@@ -30,14 +33,33 @@ import { preferredCallRecording, syncCallRecording } from './recording'
 const TERMINAL_PHASES = new Set<CallSession['phase']>(['ended', 'failed'])
 const LEASED_PHASES = new Set<CallSession['phase']>([
   'dialing',
+  'ringing-out',
   'ringing',
   'connecting',
   'active'
 ])
 const CALL_LEASE_HEARTBEAT_MS = 5_000
 const NOTIFIED_CALL_HISTORY_LIMIT = 256
+const ENDED_PRESENTATION_MS = 1000
 
 type PendingCallAction = '' | 'dial' | CallAction | 'dtmf'
+
+let outgoingPreparation: { id: string; cancelled: boolean; timer?: number; generation: number } | undefined
+let outgoingGeneration = 0
+
+export async function cancelOutgoingPreparation(): Promise<void> {
+  const preparation = outgoingPreparation
+  if (!preparation) return
+  preparation.cancelled = true
+  mutationEpoch += 1
+  outgoingGeneration += 1
+  if (preparation.timer !== undefined) window.clearInterval(preparation.timer)
+  shutdownCallMedia()
+  if (callState.session?.id === preparation.id) presentEndedSession(callState.session)
+  callState.busy = false
+  callState.pendingAction = ''
+  if (preparation.id) await gateway.cancelCallPreparation(preparation.id)
+}
 
 let runtimeStarted = false
 let activeCallRefreshRequested = false
@@ -49,6 +71,10 @@ let callLeaseRenewalCallID = ''
 let callLeaseRenewalGeneration = 0
 let callLeaseHeartbeatTimer: number | undefined
 const notifiedIncomingCallIDs = new Set<string>()
+let presentationGeneration = 0
+let presentationTimer: ReturnType<typeof setTimeout> | undefined
+let actionGeneration = 0
+let endingIntent: { callID: string; action: 'reject' | 'hangup' } | undefined
 
 export const callState = reactive<{
   sessions: CallSession[]
@@ -56,9 +82,11 @@ export const callState = reactive<{
   selectedCallID: string
   session: CallSession | null
   owned: boolean
+  endReason: '' | 'cancelled' | 'declined' | 'missedIncoming' | 'notConnected'
   dtmfDigits: string
   busy: boolean
   pendingAction: PendingCallAction
+  outgoingRecordingEnabled: boolean | undefined
   error: string
   errorStatus: number
   syncStatus: ResourceStatus
@@ -69,9 +97,11 @@ export const callState = reactive<{
   selectedCallID: '',
   session: null,
   owned: false,
+  endReason: '',
   dtmfDigits: '',
   busy: false,
   pendingAction: '',
+  outgoingRecordingEnabled: undefined,
   error: '',
   errorStatus: 0,
   syncStatus: 'idle',
@@ -191,7 +221,47 @@ function ownedSession(): CallSession | null {
   )
 }
 
+function cancelPresentationTimer(): void {
+  presentationGeneration += 1
+  if (presentationTimer !== undefined) clearTimeout(presentationTimer)
+  presentationTimer = undefined
+}
+
+function presentEndedSession(previous: CallSession, confirmed?: CallSession): void {
+  if (!isLiveCallSession(previous)) return
+  cancelPresentationTimer()
+  const ended: CallSession = {
+    ...previous,
+    ...confirmed,
+    phase: confirmed?.phase === 'failed' ? 'failed' : 'ended',
+    ended_at: confirmed?.ended_at || new Date().toISOString(),
+    media_available: false
+  }
+  callState.session = ended
+  callState.owned = false
+  callState.endReason = ended.active_at || ended.phase === 'failed' ? ''
+    : endingIntent?.callID === ended.id
+      ? endingIntent.action === 'reject' ? 'declined' : 'cancelled'
+      : ended.direction === 'incoming' && previous.control_state === 'available' ? 'missedIncoming' : 'notConnected'
+  endingIntent = undefined
+  actionGeneration += 1
+  callState.busy = false
+  callState.pendingAction = ''
+  syncCallSounds(null)
+  syncCallMedia(null)
+  syncCallRecording(null)
+  if (ended.phase === 'failed') return
+  const generation = presentationGeneration
+  presentationTimer = setTimeout(() => {
+    if (generation !== presentationGeneration || callState.session?.id !== ended.id) return
+    clearForegroundSession()
+  }, ENDED_PRESENTATION_MS)
+}
+
 function clearForegroundSession(): void {
+  cancelPresentationTimer()
+  endingIntent = undefined
+  callState.endReason = ''
   callState.selectedCallID = ''
   callState.session = null
   callState.owned = false
@@ -212,7 +282,15 @@ function applyForegroundSession(session: CallSession): void {
     owned &&
     session.direction === 'incoming' &&
     session.phase === 'ringing'
+  cancelPresentationTimer()
+  callState.endReason = ''
   if (newCall) {
+    if (callState.busy && callState.pendingAction !== 'dial') {
+      actionGeneration += 1
+      endingIntent = undefined
+      callState.busy = false
+      callState.pendingAction = ''
+    }
     callState.dtmfDigits = ''
     callState.error = ''
     callState.errorStatus = 0
@@ -221,10 +299,9 @@ function applyForegroundSession(session: CallSession): void {
   callState.session = session
   callState.owned = owned
   if (newCall && (owned || incomingAvailable)) showCallSurface()
-  syncCallSounds(
-    (owned && !claimedIncomingRinging) || incomingAvailable ? session : null
-  )
-  syncCallMedia(owned ? session : null)
+  const ending = endingIntent?.callID === session.id
+  syncCallSounds(!ending && ((owned && !claimedIncomingRinging) || incomingAvailable) ? session : null)
+  syncCallMedia(owned && !ending ? session : null)
   syncCallRecording(owned || incomingAvailable ? session : null)
   if (owned) void renewActiveCallLease()
 }
@@ -234,17 +311,24 @@ function reconcileActiveSnapshot(
   preferredCallID = callState.selectedCallID
 ): void {
   const liveSessions = snapshot.calls.filter(isLiveCallSession)
+  if (outgoingPreparation && callState.session?.id === outgoingPreparation.id) {
+    callState.sessions = liveSessions
+    callState.reservations = snapshot.reservations.slice()
+    return
+  }
   callState.sessions = liveSessions
   callState.reservations = snapshot.reservations.slice()
   for (const session of liveSessions) showIncomingCallNotification(session)
 
   const foreground = selectForegroundSession(liveSessions, preferredCallID)
   if (foreground) applyForegroundSession(foreground)
-  else clearForegroundSession()
+  else if (callState.session && isLiveCallSession(callState.session)) {
+    presentEndedSession(callState.session, snapshot.calls.find(session => session.id === callState.session?.id))
+  }
 }
 
 export function acceptRuntimeActiveCalls(snapshot: ActiveCallSnapshot): void {
-  if (!runtimeStarted || callState.busy) return
+  if (!runtimeStarted) return
   mutationEpoch += 1
   reconcileActiveSnapshot(snapshot)
   callState.syncStatus = 'ready'
@@ -443,6 +527,11 @@ export function requestActiveCallRefresh(): Promise<void> {
 }
 
 export function shutdownCallRuntime(): void {
+  if (outgoingPreparation) void cancelOutgoingPreparation().catch(() => undefined)
+  cancelPresentationTimer()
+  endingIntent = undefined
+  actionGeneration += 1
+  callState.endReason = ''
   runtimeStarted = false
   activeCallRefreshRequested = false
   activeRouter = undefined
@@ -508,26 +597,67 @@ export async function dial(
   mutationEpoch += 1
   callState.busy = true
   callState.pendingAction = 'dial'
+  callState.outgoingRecordingEnabled = undefined
   callState.error = ''
   callState.errorStatus = 0
+  const preparation = { id: '', cancelled: false, generation: ++outgoingGeneration, timer: undefined as number | undefined }
+  outgoingPreparation = preparation
   try {
-    const session = await gateway.startCall(lineKey, number, recordingEnabled)
-    acceptSession(session)
+    const prepared = await gateway.prepareCall(lineKey, number, recordingEnabled)
+    preparation.id = prepared.preparation_id
+    if (preparation.cancelled || preparation.generation !== outgoingGeneration) {
+      await gateway.cancelCallPreparation(preparation.id)
+      return false
+    }
+    callState.outgoingRecordingEnabled = prepared.recording_enabled
+    const preview: CallSession = { id: preparation.id, line_id: lineKey, remote_number: number,
+      direction: 'outgoing', phase: 'dialing', control_state: 'owned', media_available: false,
+      created_at: new Date().toISOString() }
+    callState.session = preview
+    callState.owned = true
+    showCallSurface()
     closeDialer()
+    preparation.timer = window.setInterval(() => {
+      void gateway.renewCallPreparation(preparation.id).catch(() => {
+        if (outgoingPreparation === preparation) void cancelOutgoingPreparation().catch(() => undefined)
+      })
+    }, CALL_LEASE_HEARTBEAT_MS)
+    await prepareOutgoingCallMedia(prepared)
+    if (preparation.cancelled || preparation.generation !== outgoingGeneration) return false
+    if (!preparedCallMediaIsReady()) throw new Error(translate('runtime.callAudioFailed'))
+    const session = await gateway.commitCallPreparation(preparation.id)
+    if (preparation.cancelled || preparation.generation !== outgoingGeneration) {
+      await gateway.cancelCallPreparation(preparation.id)
+      return false
+    }
+    adoptPreparedCallMedia(session)
+    outgoingPreparation = undefined
+    acceptSession(session)
     return true
   } catch (error) {
+    if (outgoingPreparation === preparation) shutdownCallMedia()
+    if (preparation.id) await gateway.cancelCallPreparation(preparation.id).catch(() => undefined)
+    if (preparation.cancelled || preparation.generation !== outgoingGeneration) return false
     const failure = requestError(error, translate('runtime.dialFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
-    await requestActiveCallRefresh()
+    if (callState.session?.id === preparation.id) presentEndedSession(callState.session, { ...callState.session, phase: 'failed', failure_reason: failure.message })
     return false
   } finally {
-    callState.busy = false
-    callState.pendingAction = ''
+    if (preparation.timer !== undefined) window.clearInterval(preparation.timer)
+    if (outgoingPreparation === preparation) outgoingPreparation = undefined
+    if (preparation.generation === outgoingGeneration) {
+      callState.busy = false
+      callState.pendingAction = ''
+    }
   }
 }
 
 async function act(action: CallAction): Promise<void> {
+  if (action === 'hangup' && outgoingPreparation) {
+    await cancelOutgoingPreparation()
+    return
+  }
   const id = callState.session?.id
   if (!id || callState.busy) return
   if (action === 'hangup' && !callState.owned) {
@@ -535,7 +665,8 @@ async function act(action: CallAction): Promise<void> {
     callState.errorStatus = 409
     return
   }
-  const previousSession = callState.session
+  const generation = ++actionGeneration
+  if (action === 'hangup' || action === 'reject') endingIntent = { callID: id, action }
 
   mutationEpoch += 1
   callState.busy = true
@@ -543,27 +674,31 @@ async function act(action: CallAction): Promise<void> {
   callState.error = ''
   callState.errorStatus = 0
   syncCallSounds(null)
+  if (endingIntent?.callID === id) syncCallMedia(null)
   try {
     await gateway.callAction(
       id,
       action,
       action === 'answer' ? preferredCallRecording(id) : undefined
     )
-    if (action === 'answer' && previousSession) {
-      acceptSession({
-        ...previousSession,
-        control_state: 'owned'
-      })
+    if (generation !== actionGeneration) return
+    if (action === 'answer' && callState.session?.id === id &&
+      callState.session.phase === 'ringing' && callState.session.control_state === 'available') {
+      acceptSession({ ...callState.session, control_state: 'owned' })
     }
     await requestActiveCallRefresh()
   } catch (error) {
+    if (generation !== actionGeneration) return
+    endingIntent = undefined
     const failure = requestError(error, translate('runtime.callActionFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
     await requestActiveCallRefresh()
   } finally {
-    callState.busy = false
-    callState.pendingAction = ''
+    if (generation === actionGeneration && !endingIntent) {
+      callState.busy = false
+      callState.pendingAction = ''
+    }
   }
 }
 
@@ -590,6 +725,7 @@ export async function sendDTMF(digit: string): Promise<void> {
     return
   }
 
+  const generation = ++actionGeneration
   callState.dtmfDigits += digit
   mutationEpoch += 1
   callState.busy = true
@@ -599,22 +735,22 @@ export async function sendDTMF(digit: string): Promise<void> {
   try {
     await gateway.sendDTMF(id, digit)
   } catch (error) {
+    if (generation !== actionGeneration) return
     const failure = requestError(error, translate('runtime.dtmfFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
   } finally {
-    callState.busy = false
-    callState.pendingAction = ''
+    if (generation === actionGeneration) {
+      callState.busy = false
+      callState.pendingAction = ''
+    }
   }
 }
 
 export function dismissCall(): void {
   if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) return
-  const selectedCallID = callState.selectedCallID
-  reconcileActiveSnapshot({
-    calls: callState.sessions.filter(session => session.id !== selectedCallID),
-    reservations: callState.reservations
-  })
+  clearForegroundSession()
+  reconcileActiveSnapshot({ calls: callState.sessions, reservations: callState.reservations })
   callState.error = ''
   callState.errorStatus = 0
 }

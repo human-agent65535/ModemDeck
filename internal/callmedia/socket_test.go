@@ -49,7 +49,7 @@ func TestSocketSharedHubGatesAudioAndRetainsFinalStatistics(t *testing.T) {
 		t.Run(fmt.Sprint(rate), func(t *testing.T) {
 			format := testFormat(rate)
 			format.FrameDuration = 10 * time.Millisecond
-			core, opener, _ := testCore(t, format)
+			core, opener, _ := socketTestCore(t, format)
 			authorizeCall(t, core, "socket-call")
 			socket := newFakeSocket()
 			session, err := core.OpenSocket(context.Background(), ActiveCall{ID: "socket-call", State: CallStateActive}, "owner", socket)
@@ -63,7 +63,7 @@ func TestSocketSharedHubGatesAudioAndRetainsFinalStatistics(t *testing.T) {
 			if second != nil || !errors.Is(err, ErrCallInUse) {
 				t.Fatalf("second owner: %v", err)
 			}
-			socket.inbound <- SocketFrame(0, 0, []byte{20, 0x11})
+			socket.inbound <- SocketFrame(0, 0, socketTestOpus(t))
 			receive(t, opener.endpoint.started)
 			pcm := receiveNonSilentPCM(t, opener.endpoint.writes)
 			if len(pcm) != format.FrameBytes() {
@@ -95,7 +95,7 @@ func TestSocketSharedHubGatesAudioAndRetainsFinalStatistics(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if core.Statistics("socket-call").ReceivedPackets != 1 {
+			if stats := core.Statistics("socket-call"); stats.ReceivedPackets != 1 {
 				t.Fatal("reconnect reset call counters")
 			}
 			if opener.opens.Load() != 1 {
@@ -110,26 +110,26 @@ func TestSocketSharedHubGatesAudioAndRetainsFinalStatistics(t *testing.T) {
 }
 
 func TestSocketRejectsInvalidOrderingAndRetainsFailure(t *testing.T) {
-	core, _, _ := testCore(t, testFormat(16000))
+	core, _, _ := socketTestCore(t, testFormat(16000))
 	authorizeCall(t, core, "call")
 	socket := newFakeSocket()
 	session, err := core.OpenSocket(context.Background(), ActiveCall{ID: "call", State: CallStateActive}, "owner", socket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	socket.inbound <- SocketFrame(0, 0, []byte{20, 1})
-	socket.inbound <- SocketFrame(0, 0, []byte{20, 1})
+	socket.inbound <- SocketFrame(0, 0, socketTestOpus(t))
+	socket.inbound <- SocketFrame(0, 0, socketTestOpus(t))
 	receive(t, session.Done())
 	eventually(t, func() bool { return core.Statistics("call").FailureCode == "invalid_audio" })
-	if !errors.Is(session.Err(), ErrInvalidRTP) {
+	if !errors.Is(session.Err(), ErrInvalidAudio) {
 		t.Fatalf("error lost: %v", session.Err())
 	}
 }
 
 func TestSocketHeaderValidationAndWrap(t *testing.T) {
-	frame := SocketFrame(^uint32(0), ^uint32(0)-319, []byte{20, 1})
+	frame := SocketFrame(^uint32(0), ^uint32(0)-319, socketTestOpus(t))
 	seq, ts, payload, err := ParseSocketFrame(frame)
-	if err != nil || seq != ^uint32(0) || ts != ^uint32(0)-319 || len(payload) != 2 {
+	if err != nil || seq != ^uint32(0) || ts != ^uint32(0)-319 || len(payload) != len(frame)-SocketHeaderBytes {
 		t.Fatal("header did not preserve uint32 values")
 	}
 	for _, offset := range []int{0, 2, 3} {
@@ -144,97 +144,8 @@ func TestSocketHeaderValidationAndWrap(t *testing.T) {
 	}
 }
 
-func TestSocketDropsStaleAndBoundedBurstFrames(t *testing.T) {
-	core, opener, _ := testCore(t, testFormat(16000))
-	authorizeCall(t, core, "call")
-	socket := newFakeSocket()
-	session, err := core.OpenSocket(context.Background(), ActiveCall{ID: "call", State: CallStateActive}, "owner", socket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Exercise the playback queue directly without transport receipt races.
-	close(session.socket.firstPacket)
-	session.socket.incoming <- socketPacket{payload: []byte{20, 0x77}, received: time.Now().Add(-time.Second)}
-	receive(t, opener.endpoint.started)
-	for i := 0; i < 3; i++ {
-		pcm := receive(t, opener.endpoint.writes)
-		if !allBytes(pcm, 0) {
-			t.Fatal("stale microphone audio replayed")
-		}
-	}
-	if cap(session.socket.incoming) != 5 {
-		t.Fatal("uplink queue exceeds 100ms")
-	}
-}
-
-func TestSocketResamplePreservesMonoLevels(t *testing.T) {
-	pcm := make([]byte, 320)
-	for i := 0; i < len(pcm); i += 2 {
-		binary.LittleEndian.PutUint16(pcm[i:], uint16(1234))
-	}
-	up := socketResample(pcm, 8000, 16000)
-	down := socketResample(up, 16000, 8000)
-	if len(up) != 640 || string(down) != string(pcm) {
-		t.Fatal("8k/16k PCM boundary changed constant input")
-	}
-}
-
-func TestSocketSourceClockDropsTCPBacklogAndRecoversLatencyPlateau(t *testing.T) {
-	base := time.Unix(1000, 0)
-	var clock socketReceiveClock
-	for i := uint32(0); i <= 100; i++ {
-		accepted, err := clock.accept(i, i*320, base.Add(time.Duration(i)*20*time.Millisecond))
-		if err != nil || !accepted {
-			t.Fatalf("healthy frame%d rejected: %v", i, err)
-		}
-	}
-	// Source101 was captured at2020ms; arriving500ms later must not be played.
-	for i := uint32(101); i <= 110; i++ {
-		accepted, err := clock.accept(i, i*320, base.Add(2520*time.Millisecond))
-		if err != nil || accepted {
-			t.Fatalf("TCP backlog%d became fresh on arrival: %v", i, err)
-		}
-	}
-	for i := uint32(111); i <= 113; i++ {
-		accepted, err := clock.accept(i, i*320, base.Add((2520+time.Duration(i-110)*20)*time.Millisecond))
-		if err != nil || accepted != (i == 113) {
-			t.Fatalf("cadence recovery%d accepted=%v err=%v", i, accepted, err)
-		}
-	}
-	var plateau socketReceiveClock
-	if accepted, err := plateau.accept(0, 0, base); err != nil || !accepted {
-		t.Fatal(err)
-	}
-	for i := uint32(1); i <= 100; i++ {
-		accepted, err := plateau.accept(i, i*320, base.Add((time.Duration(i)*20+200)*time.Millisecond))
-		if err != nil || accepted != (i >= 4) {
-			t.Fatalf("persistent200ms latency frame%d accepted=%v err=%v", i, accepted, err)
-		}
-	}
-}
-
-func TestSocketSourceClockValidatesWrapAndTimestampSkips(t *testing.T) {
-	base := time.Unix(1000, 0)
-	clock := socketReceiveClock{}
-	if accepted, err := clock.accept(^uint32(0), ^uint32(0)-319, base); err != nil || !accepted {
-		t.Fatal(err)
-	}
-	if accepted, err := clock.accept(0, 0, base.Add(20*time.Millisecond)); err != nil || !accepted {
-		t.Fatal("wrap failed", err)
-	}
-	if accepted, err := clock.accept(2, 640, base.Add(60*time.Millisecond)); err != nil || !accepted {
-		t.Fatal("omitted capture frame failed", err)
-	}
-	if _, err := clock.accept(2, 640, base.Add(80*time.Millisecond)); !errors.Is(err, ErrInvalidRTP) {
-		t.Fatal("duplicate accepted")
-	}
-	if _, err := clock.accept(3, 641, base.Add(80*time.Millisecond)); !errors.Is(err, ErrInvalidRTP) {
-		t.Fatal("inconsistent timestamp accepted")
-	}
-}
-
 func TestSocketInvalidFirstOpusDoesNotStartOrConnectHub(t *testing.T) {
-	core, opener, _ := testCore(t, testFormat(16000))
+	core, opener, _ := socketTestCore(t, testFormat(16000))
 	authorizeCall(t, core, "call")
 	socket := newFakeSocket()
 	session, err := core.OpenSocket(context.Background(), ActiveCall{ID: "call", State: CallStateActive}, "owner", socket)
@@ -244,12 +155,166 @@ func TestSocketInvalidFirstOpusDoesNotStartOrConnectHub(t *testing.T) {
 	if session.Statistics().State != "connecting" {
 		t.Fatal("unready socket falsely reported connected")
 	}
-	socket.inbound <- SocketFrame(0, 0, []byte{40, 1})
+	socket.inbound <- SocketFrame(0, 0, []byte{0xff})
 	receive(t, session.Done())
 	if opener.endpoint.startCalls.Load() != 0 {
 		t.Fatal("invalid Opus started modem/test source")
 	}
-	if !errors.Is(session.Err(), ErrInvalidRTP) {
+	if !errors.Is(session.Err(), ErrInvalidAudio) {
 		t.Fatal("invalid first frame accepted")
+	}
+}
+
+func TestSocketOwnerCallbacksAndReplacementAreSerialized(t *testing.T) {
+	core, _, _ := socketTestCore(t, testFormat(16000))
+	states := make(chan bool, 8)
+	core.onOwnerStateChange = func(id string, connected bool) {
+		if id != "owner-call" {
+			panic("wrong callback call")
+		}
+		states <- connected
+	}
+	authorizeCall(t, core, "owner-call")
+	call := ActiveCall{ID: "owner-call", State: CallStateActive}
+	socket := newFakeSocket()
+	session, err := core.OpenSocket(context.Background(), call, "first", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := core.ReleaseOwner(context.Background(), call.ID, "foreign"); !errors.Is(err, ErrNotMediaOwner) {
+		t.Fatalf("foreign release: %v", err)
+	}
+	select {
+	case <-session.Done():
+		t.Fatal("foreign release ended owner")
+	default:
+	}
+	select {
+	case <-states:
+		t.Fatal("connected before valid audio")
+	default:
+	}
+	socket.inbound <- SocketFrame(0, 0, socketTestOpus(t))
+	if !receive(t, states) {
+		t.Fatal("missing connected callback")
+	}
+	if err := core.ReleaseOwner(context.Background(), call.ID, "first"); err != nil {
+		t.Fatal(err)
+	}
+	replacementSocket := newFakeSocket()
+	replacement, err := core.OpenSocket(context.Background(), call, "second", replacementSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementSocket.inbound <- SocketFrame(0, 0, socketTestOpus(t))
+	if receive(t, states) {
+		t.Fatal("replacement connected before original disconnect")
+	}
+	if !receive(t, states) {
+		t.Fatal("replacement did not connect")
+	}
+	if err := core.ReleaseOwner(context.Background(), call.ID, "first"); !errors.Is(err, ErrNotMediaOwner) {
+		t.Fatalf("old owner released replacement: %v", err)
+	}
+	if err := replacement.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if receive(t, states) {
+		t.Fatal("missing replacement disconnect")
+	}
+	select {
+	case <-states:
+		t.Fatal("duplicate owner callback")
+	default:
+	}
+}
+
+func TestSocketOwnerReleaseCancelsPreparationWithoutClosingCall(t *testing.T) {
+	opener := &blockingEndpointOpener{started: make(chan struct{})}
+	core, err := New(Options{EndpointOpener: opener, CodecFactory: &fakeCodecFactory{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer core.Close(context.Background())
+	authorizeCall(t, core, "preparing")
+	opened := make(chan error, 1)
+	go func() {
+		_, err := core.OpenSocket(context.Background(), ActiveCall{ID: "preparing", State: CallStateActive}, "owner", newFakeSocket())
+		opened <- err
+	}()
+	receive(t, opener.started)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	if err := core.ReleaseOwner(ctx, "preparing", "wrong"); !errors.Is(err, ErrNotMediaOwner) {
+		t.Fatalf("foreign preparation release: %v", err)
+	}
+	if err := core.ReleaseOwner(ctx, "preparing", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := receive(t, opened); !errors.Is(err, ErrCanceled) {
+		t.Fatalf("preparation error: %v", err)
+	}
+	core.mu.Lock()
+	_, owned := core.owners["preparing"]
+	lifetime := core.lifetimes["preparing"]
+	core.mu.Unlock()
+	if owned || lifetime == nil || lifetime.ctx.Err() != nil {
+		t.Fatal("release removed call lifetime or retained owner")
+	}
+}
+
+func socketTestCore(t *testing.T, format PCMFormat) (*Core, *fakeEndpointOpener, *fakeCodecFactory) {
+	t.Helper()
+	core, opener, fake := testCore(t, format)
+	factory, err := NewProductionOpusFactory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	core.codecs = factory
+	return core, opener, fake
+}
+func socketTestOpus(t *testing.T) []byte {
+	t.Helper()
+	factory, err := NewProductionOpusFactory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec, err := factory.New(testFormat(16000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer codec.Close()
+	pcm := make([]byte, 640)
+	for i := 0; i < 320; i++ {
+		v := int16(8000)
+		if i%40 >= 20 {
+			v = -v
+		}
+		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(v))
+	}
+	payload, err := codec.Encode(pcm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
+func TestSocketWireSequenceWrapSourceGapAndTimestampValidation(t *testing.T) {
+	core, _, _ := socketTestCore(t, testFormat(16000))
+	authorizeCall(t, core, "wrap-call")
+	socket := newFakeSocket()
+	session, err := core.OpenSocket(context.Background(), ActiveCall{ID: "wrap-call", State: CallStateActive}, "owner", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := socketTestOpus(t)
+	for _, position := range [][2]uint32{{^uint32(0) - 1, ^uint32(0) - 639}, {^uint32(0), ^uint32(0) - 319}, {1, 320}} {
+		socket.inbound <- SocketFrame(position[0], position[1], payload)
+	}
+	eventually(t, func() bool { return session.Statistics().ReceivedPackets == 3 })
+	socket.inbound <- SocketFrame(2, 321, payload)
+	receive(t, session.Done())
+	if !errors.Is(session.Err(), ErrInvalidAudio) {
+		t.Fatalf("inconsistent source skip accepted: %v", session.Err())
 	}
 }

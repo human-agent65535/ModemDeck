@@ -1,10 +1,11 @@
 import type {
   ActiveCallSnapshot,
+  OutgoingCallPreparation,
   AccountSession,
   AboutInfo,
   BootstrapResponse,
   CallAction,
-  CallMediaICEConfiguration,
+
   CallLeaseStatus,
   CallFilter,
   CallBatchAction,
@@ -220,24 +221,13 @@ export interface ModemDeckGateway {
   deleteContacts?(contacts: ContactRevision[]): Promise<void>
   sendMessage(input: SendMessageInput): Promise<Message>
   getActiveCallSnapshot(): Promise<ActiveCallSnapshot>
-  startCall(
-    lineKey: string,
-    number: string,
-    recordingEnabled?: boolean
-  ): Promise<CallSession>
+  prepareCall(lineKey: string, number: string, recordingEnabled?: boolean): Promise<OutgoingCallPreparation>
+  commitCallPreparation(id: string): Promise<CallSession>
+  cancelCallPreparation(id: string): Promise<void>
+  renewCallPreparation(id: string): Promise<void>
   callAction(id: string, action: CallAction, recordingEnabled?: boolean): Promise<void>
   sendDTMF(id: string, digit: string): Promise<void>
   renewCallLease(id: string): Promise<CallLeaseStatus>
-  getCallMediaICEConfiguration(
-    id: string,
-    signal?: AbortSignal
-  ): Promise<CallMediaICEConfiguration>
-  exchangeCallMedia(
-    id: string,
-    ownerToken: string,
-    offerSDP: string,
-    signal?: AbortSignal
-  ): Promise<string>
   releaseCallMedia(id: string, ownerToken: string): Promise<void>
   listRecordings(query?: ListQuery): Promise<Page<RecordingEntry>>
   getRecordingSettings(): Promise<RecordingSettings>

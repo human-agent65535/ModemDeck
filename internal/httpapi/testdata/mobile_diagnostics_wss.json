@@ -1,5 +1,5 @@
 {
-  "app_build" : "26",
+  "app_build" : "31",
   "app_version" : "0.1.0",
   "dropped" : 2,
   "events" : [
@@ -17,21 +17,29 @@
       "time_ms" : 1780000000000
     },
     {
-      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "call_id" : "call_0123456789abcdef0123456789abcdef",
       "category" : "audio",
       "fields" : {
+        "capture_dropped_frames" : "1",
         "captured_frames" : "250",
         "channels" : "1",
         "dropped_frames" : "7",
         "input_route" : "microphone",
         "microphone_dbfs" : "-37",
         "output_route" : "speaker",
+        "playback_dropped_frames" : "3",
+        "playback_pending" : "3",
+        "playback_resets" : "1",
+        "playback_underruns" : "2",
+        "receive_invalid_frames" : "0",
+        "receive_stale_frames" : "1",
         "received_packets" : "239",
         "sample_rate" : "16000",
+        "send_dropped_frames" : "2",
         "sent_packets" : "240",
         "server_received_packets" : "240",
         "stage" : "connected",
-        "test_call" : "true"
+        "test_call" : "false"
       },
       "id" : "00000000-0000-4000-8000-000000000002",
       "name" : "audio_statistics",
@@ -39,7 +47,7 @@
       "time_ms" : 1780000000001
     },
     {
-      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "call_id" : "call_0123456789abcdef0123456789abcdef",
       "category" : "audio",
       "fields" : {
         "attempt" : "2",
@@ -55,9 +63,20 @@
       "time_ms" : 1780000000002
     },
     {
-      "call_id" : "test-00000000-0000-4000-8000-000000000001",
+      "call_id" : "call_0123456789abcdef0123456789abcdef",
       "category" : "audio",
       "fields" : {
+        "server_clock_reanchors" : "2",
+        "server_dropped_packets" : "21",
+        "server_dropped_playout_packets" : "5",
+        "server_dropped_queue_overflow_packets" : "3",
+        "server_dropped_reanchor_packets" : "4",
+        "server_dropped_rebuffer_packets" : "6",
+        "server_dropped_source_early_packets" : "1",
+        "server_dropped_source_late_packets" : "2",
+        "server_playout_missed_ticks" : "1",
+        "server_playout_silence_frames" : "4",
+        "server_playout_underruns" : "3",
         "server_received_packets" : "1000000000",
         "stage" : "connected"
       },
@@ -65,6 +84,47 @@
       "name" : "server_audio_statistics",
       "network" : "wifi",
       "time_ms" : 1780000000003
+    },
+    {
+      "call_id" : "call_0123456789abcdef0123456789abcdef",
+      "category" : "audio",
+      "fields" : {
+        "neteq_buffer_delay_ms" : "80",
+        "neteq_concealed_samples" : "480",
+        "neteq_concealment_events" : "1",
+        "neteq_discarded_packets" : "0",
+        "neteq_ingress_packets" : "5",
+        "neteq_inserted_samples" : "960",
+        "neteq_output_sample_rate" : "16000",
+        "neteq_output_samples" : "16000",
+        "neteq_received_packets" : "250",
+        "neteq_removed_samples" : "240",
+        "neteq_render_errors" : "0",
+        "neteq_target_delay_ms" : "90"
+      },
+      "id" : "00000000-0000-4000-8000-000000000005",
+      "name" : "neteq_audio_statistics",
+      "network" : "wifi",
+      "time_ms" : 1780000000004
+    },
+    {
+      "call_id" : "call_0123456789abcdef0123456789abcdef",
+      "category" : "audio",
+      "fields" : {
+        "server_neteq_concealed_samples" : "480",
+        "server_neteq_concealment_events" : "1",
+        "server_neteq_current_delay_ms" : "80",
+        "server_neteq_inserted_samples" : "960",
+        "server_neteq_internal_sample_rate" : "48000",
+        "server_neteq_packets_discarded" : "0",
+        "server_neteq_removed_samples" : "240",
+        "server_neteq_target_delay_ms" : "90",
+        "server_received_packets" : "250"
+      },
+      "id" : "00000000-0000-4000-8000-000000000006",
+      "name" : "server_audio_statistics",
+      "network" : "wifi",
+      "time_ms" : 1780000000005
     }
   ],
   "os_version" : "18.0",

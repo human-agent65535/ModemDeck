@@ -419,14 +419,6 @@ export function callSoundMode(session: CallSession | null): CallSoundMode {
   if (session.direction === 'incoming' && session.phase === 'ringing') {
     return 'incoming'
   }
-  if (
-    session.direction === 'outgoing' &&
-    (session.phase === 'unknown' ||
-      session.phase === 'dialing' ||
-      session.phase === 'ringing')
-  ) {
-    return 'waiting'
-  }
   return 'idle'
 }
 

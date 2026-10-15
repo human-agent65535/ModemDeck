@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
@@ -20,7 +22,6 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/recording"
-	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
@@ -96,11 +97,21 @@ type Capabilities struct {
 	RejectCall         bool              `json:"reject_call"`
 	SendDTMF           bool              `json:"send_dtmf"`
 	Message            bool              `json:"message"`
-	WebRTCAudio        bool              `json:"webrtc_audio"`
+	WSSAudio           bool              `json:"wss_audio"`
 	DeviceControl      bool              `json:"device_control"`
 	VoLTEControl       bool              `json:"volte_control"`
 	VoWiFiControl      bool              `json:"vowifi_control"`
 	UnavailableReasons map[string]string `json:"unavailable_reasons"`
+}
+
+// MarshalJSON retains only a boolean capability alias for distributed WSS-only
+// iOS clients released before wss_audio. It enables no legacy media transport.
+func (capabilities Capabilities) MarshalJSON() ([]byte, error) {
+	type current Capabilities
+	return json.Marshal(struct {
+		current
+		DeprecatedAudio bool `json:"webrtc_audio"`
+	}{current(capabilities), capabilities.WSSAudio})
 }
 
 type CapabilitySource interface {
@@ -209,7 +220,6 @@ type TelegramSettingsService interface {
 }
 
 type CallMediaService interface {
-	Exchange(context.Context, string, string, string, bool) (string, error)
 	ReleaseOwner(context.Context, string, string) error
 	CloseCall(context.Context, string) error
 }
@@ -289,7 +299,6 @@ type Options struct {
 	IOSCallTests          IOSCallTestService
 	CallTests             *calltest.Service
 	MessageBadgeSync      MessageBadgeSyncService
-	RTCConfiguration      rtcconfig.Provider
 	Authenticator         Authenticator
 	SecureCookies         bool
 	Logger                *slog.Logger
@@ -313,6 +322,8 @@ type API struct {
 	messagePolicies            MessagePolicyService
 	callMedia                  CallMediaService
 	callLeases                 CallLeaseService
+	preparationsMu             sync.Mutex
+	preparations               map[string]*outgoingPreparation
 	recordings                 RecordingService
 	network                    NetworkService
 	telegram                   TelegramSettingsService
@@ -322,8 +333,6 @@ type API struct {
 	iosCallTests               IOSCallTestService
 	callTests                  *calltest.Service
 	messageBadgeSync           MessageBadgeSyncService
-	rtcConfiguration           rtcconfig.Provider
-	turnAvailability           turnAvailabilityCache
 	authenticator              Authenticator
 	secureCookies              bool
 	loginSlots                 chan struct{}
@@ -375,7 +384,6 @@ func New(repository Repository, options Options) (*API, error) {
 		iosCallTests:               options.IOSCallTests,
 		callTests:                  options.CallTests,
 		messageBadgeSync:           options.MessageBadgeSync,
-		rtcConfiguration:           options.RTCConfiguration,
 		authenticator:              options.Authenticator,
 		secureCookies:              options.SecureCookies,
 		loginSlots:                 make(chan struct{}, 2),
@@ -471,6 +479,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.postOnly(response, request, api.mobileDiagnostics)
 	case "/api/v1/users":
 		api.usersCollection(response, request)
+	case "/api/v1/calls/prepare":
+		api.postOnly(response, request, api.prepareOutgoingCall)
 	case "/api/v1/contacts":
 		api.contactsCollection(response, request)
 	case "/api/v1/contacts/batch":
@@ -536,6 +546,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			api.browserCallTest(response, request)
 			return
 		}
+		if strings.HasPrefix(request.URL.Path, "/api/v1/calls/preparations/") {
+			api.outgoingPreparationResource(response, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/api/v1/mobile/call-tests/") {
 			api.mobileCallTest(response, request)
 			return
@@ -562,12 +576,6 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		}
 		if id, ok := callMediaSocketResourceID(request.URL.Path); ok {
 			api.callMediaSocket(response, request, id)
-			return
-		}
-		if id, ok := callMediaICEConfigurationResourceID(
-			request.URL.Path,
-		); ok {
-			api.callMediaICEConfiguration(response, request, id)
 			return
 		}
 		if id, ok := callMediaResourceID(request.URL.Path); ok {
@@ -717,7 +725,7 @@ func (api *API) loadCommunicationProjection(
 			connected = status.Connected
 			lines = mergePersistedLineMetadata(status.Lines, persistedLines)
 			capabilities = capabilitiesForLines(status.Lines)
-			capabilities.WebRTCAudio = capabilities.WebRTCAudio &&
+			capabilities.WSSAudio = capabilities.WSSAudio &&
 				status.Capabilities.Media && api.callMedia != nil
 		}
 	} else if api.capabilities != nil {
@@ -726,7 +734,7 @@ func (api *API) loadCommunicationProjection(
 			api.logger.Warn("host agent is unavailable", "error", err)
 			capabilities = disconnectedCapabilities()
 		} else {
-			capabilities.WebRTCAudio = capabilities.WebRTCAudio && api.callMedia != nil
+			capabilities.WSSAudio = capabilities.WSSAudio && api.callMedia != nil
 		}
 	} else {
 		capabilities = disconnectedCapabilities()
@@ -750,17 +758,14 @@ func (api *API) projectCommunicationProjection(
 	if _, scoped := auth.PrincipalFromContext(request.Context()); scoped &&
 		api.communications != nil &&
 		capabilities.AgentConnected {
-		mediaAvailable := capabilities.WebRTCAudio
+		mediaAvailable := capabilities.WSSAudio
 		capabilities = capabilitiesForLines(lines)
-		capabilities.WebRTCAudio = capabilities.WebRTCAudio && mediaAvailable
+		capabilities.WSSAudio = capabilities.WSSAudio && mediaAvailable
 	}
 	if principal, exists := auth.PrincipalFromContext(request.Context()); !exists ||
 		isMobileRequest(request) ||
 		!principal.IsAdmin() {
 		projection.LineCatalog = lineCatalog
-	}
-	if isMobileRequest(request) && api.rtcConfiguration == nil {
-		capabilities.WebRTCAudio = false
 	}
 	projection.Capabilities = gateCapabilities(capabilities)
 	projection.Lines = lines
@@ -869,7 +874,7 @@ func capabilitiesForLines(lines []store.LineSummary) Capabilities {
 		capabilities.RejectCall = capabilities.RejectCall || line.Capabilities.RejectCall
 		capabilities.SendDTMF = capabilities.SendDTMF || line.Capabilities.SendDTMF
 		capabilities.Message = capabilities.Message || line.Capabilities.SendMessage
-		capabilities.WebRTCAudio = capabilities.WebRTCAudio || line.Capabilities.Media
+		capabilities.WSSAudio = capabilities.WSSAudio || line.Capabilities.Media
 	}
 	if !capabilities.Dial {
 		capabilities.UnavailableReasons["dial"] = "No attached line supports dialing"

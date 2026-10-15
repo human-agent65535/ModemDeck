@@ -25,7 +25,7 @@ const (
 
 func callStateAllowsMedia(state string) bool {
 	switch state {
-	case callStateActive, callStateHeld:
+	case "dialing", "ringing-out", callStateActive, callStateHeld:
 		return true
 	default:
 		return false

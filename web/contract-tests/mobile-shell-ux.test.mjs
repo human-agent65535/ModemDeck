@@ -14,7 +14,7 @@ test('mobile shell uses page context and a dedicated central dial action', async
   assert.match(shell, /class="mobile-nav__dial"/)
   assert.match(shell, /:aria-pressed="uiState\.dialerOpen \|\| activeCallPresent"/)
   assert.match(shell, /const occupiedLineCount = computed\(\(\) => occupiedLineIDs\(\)\.size\)/)
-  assert.match(shell, /callState\.sessions\.some\(isLiveCallSession\)/)
+  assert.match(shell, /Boolean\(callTestSession\.value \|\| callState\.session\)/)
   assert.match(shell, /v-if="occupiedLineCount > 0"[\s\S]*mobile-nav__call-count/)
   assert.match(
     shell,
@@ -116,11 +116,8 @@ test('ringing calls animate the central call action and remain restorable when m
   assert.match(ui, /uiState\.callMinimized = true/)
   assert.match(dialer, /showingCall \? minimizeCallSurface\(\) : closeDialer\(\)/)
   assert.match(dialer, /<Minus v-if="showingCall"/)
-  assert.match(callSurface, /const recordingAdjustable = computed/)
-  assert.match(
-    callSurface,
-    /v-if="recordingAdjustable"[\s\S]*call-footer-action--recording/
-  )
+  assert.match(callSurface, /recordingAdjustable = computed\(\(\) => !isTestCall\.value && active\.value/)
+  assert.match(callSurface, /v-if="recordingAdjustable"/)
 })
 
 test('a minimized connected call animates the existing phone audio waves', async () => {

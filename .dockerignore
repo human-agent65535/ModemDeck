@@ -12,9 +12,16 @@ docs
 integration
 packaging
 third_party
+!third_party/
+third_party/*
+!third_party/audio/
 scripts
 !scripts/
+scripts/*
 !scripts/docker-entrypoint.sh
+!scripts/nginx-entrypoint.sh
+!scripts/build-audio-core.mjs
+!scripts/audio-core/
 
 data
 dist

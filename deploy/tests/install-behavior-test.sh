@@ -44,8 +44,6 @@ cp "${source_repo}/docker-compose.advanced.yml" \
     "${fixture}/docker-compose.advanced.yml"
 cp "${source_repo}/docker-compose.cloudflare.yml" \
     "${fixture}/docker-compose.cloudflare.yml"
-cp "${source_repo}/docker-compose.cloudflare-turn.yml" \
-    "${fixture}/docker-compose.cloudflare-turn.yml"
 cp "${source_repo}/docker-compose.ota.yml" \
     "${fixture}/docker-compose.ota.yml"
 cp "${source_repo}/Dockerfile" "${fixture}/Dockerfile"
@@ -199,6 +197,12 @@ case "${1:-}" in
             printf '%s\n' unhealthy
         else
             printf '%s\n' healthy
+        fi
+        exit 0
+        ;;
+    ps)
+        if [ "${MODEMDECK_TEST_EXISTING_CLOUDFLARED:-false}" = true ]; then
+            printf '%s\n' cloudflared-id
         fi
         exit 0
         ;;
@@ -576,12 +580,10 @@ grep -qx 'settings-key-before' "${test_root}/secrets/settings" ||
     fail "repeat installation replaced the settings key"
 
 # Cloudflare is an installer-owned optional service. The connector works
-# without TURN, while the API hostname is discovered from active ingress.
+# using WSS, while the API hostname is discovered from active ingress.
 printf '%s\n' \
     'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2VuX19sb25nX2Vub3VnaF9mb3JfdmFsaWRhdGlvbg' \
     >"${test_root}/cloudflare-token-input"
-printf '%s\n' 'test-cloudflare-turn-token' \
-    >"${test_root}/cloudflare-turn-token-input"
 printf '%s\n' \
     'MODEMDECK_CLOUDFLARE_HOSTNAME=stale.example.com' \
     'MODEMDECK_CLOUDFLARE_PUBLIC_URL=https://stale.example.com' \
@@ -605,108 +607,49 @@ if grep -Fq 'docker-compose.cloudflare-turn.yml' \
 then
     fail "Tunnel-only installation enabled the TURN Compose override"
 fi
-grep -Fq 'TURN:          disabled' \
-    "${test_root}/cloudflare-only-output.log" ||
-    fail "Tunnel-only installation did not report TURN as disabled"
-
-: >"${test_root}/commands.log"
-common_env \
-    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
-    MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
-    "${fixture}/install.sh" \
-        --git \
-        --mode advanced \
-        --assignment-file "${test_root}/assignments.json" \
-        --cloudflare-turn-key-id 0123456789abcdef0123456789abcdef \
-        --cloudflare-turn-token-file \
-            "${test_root}/cloudflare-turn-token-input" \
-        --allow-dirty \
-        >"${test_root}/cloudflare-output.log" 2>&1
-grep -Fq 'MODEMDECK_CLOUDFLARE_ENABLED=true' "${fixture}/.env" ||
-    fail "Cloudflare enablement was not persisted"
-if grep -Eq '^MODEMDECK_CLOUDFLARE_(HOSTNAME|PUBLIC_URL)=' \
-    "${fixture}/.env"
-then
-    fail "obsolete static Cloudflare hostname settings were retained"
-fi
-grep -Fq \
+# Upgrading a previously configured relay removes only the retired ENV keys
+# and runtime mounts. The unused user token and Tunnel remain intact. A stale
+# override file may still be present in a checkout but must never be selected.
+printf '%s\n' 'unused-legacy-token' >"${fixture}/secrets/cloudflare-turn-token"
+printf '%s\n' \
     'MODEMDECK_CLOUDFLARE_TURN_KEY_ID=0123456789abcdef0123456789abcdef' \
-    "${fixture}/.env" ||
-    fail "Cloudflare TURN key ID was not persisted"
-grep -Fq 'MODEMDECK_WEB_IMAGE=modemdeck-web' "${fixture}/.env" ||
-    fail "Web gateway image was not persisted"
-grep -qx \
-    'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2VuX19sb25nX2Vub3VnaF9mb3JfdmFsaWRhdGlvbg' \
-    "${fixture}/secrets/cloudflare-tunnel-token" ||
-    fail "Cloudflare token was not normalized into its file secret"
-[ "$(file_mode "${fixture}/secrets/cloudflare-tunnel-token")" = 440 ] ||
-    fail "Cloudflare token does not use mode 0440"
-grep -qx 'test-cloudflare-turn-token' \
-    "${fixture}/secrets/cloudflare-turn-token" ||
-    fail "Cloudflare TURN token was not normalized into its file secret"
-[ "$(file_mode "${fixture}/secrets/cloudflare-turn-token")" = 440 ] ||
-    fail "Cloudflare TURN token does not use mode 0440"
-if grep -Fq \
-    'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2Vu' \
-    "${test_root}/cloudflare-output.log"
-then
-    fail "Cloudflare token leaked into installer output"
-fi
-if grep -Fq 'test-cloudflare-turn-token' \
-    "${test_root}/cloudflare-output.log"
-then
-    fail "Cloudflare TURN token leaked into installer output"
-fi
-if grep -Eq '^docker\|compose .* build( |$)' \
-    "${test_root}/commands.log"
-then
-    fail "TURN configuration rebuilt unchanged component images"
-fi
-grep -Eq '^docker\|compose .* up .* --force-recreate .* api( |$)' \
-    "${test_root}/commands.log" ||
-    fail "TURN configuration did not update the API container"
-grep -Eq '^docker\|compose .* up .* --force-recreate .* cloudflared( |$)' \
-    "${test_root}/commands.log" ||
-    fail "Tunnel configuration did not update cloudflared"
-if grep -Eq '^docker\|compose .* up .* hardware( |$)' \
-    "${test_root}/commands.log"
-then
-    fail "TURN configuration restarted the hardware container"
-fi
-grep -Fq 'cloudflared' "${test_root}/commands.log" ||
-    fail "installer did not wait for cloudflared"
-grep -Fq 'docker-compose.cloudflare-turn.yml' "${test_root}/commands.log" ||
-    fail "TURN installation did not enable the TURN Compose override"
-
-# TURN can be disabled without removing the Tunnel connector or its secrets.
+    'MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE=./secrets/cloudflare-turn-token' \
+    >>"${fixture}/.env"
+printf '%s\n' 'obsolete override must not be used' >"${fixture}/docker-compose.cloudflare-turn.yml"
 : >"${test_root}/commands.log"
 common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
-    "${fixture}/install.sh" \
-        --git \
-        --mode advanced \
-        --assignment-file "${test_root}/assignments.json" \
-        --disable-cloudflare-turn \
-        --allow-dirty \
-        >"${test_root}/cloudflare-turn-disabled-output.log" 2>&1
-grep -Fq 'MODEMDECK_CLOUDFLARE_ENABLED=true' "${fixture}/.env" ||
-    fail "disabling TURN also disabled the Tunnel connector"
-grep -qx 'MODEMDECK_CLOUDFLARE_TURN_KEY_ID=' "${fixture}/.env" ||
-    fail "disabling TURN did not clear TURN enablement"
-if grep -Fq 'docker-compose.cloudflare-turn.yml' \
-    "${test_root}/commands.log"
-then
-    fail "disabled TURN remained in the Compose stack"
+    MODEMDECK_TEST_EXISTING_CLOUDFLARED=true \
+    "${fixture}/install.sh" --git --mode advanced \
+        --assignment-file "${test_root}/assignments.json" --allow-dirty \
+        >"${test_root}/retired-relay-output.log" 2>&1
+if grep -Eq '^MODEMDECK_CLOUDFLARE_TURN_' "${fixture}/.env"; then
+    fail "retired relay settings survived upgrade"
 fi
+if grep -Fq 'docker-compose.cloudflare-turn.yml' "${test_root}/commands.log"; then
+    fail "retired relay override was used during upgrade"
+fi
+grep -qx 'unused-legacy-token' "${fixture}/secrets/cloudflare-turn-token" ||
+    fail "upgrade destroyed the unused user token"
+grep -qx 'MODEMDECK_CLOUDFLARE_ENABLED=true' "${fixture}/.env" ||
+    fail "relay cleanup disabled Tunnel"
 grep -Fq 'docker-compose.cloudflare.yml' "${test_root}/commands.log" ||
-    fail "disabling TURN removed the Tunnel Compose override"
-grep -qx 'test-cloudflare-turn-token' \
-    "${fixture}/secrets/cloudflare-turn-token" ||
-    fail "disabling TURN destroyed the persisted TURN token"
-grep -Fq 'TURN:          disabled' \
-    "${test_root}/cloudflare-turn-disabled-output.log" ||
-    fail "disabled TURN was not reported"
+    fail "relay cleanup removed Tunnel override"
+grep -Eq '^docker\|compose .* up .* --force-recreate .* api( |$)' \
+    "${test_root}/commands.log" || fail "relay cleanup did not reload API mounts"
+if grep -Eq '^docker\|compose .* up .* (hardware|cloudflared)( |$)' "${test_root}/commands.log"; then
+    fail "relay cleanup restarted hardware or Tunnel"
+fi
+# Remove this deliberately untracked fixture before later clean-Git tests.
+rm -f -- "${fixture}/docker-compose.cloudflare-turn.yml"
+# Removed enable/disable flags fail before changing any deployment.
+: >"${test_root}/commands.log"
+if common_env "${fixture}/install.sh" --cloudflare-turn-key-id ignored \
+    >"${test_root}/retired-option-output.log" 2>&1; then
+    fail "retired TURN enable flag remains supported"
+fi
+[ ! -s "${test_root}/commands.log" ] || fail "retired option changed deployment"
 
 # A successful simple install requires host ModemManager to be masked. A
 # stopped and disabled legacy Agent may retain its local unit file when systemd

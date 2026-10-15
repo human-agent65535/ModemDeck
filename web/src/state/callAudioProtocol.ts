@@ -2,7 +2,6 @@ export const CALL_AUDIO_FORMAT = {
   version: 1, codec: 'opus', sample_rate: 16000, channels: 1, frame_ms: 20
 } as const
 export const CALL_AUDIO_FRAME_SAMPLES = 320
-export const CALL_AUDIO_MAX_AGE_MS = 100
 export const CALL_AUDIO_MAX_PACKET_BYTES = 1275
 
 export type CallMediaTarget = 'calls' | 'call-tests'
@@ -37,49 +36,20 @@ export function decodeCallAudioPacket(buffer: ArrayBuffer): { sequence: number; 
   return { sequence: view.getUint32(4), timestamp: view.getUint32(8), payload: bytes.slice(12) }
 }
 
+// MD12 transport integrity only: NetEq owns arrival/age/delay decisions.
+export function validateCallAudioProgress(previous: { sequence: number; timestamp: number } | undefined, packet: { sequence: number; timestamp: number }): void {
+  if (!previous) return
+  const distance = (packet.sequence - previous.sequence) >>> 0
+  if (!distance || distance >= 0x80000000 ||
+      ((packet.timestamp - previous.timestamp) >>> 0) !== ((distance * CALL_AUDIO_FRAME_SAMPLES) >>> 0)) {
+    throw new Error('Invalid call audio sequence')
+  }
+}
+
 export function isCallAudioReady(value: Record<string, unknown>): boolean {
   return value.type === 'ready' && Object.entries(CALL_AUDIO_FORMAT).every(([key, expected]) => value[key] === expected)
 }
 
 export function isRecoverableCallAudioError(code: unknown): boolean {
   return code === 'transport_timeout' || code === 'transport_closed' || code === 'backpressure'
-}
-
-// Compare in uint32 space so a long call can wrap without accepting replays.
-export class CallAudioReceiveClock {
-  private previous: { sequence: number; timestamp: number; time: number } | undefined
-  private anchor: { timestamp: number; time: number } | undefined
-  private stableStaleFrames = 0
-
-  accept(sequence: number, timestamp: number, now: number): boolean {
-    let stableCadence = false
-    if (this.previous) {
-      const frames = (sequence - this.previous.sequence) >>> 0
-      const samples = (timestamp - this.previous.timestamp) >>> 0
-      if (!frames || frames >= 0x80000000 || samples !== ((frames * CALL_AUDIO_FRAME_SAMPLES) >>> 0)) {
-        throw new Error('Invalid call audio clock')
-      }
-      const arrivalGap = now - this.previous.time
-      stableCadence = frames === 1 && arrivalGap >= 12 && arrivalGap <= 28
-    }
-    this.previous = { sequence, timestamp, time: now }
-    if (!this.anchor) this.anchor = { timestamp, time: now }
-    const elapsed = ((timestamp - this.anchor.timestamp) >>> 0) / 16
-    const age = now - this.anchor.time - elapsed
-    // Clock drift is adjusted gradually; a stalled TCP burst keeps its old age
-    // until a current frame arrives, so the backlog is never replayed.
-    if (age > CALL_AUDIO_MAX_AGE_MS) {
-      // A route may acquire a new base latency. Three real-time arrival gaps
-      // establish its new clock; a TCP backlog arrives in a burst and cannot
-      // satisfy this condition. Drop the old burst before re-anchoring.
-      this.stableStaleFrames = stableCadence ? this.stableStaleFrames + 1 : 0
-      if (this.stableStaleFrames < 3) return false
-      this.anchor = { timestamp, time: now }
-      this.stableStaleFrames = 0
-      return true
-    }
-    this.stableStaleFrames = 0
-    this.anchor = { timestamp, time: Math.min(now, this.anchor.time + elapsed + 0.2) }
-    return true
-  }
 }

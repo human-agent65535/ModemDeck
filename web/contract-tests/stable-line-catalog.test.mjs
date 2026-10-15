@@ -45,7 +45,7 @@ test('bootstrap keeps active routes separate from the stable line catalog', () =
       agent_connected: true,
       dial: true,
       message: true,
-      webrtc_audio: false,
+      wss_audio: false,
       device_control: true,
       volte_control: false,
       vowifi_control: false

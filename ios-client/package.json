@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "../web/node_modules/.bin/tsx --test tests/*.test.mjs",
+    "test": "node ../scripts/build-native-audio-core.mjs --host && ../web/node_modules/.bin/tsx --test tests/*.test.mjs",
     "build:web-preview": "node ./scripts/build-web-preview.mjs",
     "sync:ios": "npm run build:web-preview && cap sync ios",
-    "build:ios": "node ./scripts/build-ios.mjs",
+    "build:ios": "node ../scripts/build-native-audio-core.mjs --ios && node ./scripts/build-ios.mjs",
     "run:ios": "node ./scripts/run-ios.mjs",
     "run:ios:iphone": "MODEMDECK_SIMULATOR_FAMILY=iphone node ./scripts/run-ios.mjs",
     "run:ios:ipad": "MODEMDECK_SIMULATOR_FAMILY=ipad node ./scripts/run-ios.mjs",

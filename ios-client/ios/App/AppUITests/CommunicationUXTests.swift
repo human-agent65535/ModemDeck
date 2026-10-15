@@ -22,7 +22,7 @@ final class CommunicationUXTests: XCTestCase {
         return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 
-    private func launch(configuration: [String: Any] = [:], callSurface: Bool = false, testAudio: Bool = false, waitForActivity: Bool = true) async throws -> XCUIApplication {
+    private func launch(configuration: [String: Any] = [:], callSurface: Bool = false, testAudio: Bool = false, waitForActivity: Bool = true, environment: [String: String] = [:]) async throws -> XCUIApplication {
         continueAfterFailure = false
         _ = try await fixture("/__uat/reset", body: [:])
         if !configuration.isEmpty {
@@ -34,7 +34,11 @@ final class CommunicationUXTests: XCTestCase {
             "MODEMDECK_UAT_MODE": "1", "MODEMDECK_UAT_SERVER_URL": server,
             "MODEMDECK_UAT_TOKEN": token, "MODEMDECK_UAT_INITIAL_SECTION": "home"
         ]
-        if callSurface { app.launchEnvironment["MODEMDECK_UAT_CALL_STATE"] = "active" }
+        app.launchEnvironment.merge(environment) { _, next in next }
+        if callSurface {
+            app.launchEnvironment["MODEMDECK_UAT_CALL_STATE"] = environment["MODEMDECK_UAT_CALL_STATE"] ?? "active"
+            app.launchEnvironment["MODEMDECK_UAT_TEST_AUDIO_DYNAMIC"] = "1"
+        }
         if testAudio { app.launchEnvironment["MODEMDECK_UAT_TEST_AUDIO"] = "1" }
         app.launch()
         if !callSurface && waitForActivity { XCTAssertTrue(app.buttons["activity-message-\(threadID)"].waitForExistence(timeout: 20)) }
@@ -320,6 +324,7 @@ final class CommunicationUXTests: XCTestCase {
         app.buttons["section-home"].tap()
         capture("refresh-recents-dark", app: app)
         app.buttons["打开拨号盘"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["dial-recording-status"].exists)
         capture("refresh-dialer-dark", app: app)
     }
 
@@ -359,6 +364,163 @@ final class CommunicationUXTests: XCTestCase {
         XCTAssertTrue(app.buttons["挂断"].isHittable)
         XCTAssertTrue(app.buttons["call-collapse"].isHittable)
         capture("call-test-guidance-landscape", app: app)
+    }
+
+    func testCallEndFeedbackAndExplicitTestResult() async throws {
+        for test in [false, true] {
+            let app = try await launch(callSurface: true, testAudio: test)
+            let end = app.buttons["call-end"]
+            XCTAssertTrue(end.waitForExistence(timeout: 8))
+            end.tap()
+            let result = app.staticTexts["call-ended-status"]
+            // tap() already waits for app quiescence. A predicate wait polls at
+            // one-second intervals and can miss the intentional one-second hold.
+            XCTAssertTrue(result.exists, "Ending must provide feedback before the active surface disappears")
+            capture(test ? "call-test-ended-result" : "call-ended-confirmed-feedback", app: app)
+            XCTAssertFalse(app.buttons["call-mute"].exists)
+            if test {
+                let duration = app.staticTexts["call-ended-duration"].label
+                try await Task.sleep(nanoseconds: 1_400_000_000)
+                XCTAssertTrue(result.exists, "Test result requires explicit completion")
+                XCTAssertEqual(app.staticTexts["call-ended-duration"].label, duration, "Ended duration must remain frozen")
+                app.buttons["call-ended-done"].tap()
+            }
+            let gone = NSPredicate { _, _ in !result.exists }
+            await fulfillment(of: [XCTNSPredicateExpectation(predicate: gone, object: result)], timeout: 5)
+            app.terminate()
+        }
+    }
+
+    func testPendingAndCollapsedCallEndKeepTheirPresentation() async throws {
+        var app = try await launch(callSurface: true, environment: ["MODEMDECK_UAT_END_PENDING": "1"])
+        XCTAssertTrue(app.buttons["call-end"].waitForExistence(timeout: 8))
+        app.buttons["call-end"].tap()
+        let status = app.staticTexts["call-ended-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 2))
+        XCTAssertTrue(status.label.contains("确认"))
+        let duration = app.staticTexts["call-ended-duration"].label
+        capture("call-ended-pending-server-confirmation", app: app)
+        try await Task.sleep(nanoseconds: 1_400_000_000)
+        XCTAssertTrue(status.exists)
+        XCTAssertEqual(app.staticTexts["call-ended-duration"].label, duration)
+        app.buttons["call-ended-done"].tap()
+        app.terminate()
+
+        app = try await launch(callSurface: true, testAudio: true)
+        XCTAssertTrue(app.buttons["call-collapse"].waitForExistence(timeout: 8))
+        app.buttons["call-collapse"].tap()
+        XCTAssertTrue(app.buttons["call-restore"].waitForExistence(timeout: 2))
+        app.buttons["call-mini-end"].tap()
+        XCTAssertTrue(app.buttons["call-mini-end"].waitForExistence(timeout: 2))
+        XCTAssertEqual(app.buttons["call-mini-end"].label, "关闭结束结果")
+        XCTAssertFalse(app.staticTexts["call-ended-status"].isHittable, "Collapsed call must not expand just because it ended")
+        capture("call-ended-collapsed-result", app: app)
+        app.buttons["call-mini-end"].tap()
+    }
+
+    func testReducedMotionEndedResultClosesWithoutAnimation() async throws {
+        XCTAssertTrue(UIAccessibility.isReduceMotionEnabled, "Run this case with the disposable simulator's Reduce Motion setting enabled")
+        let app = try await launch(callSurface: true, testAudio: true)
+        XCTAssertTrue(app.buttons["call-end"].waitForExistence(timeout: 8))
+        app.buttons["call-end"].tap()
+        XCTAssertTrue(app.staticTexts["call-ended-status"].waitForExistence(timeout: 2))
+        capture("call-test-ended-reduced-motion", app: app)
+        app.buttons["call-ended-done"].tap()
+        // XCTest snapshots are asynchronous; immediate model dismissal is
+        // separately covered by the production-method Reduce Motion regression.
+        XCTAssertTrue(app.staticTexts["call-ended-status"].waitForNonExistence(timeout: 3))
+    }
+
+    func testOutgoingRecordingSnapshotAndActiveToggle() async throws {
+        for state in ["connecting", "ringing-out"] {
+            for enabled in [false, true] {
+                let app = try await launch(callSurface: true, environment: [
+                    "MODEMDECK_UAT_CALL_STATE": state,
+                    "MODEMDECK_UAT_RECORDING_ENABLED": enabled ? "1" : "0"
+                ])
+                XCTAssertTrue(app.staticTexts["call-recording-status"].waitForExistence(timeout: 5))
+                XCTAssertEqual(app.staticTexts["call-recording-status"].label, enabled ? "录音已开启" : "录音已关闭")
+                XCTAssertFalse(app.buttons["call-recording"].exists)
+                capture("outgoing-\(state)-recording-\(enabled ? "on" : "off")", app: app)
+                app.terminate()
+            }
+        }
+        let app = try await launch(callSurface: true)
+        let recording = app.buttons["call-recording"]
+        XCTAssertTrue(recording.waitForExistence(timeout: 5))
+        XCTAssertTrue(recording.isHittable)
+        recording.tap()
+        XCTAssertTrue(app.buttons["录音中"].waitForExistence(timeout: 5))
+        recording.tap()
+        XCTAssertTrue(app.buttons["录音"].waitForExistence(timeout: 5))
+        capture("active-recording-toggle", app: app)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            XCTAssertTrue(app.buttons["call-recording"].isHittable)
+            XCTAssertTrue(app.buttons["call-end"].isHittable)
+            capture("active-recording-toggle-landscape", app: app)
+            XCUIDevice.shared.orientation = .portrait
+        }
+        app.terminate()
+    }
+
+    func testCallPrimaryActionsStaySymmetricAndAvoidAnswerToEndOverlap() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        XCUIDevice.shared.orientation = .portrait
+        for largeText in [false, true] {
+            var realCallEndFrame: CGRect?
+            for testCall in [false, true] {
+                func launchVisualCall(_ state: String) {
+                    app.terminate()
+                    app.launchEnvironment = [
+                        "MODEMDECK_UAT_MODE": "1",
+                        "MODEMDECK_UAT_SERVER_URL": "https://127.0.0.1:1",
+                        "MODEMDECK_UAT_TOKEN": token,
+                        "MODEMDECK_UAT_CALL_STATE": state,
+                        "MODEMDECK_UAT_TEST_AUDIO_DYNAMIC": "1",
+                        "MODEMDECK_UAT_TEST_AUDIO": testCall ? "1" : "0"
+                    ]
+                    app.launchArguments = largeText
+                        ? ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] : []
+                    app.launch()
+                }
+                launchVisualCall("ringing")
+                let answer = app.buttons["call-answer"], decline = app.buttons["call-decline"]
+                XCTAssertTrue(answer.waitForExistence(timeout: 12))
+                XCTAssertTrue(answer.isHittable && decline.isHittable)
+                XCTAssertFalse(app.buttons["call-recording"].exists)
+                XCTAssertEqual((answer.frame.midX + decline.frame.midX) / 2, app.frame.midX, accuracy: 2)
+                XCTAssertEqual(answer.frame.minY, decline.frame.minY, accuracy: 2)
+                XCTAssertGreaterThanOrEqual(answer.frame.width, 44)
+                XCTAssertGreaterThanOrEqual(answer.frame.height, 44)
+                XCTAssertLessThan(decline.frame.maxX, answer.frame.minX)
+                let answerFrame = answer.frame
+                capture("call-incoming-\(testCall ? "test" : "real")-\(largeText ? "accessibility" : "default")", app: app)
+
+                launchVisualCall("active")
+                let end = app.buttons["call-end"]
+                XCTAssertTrue(end.waitForExistence(timeout: 12))
+                XCTAssertTrue(end.isHittable)
+                XCTAssertEqual(end.frame.midX, app.frame.midX, accuracy: 2)
+                XCTAssertFalse(end.frame.intersects(answerFrame), "A second tap at Answer must not hit End")
+                XCTAssertTrue(app.frame.contains(end.frame), "Primary actions must remain inside the screen")
+                if let realCallEndFrame {
+                    XCTAssertEqual(end.frame.minY, realCallEndFrame.minY, accuracy: 2, "Test calls share the real-call primary action region")
+                    XCTAssertEqual(end.frame.width, realCallEndFrame.width, accuracy: 2)
+                } else { realCallEndFrame = end.frame }
+                if !testCall {
+                    let keypad = app.buttons["call-keypad"]
+                    for _ in 0..<3 where !keypad.isHittable { app.scrollViews.firstMatch.swipeUp() }
+                    XCTAssertTrue(keypad.isHittable, "Auxiliary controls must remain reachable at larger text sizes")
+                    XCTAssertTrue(app.buttons["call-recording"].exists)
+                    XCTAssertLessThan(keypad.frame.maxY, end.frame.minY)
+                    XCTAssertLessThan(app.buttons["call-recording"].frame.maxY, end.frame.minY)
+                }
+                capture("call-active-\(testCall ? "test" : "real")-\(largeText ? "accessibility" : "default")", app: app)
+            }
+        }
+        app.terminate()
     }
 
     func testRotationPreservesConversationAndDraft() async throws {

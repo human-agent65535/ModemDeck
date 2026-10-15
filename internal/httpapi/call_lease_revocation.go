@@ -17,6 +17,7 @@ func (api *API) revokeCallHolder(ctx context.Context, holderID string) error {
 		return nil
 	}
 	callIDs, err := api.callLeases.RevokeHolder(holderID)
+	api.cancelRevokedPreparations(ctx, func(p *outgoingPreparation) bool { return p.owner.HolderID == holderID })
 	if err != nil {
 		return fmt.Errorf("revoke call holder: %w", err)
 	}
@@ -28,6 +29,7 @@ func (api *API) revokeCallSubject(ctx context.Context, subjectID string) error {
 		return nil
 	}
 	callIDs, err := api.callLeases.RevokeSubject(subjectID)
+	api.cancelRevokedPreparations(ctx, func(p *outgoingPreparation) bool { return p.owner.SubjectID == subjectID })
 	if err != nil {
 		return fmt.Errorf("revoke call subject: %w", err)
 	}
@@ -99,4 +101,34 @@ func normalizeRequestContext(ctx context.Context) context.Context {
 		return context.Background()
 	}
 	return ctx
+}
+
+func (api *API) cancelRevokedPreparations(ctx context.Context, matches func(*outgoingPreparation) bool) {
+	api.preparationsMu.Lock()
+	selected := make([]*outgoingPreparation, 0)
+	for _, p := range api.preparations {
+		if matches(p) {
+			selected = append(selected, p)
+		}
+	}
+	api.preparationsMu.Unlock()
+	for _, p := range selected {
+		p.cancelRequested.Store(true)
+		p.dispatchMu.Lock()
+		if p.dispatchCancel != nil {
+			p.dispatchCancel()
+		}
+		p.dispatchMu.Unlock()
+		p.mu.Lock()
+		p.state = preparationCancelled
+		if leases, ok := api.preparationLease(); ok {
+			_, _ = leases.CancelOutgoing(p.id, p.owner.HolderID)
+		}
+		if p.session != nil {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), callRevocationTimeout)
+			_ = p.session.Close(cleanup)
+			cancel()
+		}
+		p.mu.Unlock()
+	}
 }

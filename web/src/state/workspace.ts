@@ -272,7 +272,7 @@ export function capabilityReason(capability: 'dial' | 'message'): string {
   }
   if (
     capability === 'dial' &&
-    (!bootstrap.capabilities.webrtc_audio ||
+    (!bootstrap.capabilities.wss_audio ||
       !bootstrap.lines.some(lineCanPlaceVoiceCall))
   ) {
     return translate(

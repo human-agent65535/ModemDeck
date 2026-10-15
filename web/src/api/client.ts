@@ -9,8 +9,8 @@ import {
   parseCallTestStatus,
   callActionContract,
   callLeaseContract,
-  callMediaContract,
-  callMediaICEContract,
+
+
   callMediaReleaseContract,
   callRecordPath,
   callRecordingContract,
@@ -18,8 +18,7 @@ import {
   communicationContracts,
   createCallActionPayload,
   createCallLeasePayload,
-  createCallMediaPayload,
-  createCallMediaICEPayload,
+
   createCallMediaReleasePayload,
   createCallPayload,
   createCallRecordingPayload,
@@ -42,8 +41,7 @@ import {
   createTLSSettingsPayload,
   externalAccessContract,
   parseActiveCallSnapshotResponse,
-  parseCallMediaResponse,
-  parseCallMediaICEConfiguration,
+
   parseCallLeaseStatus,
   parseCallRecordingState,
   parseCallRecordingSnapshotResponse,
@@ -108,7 +106,6 @@ import type {
   CallFilter,
   CallRecordingSegment,
   CallRecordingState,
-  CallSession,
   ChangePasswordInput,
   CommandReceipt,
   ConnectionProfile,
@@ -2167,25 +2164,22 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async startCall(
-    lineKey: string,
-    number: string,
-    recordingEnabled?: boolean
-  ): Promise<CallSession> {
-    const contract = communicationContracts.startCall
-    return parseCallResponse(
-      await writeJSON(
-        contract.path,
-        contract.method,
-        createCallPayload(
-          lineKey,
-          number,
-          requestID(),
-          recordingEnabled
-        ),
-        contract.successStatus
-      )
-    )
+  async prepareCall(lineKey, number, recordingEnabled) {
+    const value = requiredRecord(await writeJSON(`${API_ROOT}/calls/prepare`, 'POST',
+      createCallPayload(lineKey, number, requestID(), recordingEnabled), 201), 'call_preparation')
+    return { preparation_id: requiredStringValue(value, 'call_preparation', 'preparation_id'),
+      recording_enabled: requiredBooleanValue(value, 'call_preparation', 'recording_enabled'),
+      media_socket_path: requiredStringValue(value, 'call_preparation', 'media_socket_path'),
+      expires_at: requiredStringValue(value, 'call_preparation', 'expires_at') }
+  },
+  async commitCallPreparation(id) {
+    return parseCallResponse(await writeJSON(`${API_ROOT}/calls/preparations/${encodeURIComponent(id)}/commit`, 'POST', { audio_running: true }, 201))
+  },
+  async cancelCallPreparation(id) {
+    await writeJSON(`${API_ROOT}/calls/preparations/${encodeURIComponent(id)}`, 'DELETE', {}, 204)
+  },
+  async renewCallPreparation(id) {
+    await writeJSON(`${API_ROOT}/calls/preparations/${encodeURIComponent(id)}/lease`, 'PUT', {}, 200)
   },
 
   async callAction(id, action, recordingEnabled): Promise<void> {
@@ -2222,37 +2216,6 @@ const realGateway: ConfiguredModemDeckGateway = {
         contract.successStatus,
         undefined,
         CALL_LEASE_REQUEST_TIMEOUT_MS
-      )
-    )
-  },
-
-  async getCallMediaICEConfiguration(id: string, signal?: AbortSignal) {
-    const contract = callMediaICEContract(id)
-    return parseCallMediaICEConfiguration(
-      await writeJSON(
-        contract.path,
-        contract.method,
-        createCallMediaICEPayload(),
-        contract.successStatus,
-        signal
-      )
-    )
-  },
-
-  async exchangeCallMedia(
-    id: string,
-    ownerToken: string,
-    offerSDP: string,
-    signal?: AbortSignal
-  ): Promise<string> {
-    const contract = callMediaContract(id)
-    return parseCallMediaResponse(
-      await writeJSON(
-        contract.path,
-        contract.method,
-        createCallMediaPayload(ownerToken, offerSDP),
-        contract.successStatus,
-        signal
       )
     )
   },

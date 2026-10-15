@@ -82,7 +82,7 @@ test('call ownership uses independent control and server media liveness', async 
 	)
   assert.match(
     callState,
-    /session\.control_state === 'available'[\s\S]*?syncCallMedia\(owned \? session : null\)/
+    /session\.control_state === 'available'[\s\S]*?syncCallMedia\(owned && !ending \? session : null\)/
   )
   assert.match(serverEvents, /runtimeHeartbeatInterval\s*=\s*5\s*\*\s*time\.Second/)
 })
@@ -98,7 +98,7 @@ test('occupied calls are visible but cannot consume browser controls or media', 
   )
   assert.match(surface, /const owned = computed\([\s\S]*?: callState\.owned\)/)
   assert.match(surface, /v-else-if="canHangup && owned"/)
-  assert.match(surface, /active\.value &&[\s\S]*?owned\.value/)
+  assert.match(surface, /!terminal\.value &&[\s\S]*?owned\.value/)
 })
 
 test('line cards expose authoritative call and reservation occupancy', async () => {

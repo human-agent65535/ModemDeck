@@ -37,7 +37,7 @@ export type Capabilities = {
   agent_connected: boolean
   dial: boolean
   message: boolean
-  webrtc_audio: boolean
+  wss_audio: boolean
   device_control: boolean
   volte_control: boolean
   vowifi_control: boolean
@@ -97,6 +97,7 @@ export type CallPhase =
   | 'unknown'
   | 'dialing'
   | 'ringing'
+  | 'ringing-out'
   | 'connecting'
   | 'active'
   | 'ending'
@@ -137,18 +138,6 @@ export type ActiveCallSnapshot = {
 export type CallLeaseStatus = {
   call_id: string
   expires_at: string
-}
-
-export type CallMediaICEServer = {
-  urls: string[]
-  username?: string
-  credential?: string
-}
-
-export type CallMediaICEConfiguration = {
-  ice_servers: CallMediaICEServer[]
-  ice_transport_policy: 'all' | 'relay'
-  expires_at?: string
 }
 
 export type RecordingSettings = {
@@ -204,11 +193,6 @@ export type CloudflareOriginTLSStatus = {
   expired: boolean
 }
 
-export type TURNAvailabilityStatus = {
-  configured: boolean
-  available: boolean
-}
-
 export type IOSPairingAvailability =
   | 'permission_required'
   | 'cloudflare_required'
@@ -258,7 +242,6 @@ export type IOSPairingStatus = {
 
 export type ExternalAccessStatus = {
   cloudflare: CloudflareTunnelStatus
-  turn: TURNAvailabilityStatus
   origin_tls: CloudflareOriginTLSStatus
 }
 
@@ -1462,3 +1445,5 @@ export type Page<T> = {
   items: T[]
   meta: PageMeta
 }
+
+export type OutgoingCallPreparation = { preparation_id: string; media_socket_path: string; expires_at: string; recording_enabled: boolean }

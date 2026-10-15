@@ -26,10 +26,10 @@ func TestManagerRequiresEveryAuthoritativeMediaGateBeforeOpen(t *testing.T) {
 			code: ErrorNotFound,
 		},
 		{
-			name: "call is not active",
+			name: "unanswered incoming call",
 			call: func() Call {
 				call := validCall
-				call.State = "ringing_out"
+				call.State = "ringing-in"
 				return call
 			}(),
 			code: ErrorNotActive,
@@ -113,7 +113,7 @@ func TestManagerRequiresEveryAuthoritativeMediaGateBeforeOpen(t *testing.T) {
 }
 
 func TestManagerUsesOneEligibilityRuleForOpenAndStart(t *testing.T) {
-	for _, state := range []string{"active", "held"} {
+	for _, state := range []string{"dialing", "ringing-out", "active", "held"} {
 		t.Run(state, func(t *testing.T) {
 			var stateMu sync.Mutex
 			currentState := state
@@ -175,7 +175,6 @@ func TestManagerUsesOneEligibilityRuleForOpenAndStart(t *testing.T) {
 
 	for _, state := range []string{
 		"unknown",
-		"dialing",
 		"ringing_out",
 		"ringing_in",
 		"waiting",

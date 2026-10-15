@@ -52,11 +52,18 @@ test('dial targets reject unsafe syntax but leave number existence to the networ
 
 test('fixture applies the same local dial-target contract as the real gateway', async () => {
   const fixture = createFixtureGateway()
-  const call = await fixture.startCall('line-fixture-main', '090-1234-5678')
+  const prepared = await fixture.prepareCall('line-fixture-main', '090-1234-5678')
+  const call = await fixture.commitCallPreparation(prepared.preparation_id)
   assert.equal(call.remote_number, '09012345678')
+  assert.equal((await fixture.commitCallPreparation(prepared.preparation_id)).id, call.id)
+  await fixture.cancelCallPreparation(prepared.preparation_id)
+  assert.equal((await fixture.getActiveCallSnapshot()).calls.length, 0)
 
   await assert.rejects(
-    createFixtureGateway().startCall('line-fixture-main', '*123#'),
+    (async () => {
+      const invalid = await fixture.prepareCall('line-fixture-main', '*123#')
+      return fixture.commitCallPreparation(invalid.preparation_id)
+    })(),
     error =>
       error instanceof Error &&
       error.message === 'Dial target is invalid'

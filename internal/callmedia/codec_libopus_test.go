@@ -3,7 +3,6 @@
 package callmedia
 
 import (
-	"context"
 	"math"
 	"testing"
 	"time"
@@ -55,92 +54,6 @@ func TestLibOpusEncodesNativeTelephonePCMAndProvidesPLC(t *testing.T) {
 		if err := codec.Close(); err != nil {
 			t.Fatal(err)
 		}
-	}
-}
-
-func TestPionLoopbackCarriesProductionLibOpusPayloads(t *testing.T) {
-	format := testFormat(8000)
-	endpoint := newFakeEndpoint(format)
-	core, err := New(Options{
-		EndpointOpener: &fakeEndpointOpener{endpoint: endpoint},
-		Jitter: JitterConfig{
-			StartupDelay: time.Millisecond,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-		defer cancel()
-		if err := core.Close(ctx); err != nil {
-			t.Errorf("close core: %v", err)
-		}
-	})
-	authorizeCall(t, core, "call-production-opus")
-
-	factory, err := NewProductionOpusFactory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	browserCodec, err := factory.New(format)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = browserCodec.Close() })
-
-	browser := newTestBrowser(t)
-	result, err := core.Exchange(
-		context.Background(),
-		testOffer("call-production-opus", browser.offer(t)),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	browser.applyAnswer(t, result.AnswerSDP)
-
-	source := sinePCM(format, 440)
-	encoded, err := browserCodec.Encode(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	browser.send(t, encoded, format.FrameDuration)
-	played := receiveNonSilentPCM(t, endpoint.writes)
-	if len(played) != format.FrameBytes() || allBytes(played, 0) {
-		t.Fatal("production browser-to-endpoint Opus decoded to invalid PCM")
-	}
-
-	endpoint.read <- source
-	remote := receive(t, browser.remoteTrack)
-	type packetResult struct {
-		payload []byte
-		err     error
-	}
-	packetRead := make(chan packetResult, 1)
-	go func() {
-		packet, _, readErr := remote.ReadRTP()
-		if readErr != nil {
-			packetRead <- packetResult{err: readErr}
-			return
-		}
-		packetRead <- packetResult{payload: append([]byte(nil), packet.Payload...)}
-	}()
-	packet := receive(t, packetRead)
-	if packet.err != nil {
-		t.Fatal(packet.err)
-	}
-	decoded, err := browserCodec.Decode(packet.payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(decoded.PCM) != format.FrameBytes() || allBytes(decoded.PCM, 0) {
-		t.Fatal("production endpoint-to-browser Opus decoded to invalid PCM")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-	if err := core.CloseCall(ctx, result.Session.CallID()); err != nil {
-		t.Fatal(err)
 	}
 }
 

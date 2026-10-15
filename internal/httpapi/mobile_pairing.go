@@ -79,7 +79,6 @@ type createIOSPairingRequest struct {
 
 type externalAccessStatusResponse struct {
 	Cloudflare mobilepairing.CloudflareStatus `json:"cloudflare"`
-	TURN       turnAvailabilityStatus         `json:"turn"`
 	OriginTLS  CloudflareOriginTLSStatus      `json:"origin_tls"`
 }
 
@@ -111,11 +110,9 @@ func (api *API) externalAccessStatus(
 	go func() {
 		cloudflareResult <- api.cloudflareStatus(request.Context())
 	}()
-	turn := api.turnStatus(request.Context())
 	response.Header().Set("Cache-Control", "no-store")
 	writeJSON(response, http.StatusOK, externalAccessStatusResponse{
 		Cloudflare: <-cloudflareResult,
-		TURN:       turn,
 		OriginTLS:  api.cloudflareOriginTLSStatus(request.Context()),
 	})
 }
@@ -139,11 +136,9 @@ func (api *API) refreshExternalAccess(
 	go func() {
 		cloudflareResult <- refresher.Refresh(request.Context())
 	}()
-	turn := api.turnStatus(request.Context())
 	response.Header().Set("Cache-Control", "no-store")
 	writeJSON(response, http.StatusOK, externalAccessStatusResponse{
 		Cloudflare: <-cloudflareResult,
-		TURN:       turn,
 		OriginTLS:  api.cloudflareOriginTLSStatus(request.Context()),
 	})
 }

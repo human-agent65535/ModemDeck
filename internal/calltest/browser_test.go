@@ -9,7 +9,7 @@ import (
 
 func TestBrowserCallTestStartsImmediatelyAndExpiresWithoutPush(t *testing.T) {
 	push := make(localPush, 1)
-	service := New(push, nil, nil)
+	service := New(push, nil)
 	defer service.Close()
 	started, err := service.StartBrowser("web-session", "zh")
 	if err != nil || started.Phase != "active" || time.Until(started.ExpiresAt) > time.Minute || time.Until(started.ExpiresAt) < 59*time.Second {
@@ -54,7 +54,7 @@ func TestBrowserCallTestStartsImmediatelyAndExpiresWithoutPush(t *testing.T) {
 }
 
 func TestBrowserCallTestUsesOwnedProjectionAndCleansUpOnStop(t *testing.T) {
-	service := New(nil, nil, nil)
+	service := New(nil, nil)
 	defer service.Close()
 	started, err := service.StartBrowser("browser")
 	if err != nil {

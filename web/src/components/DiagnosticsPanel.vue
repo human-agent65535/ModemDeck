@@ -143,7 +143,7 @@ const browserAudioDetail = computed(() => {
     case 'insecure-context':
       return t('diagnostics.httpsRequired')
     case 'unsupported':
-      return t('diagnostics.webrtcUnsupported')
+      return t('diagnostics.audioProcessingUnsupported')
     case 'prompt':
       return t('diagnostics.microphonePermissionWaiting')
     case 'pending':

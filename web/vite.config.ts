@@ -31,6 +31,9 @@ export default defineConfig(({ mode }) => {
     define: {
       'import.meta.env.VITE_MODEMDECK_BUILD_ID': JSON.stringify(applicationVersion)
     },
+    // AudioWorklet is an ES module scope, not DedicatedWorkerGlobalScope.
+    // Preserve import.meta.url instead of the IIFE worker self.location rewrite.
+    worker: { format: 'es' },
     build: {
       cssCodeSplit: true,
       rolldownOptions: {

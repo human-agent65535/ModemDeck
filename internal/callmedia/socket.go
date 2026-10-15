@@ -7,12 +7,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pion/webrtc/v4"
+	"github.com/human-agent65535/modemdeck/internal/audiocore"
 )
 
 const SocketHeaderBytes = 12
 const SocketSampleRate = 16000
-const socketQueueFrames = 5
 
 // SocketTransport is supplied by HTTP, keeping authentication and WebSocket
 // framing outside the PCM core. Close must unblock a pending Read or Write.
@@ -24,14 +23,11 @@ type SocketTransport interface {
 	Close() error
 }
 
-type socketPacket struct {
-	payload  []byte
-	received time.Time
-}
 type socketAudio struct {
 	transport   SocketTransport
-	incoming    chan socketPacket
 	firstPacket chan struct{}
+	receiver    *audiocore.Receiver
+	epoch       time.Time
 }
 
 func SocketFrame(sequence, timestamp uint32, opus []byte) []byte {
@@ -47,16 +43,19 @@ func SocketFrame(sequence, timestamp uint32, opus []byte) []byte {
 func ParseSocketFrame(frame []byte) (sequence, timestamp uint32, opus []byte, err error) {
 	if len(frame) <= SocketHeaderBytes || len(frame) > SocketHeaderBytes+maxOpusPayloadBytes ||
 		string(frame[:2]) != "MD" || frame[2] != 1 || frame[3] != 0 {
-		return 0, 0, nil, ErrInvalidRTP
+		return 0, 0, nil, ErrInvalidAudio
 	}
 	return binary.BigEndian.Uint32(frame[4:8]), binary.BigEndian.Uint32(frame[8:12]), frame[12:], nil
 }
 
-// OpenSocket uses precisely the same ownership, call lifetime and modem hub as
-// legacy peers. A failed prepare never leaves a reserved media owner behind.
+// OpenSocket attaches an authenticated WSS client to the shared call lifetime
+// and PCM hub. A failed prepare never leaves a reserved media owner behind.
 func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, transport SocketTransport) (*Session, error) {
 	if c == nil {
 		return nil, ErrCoreClosed
+	}
+	if !audiocore.Available {
+		return nil, &UnsupportedError{Feature: "portable audio core CGO"}
 	}
 	ctx = normalizeContext(ctx)
 	call, err := normalizeActiveCall(active)
@@ -86,13 +85,13 @@ func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, 
 	if err != nil {
 		return nil, err
 	}
-	format := PCMFormat{Encoding: PCMEncodingS16LE, SampleRate: SocketSampleRate, Channels: 1, FrameDuration: defaultFramePeriod}
+	format := PCMFormat{Encoding: PCMEncodingS16LE, SampleRate: hub.format.SampleRate, Channels: 1, FrameDuration: defaultFramePeriod}
 	codec, err := c.codecs.New(format)
 	if err != nil {
 		if codec != nil {
 			_ = codec.Close()
 		}
-		return nil, fmt.Errorf("create socket codec: %w", err)
+		return nil, fmt.Errorf("create socket codec: %w", errors.Join(ErrCodec, err))
 	}
 	if codec == nil {
 		return nil, ErrCodec
@@ -106,7 +105,7 @@ func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, 
 			_ = codec.Close()
 		}
 	}()
-	subscription, err := hub.Subscribe(socketQueueFrames * int(defaultFramePeriod/hub.format.FrameDuration))
+	subscription, err := hub.Subscribe(audiocore.SendCapacity * int(defaultFramePeriod/hub.format.FrameDuration))
 	if err != nil {
 		return nil, err
 	}
@@ -115,9 +114,17 @@ func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, 
 			_ = subscription.Close()
 		}
 	}()
-	events := newPeerEvents()
-	session := newSession(owner.ctx, call.ID, format, hub, subscription, codec, nil, nil, nil, events, c.jitter, c.recoveryTime)
-	session.socket = &socketAudio{transport: transport, incoming: make(chan socketPacket, socketQueueFrames), firstPacket: make(chan struct{})}
+	session := newSession(owner.ctx, call.ID, format, hub, subscription, codec)
+	receiver, err := audiocore.NewReceiver(hub.format.SampleRate)
+	if err != nil {
+		return nil, fmt.Errorf("create uplink NetEq: %w", errors.Join(ErrCodec, err))
+	}
+	defer func() {
+		if !committed {
+			receiver.Close()
+		}
+	}()
+	session.socket = &socketAudio{transport: transport, firstPacket: make(chan struct{}), receiver: receiver, epoch: time.Now()}
 	session.reportStats = c.onAudioStats
 	if err := prepare.Err(); err != nil {
 		return nil, ErrCanceled
@@ -132,8 +139,8 @@ func (c *Core) OpenSocket(ctx context.Context, active ActiveCall, token string, 
 }
 
 func (s *Session) socketReceiveLoop() error {
-	clock := socketReceiveClock{}
 	initialized := false
+	var previousSequence, previousTimestamp uint32
 	for {
 		frame, err := s.socket.transport.Read(s.ctx)
 		if err != nil {
@@ -150,112 +157,95 @@ func (s *Session) socketReceiveLoop() error {
 		if err != nil {
 			return err
 		}
-		duration, err := s.codec.PacketDuration(payload)
-		if err != nil || duration != defaultFramePeriod {
-			return ErrInvalidRTP
+		bound := true
+		if s.bound != nil {
+			select {
+			case <-s.bound:
+			default:
+				bound = false
+			}
 		}
-		now := time.Now()
-		current, err := clock.accept(sequence, timestamp, now)
-		if err != nil {
-			return err
+		s.codecMu.Lock()
+		duration, err := s.codec.PacketDuration(payload)
+		if !bound && err == nil && duration == defaultFramePeriod {
+			_, err = s.codec.Decode(payload)
+		}
+		s.codecMu.Unlock()
+		if err != nil || duration != defaultFramePeriod {
+			return ErrInvalidAudio
+		}
+		if initialized {
+			step := sequence - previousSequence
+			if step == 0 || step >= 1<<31 || timestamp-previousTimestamp != step*320 {
+				return ErrInvalidAudio
+			}
+		}
+		previousSequence, previousTimestamp = sequence, timestamp
+		if bound {
+			if err := s.socket.receiver.Enqueue(payload, uint16(sequence), timestamp*3, time.Since(s.socket.epoch)); err != nil {
+				if errors.Is(err, audiocore.ErrInvalidPacket) {
+					return ErrInvalidAudio
+				}
+				if errors.Is(err, audiocore.ErrBackpressure) {
+					return ErrBackpressure
+				}
+				return fmt.Errorf("insert socket Opus: %w", errors.Join(ErrCodec, err))
+			}
 		}
 		s.stats.receivedPackets.Add(1)
 		s.stats.receivedBytes.Add(uint64(len(payload)))
-		if !current {
-			s.stats.droppedPackets.Add(1)
-			continue
-		}
 		if !initialized {
 			initialized = true
-			s.events.updateState(webrtc.PeerConnectionStateConnected)
+			s.events.markConnected()
 			close(s.socket.firstPacket)
-		}
-		packet := socketPacket{payload: append([]byte(nil), payload...), received: now}
-		select {
-		case s.socket.incoming <- packet:
-		default:
-			select {
-			case <-s.socket.incoming:
-				s.stats.droppedPackets.Add(1)
-			default:
-			}
-			select {
-			case s.socket.incoming <- packet:
-			default:
-			}
 		}
 	}
 }
 
+// The hub is the sole playout owner. This worker only attaches the receiver
+// after the first valid packet and waits for cancellation; it has no timer.
 func (s *Session) socketPlaybackLoop() error {
+	if err := s.waitBinding(); err != nil {
+		return err
+	}
 	if err := s.waitSocketAudio(); err != nil {
+		return err
+	}
+	if err := s.hub.attachReceiver(s); err != nil {
 		return err
 	}
 	if err := s.subscription.Start(s.ctx); err != nil {
 		return err
 	}
-	ticker := time.NewTicker(s.hub.format.FrameDuration)
-	defer ticker.Stop()
-	var pending []byte
-	for {
-		select {
-		case <-s.ctx.Done():
-			return nil
-		case <-ticker.C:
-		}
-		if len(pending) == 0 {
-			var packet socketPacket
-			fresh := false
-			for {
-				select {
-				case packet = <-s.socket.incoming:
-					if time.Since(packet.received) <= 100*time.Millisecond {
-						fresh = true
-					} else {
-						s.stats.droppedPackets.Add(1)
-					}
-				default:
-					goto selected
-				}
-				if fresh {
-					break
-				}
-			}
-		selected:
-			if fresh {
-				duration, err := s.codec.PacketDuration(packet.payload)
-				if err != nil || duration != defaultFramePeriod {
-					return ErrInvalidRTP
-				}
-				decoded, err := s.codec.Decode(packet.payload)
-				if err != nil {
-					return err
-				}
-				if decoded.Duration != defaultFramePeriod || len(decoded.PCM) != s.format.FrameBytes() {
-					return ErrCodec
-				}
-				level, peak := PCMLevels(decoded.PCM)
-				s.stats.inputDBFS.Store(int64(level))
-				s.stats.inputPeakDBFS.Store(int64(peak))
-				pending = socketResample(decoded.PCM, SocketSampleRate, s.hub.format.SampleRate)
-			} else {
-				pending = make([]byte, s.hub.format.FrameBytes())
-				s.stats.inputDBFS.Store(-96)
-				s.stats.inputPeakDBFS.Store(-96)
-			}
-		}
-		frameBytes := s.hub.format.FrameBytes()
-		if len(pending) < frameBytes {
-			return ErrCodec
-		}
-		if err := s.hub.WritePCM(s.ctx, pending[:frameBytes]); err != nil {
-			return err
-		}
-		pending = pending[frameBytes:]
+	<-s.ctx.Done()
+	return nil
+}
+
+// pullPCM10 is called only by the hub's one10ms consumption clock. A20ms
+// endpoint receives two adjacent chunks; no pull advances a clock into future.
+func (s *Session) pullPCM10(now time.Time) ([]byte, error) {
+	rate := s.hub.format.SampleRate
+	pcm := make([]byte, rate/100*2)
+	if s.ctx.Err() != nil {
+		return pcm, nil
 	}
+	samples := make([]int16, rate/100)
+	if err := s.socket.receiver.Pull(now.Sub(s.socket.epoch), samples); err != nil {
+		return nil, fmt.Errorf("pull uplink NetEq: %w", errors.Join(ErrCodec, err))
+	}
+	for i, v := range samples {
+		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(v))
+	}
+	level, peak := PCMLevels(pcm)
+	s.stats.inputDBFS.Store(int64(level))
+	s.stats.inputPeakDBFS.Store(int64(peak))
+	return pcm, nil
 }
 
 func (s *Session) socketCaptureLoop() error {
+	if err := s.waitBinding(); err != nil {
+		return err
+	}
 	if err := s.waitSocketAudio(); err != nil {
 		return err
 	}
@@ -269,7 +259,7 @@ func (s *Session) socketCaptureLoop() error {
 		if err != nil {
 			return err
 		}
-		pcm = append(pcm, socketResample(frame.DownlinkPCM, s.hub.format.SampleRate, SocketSampleRate)...)
+		pcm = append(pcm, frame.DownlinkPCM...)
 		if err := s.subscription.Err(); err != nil {
 			return err
 		}
@@ -295,35 +285,8 @@ func (s *Session) socketCaptureLoop() error {
 	}
 }
 
-// Only the existing 8/16 kHz mono PCM boundary is supported. Downsampling uses
-// a two-sample low-pass average; interpolation avoids nearest-neighbor steps.
-func socketResample(pcm []byte, source, target int) []byte {
-	if source == target {
-		return append([]byte(nil), pcm...)
-	}
-	samples := len(pcm) / 2
-	output := make([]byte, samples*target/source*2)
-	sample := func(i int) int32 {
-		if i >= samples {
-			i = samples - 1
-		}
-		return int32(int16(binary.LittleEndian.Uint16(pcm[i*2:])))
-	}
-	if source == 8000 && target == 16000 {
-		for i := 0; i < samples; i++ {
-			binary.LittleEndian.PutUint16(output[i*4:], uint16(int16(sample(i))))
-			binary.LittleEndian.PutUint16(output[i*4+2:], uint16(int16((sample(i)+sample(i+1))/2)))
-		}
-	} else {
-		for i := 0; i < samples/2; i++ {
-			binary.LittleEndian.PutUint16(output[i*2:], uint16(int16((sample(i*2)+sample(i*2+1))/2)))
-		}
-	}
-	return output
-}
-
 func (s *Session) waitSocketAudio() error {
-	timer := time.NewTimer(s.recoveryTime)
+	timer := time.NewTimer(15 * time.Second)
 	defer timer.Stop()
 	select {
 	case <-s.socket.firstPacket:
@@ -333,61 +296,4 @@ func (s *Session) waitSocketAudio() error {
 	case <-timer.C:
 		return ErrTransportTimeout
 	}
-}
-
-// socketReceiveClock measures capture age from the sender's sample ticks, not
-// just time in our local queue: TCP backlog does not become fresh on receipt.
-// Re-anchor a changed route only after three arrivals regain real-time cadence.
-type socketReceiveClock struct {
-	initialized       bool
-	previousSequence  uint32
-	previousTimestamp uint32
-	previousArrival   time.Time
-	anchorTimestamp   uint32
-	anchorArrival     time.Time
-	recoveryCadence   int
-}
-
-func (c *socketReceiveClock) accept(sequence, timestamp uint32, now time.Time) (bool, error) {
-	stable := false
-	if c.initialized {
-		advance := sequence - c.previousSequence
-		if int32(advance) <= 0 || timestamp-c.previousTimestamp != advance*320 {
-			return false, ErrInvalidRTP
-		}
-		gap := now.Sub(c.previousArrival)
-		stable = advance == 1 && gap >= 12*time.Millisecond && gap <= 28*time.Millisecond
-	} else {
-		c.initialized = true
-		c.anchorTimestamp = timestamp
-		c.anchorArrival = now
-	}
-	c.previousSequence = sequence
-	c.previousTimestamp = timestamp
-	c.previousArrival = now
-	elapsed := time.Duration(timestamp-c.anchorTimestamp) * time.Second / SocketSampleRate
-	age := now.Sub(c.anchorArrival) - elapsed
-	if age > 100*time.Millisecond || age < -100*time.Millisecond {
-		if stable {
-			c.recoveryCadence++
-		} else {
-			c.recoveryCadence = 0
-		}
-		if c.recoveryCadence < 3 {
-			return false, nil
-		}
-		c.anchorTimestamp = timestamp
-		c.anchorArrival = now
-		c.recoveryCadence = 0
-		return true, nil
-	}
-	c.recoveryCadence = 0
-	predicted := c.anchorArrival.Add(elapsed + 200*time.Microsecond)
-	c.anchorTimestamp = timestamp
-	if now.Before(predicted) {
-		c.anchorArrival = now
-	} else {
-		c.anchorArrival = predicted
-	}
-	return true, nil
 }

@@ -252,8 +252,8 @@ func TestMobileBearerAllowsCallAPIWithoutCSRF(t *testing.T) {
 	assertAPIError(
 		t,
 		response,
-		http.StatusServiceUnavailable,
-		"communications_unavailable",
+		http.StatusConflict,
+		"outgoing_media_required",
 	)
 	if repository.mobileConfirmedDigest != digest {
 		t.Fatalf(

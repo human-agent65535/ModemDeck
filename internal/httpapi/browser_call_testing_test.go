@@ -18,7 +18,7 @@ import (
 func TestBrowserCallTestAuthenticationIsolationAndAudio(t *testing.T) {
 	// No push, TURN, modem or recording service is configured. A regular member
 	// with no SIM access can test their own browser audio.
-	service := calltest.New(nil, nil, nil)
+	service := calltest.New(nil, nil)
 	defer service.Close()
 	authenticator, token, csrf := newAPIUserAuthenticator(t)
 	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator, CallTests: service})

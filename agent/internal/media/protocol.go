@@ -204,11 +204,12 @@ func (s *Session) awaitStart(ctx context.Context, connection net.Conn) error {
 
 	frame, err := ReadFrame(connection, maxControlBytes)
 	if err != nil {
-		if errors.Is(startContext.Err(), context.DeadlineExceeded) {
+		startError := startContext.Err()
+		if errors.Is(startError, context.DeadlineExceeded) {
 			return NewError(ErrorTimeout, operation, "media START was not received before the deadline", startContext.Err())
 		}
-		if startContext.Err() != nil {
-			return startContext.Err()
+		if startError != nil {
+			return startError
 		}
 		return classifyConnectionIOError(operation, err)
 	}

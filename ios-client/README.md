@@ -18,8 +18,11 @@ call audio remain native platform services.
 - Long-press a contact, message, call or recording to select it and begin batch
   operations. Copy remains available for one selected item, and More provides
   an accessible selection alternative. Row swipes pause during selection.
-- The native dialer sheet retains its number, line and recording choice when
-  collapsed. Active calls can collapse into a persistent return/hang-up bar;
+- The native dialer sheet retains its number and line when collapsed and shows
+  the default recording policy as a small status label. While connecting or
+  ringing, the call surface shows the prepared recording choice as read-only
+  text. Once connected, its recording button can start or stop recording.
+  Active calls can collapse into a persistent return/hang-up bar;
   CallKit continues to own audio and control throughout.
 - Preferences → Appearance offers System, Light and Dark on this device.
   Native semantic colors cover navigation, avatars, bubbles and recording UI.
@@ -33,8 +36,8 @@ call audio remain native platform services.
   probes back off from one to thirty seconds, coalesce concurrent refreshes,
   and retry immediately on a restored network path or app activation. SMS,
   call, and other business writes are never replayed automatically. Media
-  negotiation can retry one transient transport failure using its unchanged
-  offer and owner token; the server returns the original answer for duplicates.
+  recovery reopens authenticated WSS using the existing call lease and media
+  owner. Native, Web and Go share the same pinned upstream NetEq core and resource limits.
 - Recents is a quick view of line status, call shortcuts and dated activity, sharing
   message, call, recording, and contact stores with the dedicated pages.
   Native swipe actions and copy/action menus remain available; search,
@@ -50,7 +53,14 @@ call audio remain native platform services.
   reject/hang-up, mute, and DTMF, while an audio-only WSS/Opus stream carries sound
   through the existing call media and lease APIs. The in-app native call surface
   also exposes mute, speaker/receiver routing, connected headset selection,
-  keypad, recording, and hang-up after CallKit is hidden.
+  keypad, and hang-up after CallKit is hidden.
+- Outgoing calls reserve with `/api/v1/calls/prepare` before reporting the
+  CallKit start. The same owner opens its prepared WSS, starts VoiceProcessingIO
+  after CallKit activation, and waits for server uplink readiness before commit
+  can dial the modem. Commit binds the actual call and control stream without
+  replacing the socket or NetEq pipeline; cancellation deletes the reservation.
+  Local ringback uses the shared render source only for `ringing-out`, and
+  audible remote media suppresses it.
 - Ends the local call immediately while retaining unconfirmed server hang-up
   requests across network interruptions and app restarts. Recovery checks the
   original call's state and credential scope before retrying; bearer tokens
@@ -250,14 +260,29 @@ physical-device radio changes, background push delivery, or call audio.
 6. Revoke the iOS pairing in Web and verify the app returns to onboarding on
    the next request.
 
-Native call audio uses source-built `Copus` from BSD-3-Clause `alta/swift-opus`,
-pinned to revision `6f3cb6bd3ffed1fe5f06d00a962d5c191a50daf8`. No codec runtime
-service is required. AVAudioEngine voice processing provides capture/render AEC
-and AGC after CallKit activation, then converts hardware input to mono 16 kHz
-20 ms Opus packets. The authenticated WSS stream uses the protocol in
-[`docs/call-audio-websocket.md`](../docs/call-audio-websocket.md). Capture and
-playback queues discard stale audio and are limited to 100 ms. The meter is
-measured from processed local capture and displayed at 10 Hz; server reports remain separate from sent counters.
+Native call audio links `MDNetEq.xcframework`, built from the repository's pinned
+upstream WebRTC NetEq, Opus and dependencies. `npm test` prepares the host static
+core; `npm run build:ios` prepares device arm64 and universal simulator slices.
+Dependency notices are generated once and packaged as `AudioCoreNotices.txt`.
+No codec runtime service, PeerConnection or TURN service is required.
+
+CallKit activation owns the AVAudioEngine voice-processing graph. Apple provides
+capture/render AEC and AGC using an explicit mono 16 kHz client format. Actual
+capture buffers are split into 20 ms Opus packets without assuming a preferred
+hardware buffer duration. NetEq owns decoding, adaptive jitter buffering, loss
+concealment and time scaling internally at 48 kHz, with official resampling to
+16 kHz. An AVAudioSourceNode consumes actual device demand directly; the shared
+C adapter retains only the remainder of a 10 ms pull. There is no additional
+fixed prebuffer, source-age discard window or per-packet player queue.
+
+The authenticated WSS protocol is documented in
+[`docs/call-audio-websocket.md`](../docs/call-audio-websocket.md). Preallocated
+network ingress and outgoing packet queues have explicit shared resource limits;
+exhaustion enters transport recovery rather than silently replacing queued
+speech. Engine reconfiguration preserves NetEq adaptation while discarding only
+the partial render block; reconnect creates fresh codec state. The meter measures
+processed local capture at 10 Hz. Opt-in diagnostics report separate capture,
+send, server receive and NetEq counters every five seconds, never audio content.
 
 For visual-only audio feedback checks, existing DEBUG UAT call fixtures accept
 `MODEMDECK_UAT_TEST_AUDIO_DYNAMIC=1` alongside `MODEMDECK_UAT_MODE=1`,

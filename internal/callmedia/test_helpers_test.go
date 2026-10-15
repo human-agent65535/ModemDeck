@@ -3,15 +3,10 @@ package callmedia
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/pion/interceptor"
-	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 const testTimeout = 8 * time.Second
@@ -81,18 +76,18 @@ func (c *fakeCodec) Decode(payload []byte) (DecodedAudio, error) {
 
 func (c *fakeCodec) PacketDuration(payload []byte) (time.Duration, error) {
 	if len(payload) == 0 {
-		return 0, ErrInvalidRTP
+		return 0, ErrInvalidAudio
 	}
 	duration := time.Duration(payload[0]) * time.Millisecond
 	if !validOpusPacketDuration(duration) {
-		return 0, ErrInvalidRTP
+		return 0, ErrInvalidAudio
 	}
 	return duration, nil
 }
 
 func (c *fakeCodec) Conceal(duration time.Duration) ([]byte, error) {
 	if !validOpusFrameDuration(duration) {
-		return nil, ErrInvalidRTP
+		return nil, ErrInvalidAudio
 	}
 	size, err := pcmBytesForDuration(c.format, duration)
 	if err != nil {
@@ -280,107 +275,6 @@ func (f *codecAndErrorFactory) New(format PCMFormat) (OpusCodec, error) {
 	return f.codec, errors.New("test codec construction failure")
 }
 
-type testBrowser struct {
-	pc          *webrtc.PeerConnection
-	local       *webrtc.TrackLocalStaticSample
-	remoteTrack chan *webrtc.TrackRemote
-}
-
-func newTestBrowser(t *testing.T) *testBrowser {
-	t.Helper()
-	engine := &webrtc.MediaEngine{}
-	if err := engine.RegisterCodec(opusRTPParameters(), webrtc.RTPCodecTypeAudio); err != nil {
-		t.Fatal(err)
-	}
-	interceptors := &interceptor.Registry{}
-	if err := webrtc.RegisterDefaultInterceptors(engine, interceptors); err != nil {
-		t.Fatal(err)
-	}
-	api := webrtc.NewAPI(
-		webrtc.WithMediaEngine(engine),
-		webrtc.WithInterceptorRegistry(interceptors),
-	)
-	peer, err := api.NewPeerConnection(webrtc.Configuration{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	local, err := webrtc.NewTrackLocalStaticSample(
-		opusRTPParameters().RTPCodecCapability,
-		"microphone",
-		"browser",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sender, err := peer.AddTrack(local)
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		buffer := make([]byte, 1500)
-		for {
-			if _, _, readErr := sender.Read(buffer); readErr != nil {
-				return
-			}
-		}
-	}()
-	browser := &testBrowser{
-		pc:          peer,
-		local:       local,
-		remoteTrack: make(chan *webrtc.TrackRemote, 1),
-	}
-	peer.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		select {
-		case browser.remoteTrack <- track:
-		default:
-		}
-	})
-	t.Cleanup(func() { _ = peer.Close() })
-	return browser
-}
-
-func (b *testBrowser) offer(t *testing.T) string {
-	t.Helper()
-	offer, err := b.pc.CreateOffer(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gathered := webrtc.GatheringCompletePromise(b.pc)
-	if err := b.pc.SetLocalDescription(offer); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-gathered:
-	case <-time.After(testTimeout):
-		t.Fatal("browser ICE gathering timed out")
-	}
-	description := b.pc.LocalDescription()
-	if description == nil {
-		t.Fatal("browser local description is nil")
-	}
-	return description.SDP
-}
-
-func (b *testBrowser) applyAnswer(t *testing.T, value string) {
-	t.Helper()
-	if err := b.pc.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDPTypeAnswer,
-		SDP:  value,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	eventually(t, func() bool {
-		return b.pc.ConnectionState() == webrtc.PeerConnectionStateConnected
-	})
-}
-
-func (b *testBrowser) send(t *testing.T, payload []byte, duration time.Duration) {
-	t.Helper()
-	if err := b.local.WriteSample(media.Sample{Data: payload, Duration: duration}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func eventually(t *testing.T, predicate func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(testTimeout)
@@ -440,9 +334,6 @@ func testCore(
 	core, err := New(Options{
 		EndpointOpener: opener,
 		CodecFactory:   codecs,
-		Jitter: JitterConfig{
-			StartupDelay: 1 * time.Millisecond,
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -455,14 +346,6 @@ func testCore(
 		}
 	})
 	return core, opener, codecs
-}
-
-func testOffer(callID, sdp string) Offer {
-	return Offer{
-		Call:       ActiveCall{ID: callID, State: CallStateActive},
-		OwnerToken: "owner-" + callID,
-		SDP:        sdp,
-	}
 }
 
 func authorizeCall(t *testing.T, core *Core, callIDs ...string) {
@@ -479,30 +362,11 @@ func assertErrorIs(t *testing.T, err, target error) {
 	}
 }
 
-func minimalSDP(media ...string) string {
-	return fmt.Sprintf(
-		"v=0\r\n"+
-			"o=- 0 0 IN IP4 127.0.0.1\r\n"+
-			"s=-\r\n"+
-			"t=0 0\r\n%s",
-		stringsJoin(media, ""),
-	)
-}
-
-func stringsJoin(values []string, separator string) string {
-	if len(values) == 0 {
-		return ""
+func allBytes(value []byte, expected byte) bool {
+	for _, b := range value {
+		if b != expected {
+			return false
+		}
 	}
-	result := values[0]
-	for _, value := range values[1:] {
-		result += separator + value
-	}
-	return result
-}
-
-func opusMedia(direction string) string {
-	return "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n" +
-		"c=IN IP4 0.0.0.0\r\n" +
-		"a=" + direction + "\r\n" +
-		"a=rtpmap:111 opus/48000/2\r\n"
+	return true
 }

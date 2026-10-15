@@ -2,7 +2,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  Circle,
   Delete,
   LoaderCircle,
   Minus,
@@ -26,8 +25,7 @@ import {
 import {
   dialerRecordingState,
   rememberCallRecordingPreference,
-  resetDialerRecording,
-  setDialerRecording
+  resetDialerRecording
 } from '../state/recording'
 import {
   bootstrapResource,
@@ -85,7 +83,7 @@ const lines = computed(() => bootstrapResource.data?.lines || [])
 const voiceCallingAvailable = computed(
   () =>
     bootstrapResource.data?.capabilities.dial === true &&
-    bootstrapResource.data?.capabilities.webrtc_audio === true
+    bootstrapResource.data?.capabilities.wss_audio === true
 )
 const dialLines = computed(() =>
   voiceCallingAvailable.value
@@ -285,27 +283,20 @@ watch(
     [showing, permanent, nonModal],
     [previous, wasPermanent, wasNonModal]
   ) => {
-    if (
-      showing &&
-      !permanent &&
-      !nonModal &&
-      (!previous || wasPermanent || wasNonModal)
-    ) {
+    if (showing && (!previous || wasPermanent || wasNonModal)) {
       callReturnFocus =
         dialerReturnFocus?.isConnected
           ? dialerReturnFocus
-          : document.activeElement instanceof HTMLElement
+          : document.activeElement instanceof HTMLElement && document.activeElement !== document.body
             ? document.activeElement
             : null
-      await nextTick()
-      panelRef.value?.focus()
+      if (!permanent && !nonModal) {
+        await nextTick()
+        panelRef.value?.focus()
+      }
       return
     }
-    if (!showing && previous && !nonModal) restoreDialogFocus()
-    if (permanent || nonModal) {
-      callReturnFocus = null
-      dialerReturnFocus = null
-    }
+    if (!showing && previous) restoreDialogFocus()
   }
 )
 
@@ -435,16 +426,13 @@ async function placeCall(): Promise<void> {
   beginDraft()
 }
 
-function changeRecording(): void {
-  setDialerRecording(!dialerRecordingState.enabled)
-}
-
 function restoreDialogFocus(): void {
   const target = callReturnFocus?.isConnected
     ? callReturnFocus
     : dialerReturnFocus?.isConnected
       ? dialerReturnFocus
-      : null
+      : props.permanent ? panelRef.value
+        : Array.from(document.querySelectorAll<HTMLElement>('.mobile-nav__dial, .rail__primary a')).find(element => element.getClientRects().length > 0)
   callReturnFocus = null
   dialerReturnFocus = null
   target?.focus()
@@ -522,7 +510,7 @@ onBeforeUnmount(() => {
           :role="permanent ? undefined : nonModal ? 'complementary' : 'dialog'"
           :aria-modal="!permanent && !nonModal ? true : undefined"
           :aria-label="showingCall ? t('shell.calls') : t('dialer.title')"
-          :tabindex="!permanent && !nonModal && callSurfaceVisible ? -1 : undefined"
+          :tabindex="-1"
           @keydown="trapCallFocus"
           @keydown.esc="
             !permanent && (showingCall ? minimizeCallSurface() : closeDialer())
@@ -584,7 +572,8 @@ onBeforeUnmount(() => {
             />
           </div>
 
-          <CallSurface v-if="showingCall" />
+          <Transition name="call-presentation" mode="out-in">
+          <CallSurface v-if="showingCall && presentedCallSession" :session="presentedCallSession" />
 
           <div v-else class="dialer-panel__body">
             <div class="dialer-panel__scroll">
@@ -640,6 +629,10 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
+              <p v-if="dialerRecordingState.status === 'ready'" class="dialer-recording-note">
+                {{ t(dialerRecordingState.enabled ? 'dialer.recordingEnabled' : 'dialer.recordingDisabled') }}
+              </p>
+
               <p v-if="dialerRecordingState.error" class="dialer-recording__error" role="alert">
                 {{ dialerRecordingState.error }}
               </p>
@@ -672,21 +665,6 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="dialer-primary-actions keypad-action-grid">
-              <button
-                class="dialer-recording-action keypad-action-item"
-                :class="{ 'is-active': dialerRecordingState.enabled }"
-                type="button"
-                :disabled="dialerRecordingState.status !== 'ready'"
-                :title="dialerRecordingState.error || t('dialer.recording')"
-                :aria-label="t('dialer.recording')"
-                :aria-pressed="dialerRecordingState.enabled"
-                @click="changeRecording"
-              >
-                <span class="dialer-recording-action__icon" aria-hidden="true">
-                  <Circle :size="20" fill="currentColor" aria-hidden="true" />
-                </span>
-                <small>{{ t('calls.record') }}</small>
-              </button>
               <span class="dialer-primary-action keypad-action-item">
                 <button
                   class="call-button"
@@ -703,6 +681,7 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
+          </Transition>
         </aside>
       </div>
     </Transition>
@@ -710,6 +689,17 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.call-presentation-enter-active,
+.call-presentation-leave-active {
+  transition: opacity var(--motion-base) var(--ease-standard);
+}
+.call-presentation-enter-from,
+.call-presentation-leave-to { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .call-presentation-enter-active,
+  .call-presentation-leave-active { transition: none; }
+}
+
 .dialer-surface-enter-active,
 .dialer-surface-leave-active {
   transition: opacity var(--motion-base) var(--ease-standard);
@@ -1020,51 +1010,10 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.dialer-recording-action {
-  grid-column: 1;
+.dialer-recording-note {
+  margin-top: 7px;
   color: var(--muted);
-  font-size: 11px;
-  background: transparent;
-}
-
-.dialer-recording-action__icon {
-  display: inline-flex;
-  width: var(--keypad-action-secondary-size);
-  height: var(--keypad-action-secondary-size);
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  color: var(--text);
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  transition:
-    color var(--motion-base) var(--ease-standard),
-    background var(--motion-base) var(--ease-standard),
-    border-color var(--motion-base) var(--ease-standard);
-}
-
-.dialer-recording-action:not(.is-active):hover:not(:disabled)
-  .dialer-recording-action__icon {
-  background: var(--control-muted);
-}
-
-.dialer-recording-action.is-active .dialer-recording-action__icon {
-  color: var(--on-accent);
-  background: var(--danger);
-  border-color: var(--danger);
-}
-
-.dialer-recording-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.dialer-recording-action > small {
-  color: inherit;
-  font-size: 11px;
-  white-space: nowrap;
+  font-size: 12px;
 }
 
 .dialer-primary-action {

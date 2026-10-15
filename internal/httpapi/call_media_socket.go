@@ -71,6 +71,13 @@ func (api *API) callMediaSocket(w http.ResponseWriter, r *http.Request, id strin
 }
 
 func (api *API) serveMediaSocket(w http.ResponseWriter, r *http.Request, open func(string, callmedia.SocketTransport) (*callmedia.Session, error), requireLease func() error) {
+	api.serveMediaSocketPrepared(w, r, open, requireLease, nil)
+}
+func (api *API) serveMediaSocketPrepared(w http.ResponseWriter, r *http.Request, open func(string, callmedia.SocketTransport) (*callmedia.Session, error), requireLease func() error, preparation *outgoingPreparation) {
+	started := time.Now()
+	defer func() {
+		api.logger.Info("call media socket closed", "component", "calls", "path", r.URL.Path, "elapsed_ms", time.Since(started).Milliseconds())
+	}()
 	if !mediaSocketOriginAllowed(r) {
 		writeError(w, http.StatusForbidden, "invalid_origin", "Media socket origin is not allowed", "")
 		return
@@ -91,6 +98,7 @@ func (api *API) serveMediaSocket(w http.ResponseWriter, r *http.Request, open fu
 	kind, data, err := conn.ReadMessage()
 	var start socketStart
 	if err != nil || kind != websocket.TextMessage || json.Unmarshal(data, &start) != nil || start.Type != "start" || start.Version != 1 || start.Codec != "opus" || start.SampleRate != 16000 || start.Channels != 1 || start.FrameMS != 20 || strings.TrimSpace(start.OwnerToken) == "" {
+		api.logger.Warn("call media handshake rejected", "component", "calls", "path", r.URL.Path, "failure_code", "invalid_start", "elapsed_ms", time.Since(started).Milliseconds())
 		transport.Finish(errors.New("unsupported media start"), callmedia.AudioStatistics{InputDBFS: -96, InputPeakDBFS: -96, OutputDBFS: -96})
 		return
 	}
@@ -104,8 +112,10 @@ func (api *API) serveMediaSocket(w http.ResponseWriter, r *http.Request, open fu
 		transport.Finish(err, callmedia.AudioStatistics{InputDBFS: -96, InputPeakDBFS: -96, OutputDBFS: -96})
 		return
 	}
+	api.logger.Info("call media socket handshake", "component", "calls", "path", r.URL.Path)
 	session, err := open(start.OwnerToken, transport)
 	if err != nil {
+		api.logger.Warn("call media socket acquisition failed", "component", "calls", "path", r.URL.Path, "failure_code", callmedia.AudioFailureCode(err), "elapsed_ms", time.Since(started).Milliseconds())
 		transport.Finish(err, callmedia.AudioStatistics{InputDBFS: -96, InputPeakDBFS: -96, OutputDBFS: -96})
 		return
 	}
@@ -116,7 +126,7 @@ func (api *API) serveMediaSocket(w http.ResponseWriter, r *http.Request, open fu
 		transport.Finish(err, session.Statistics())
 		return
 	}
-	if err := transport.json(map[string]any{"type": "ready", "version": 1, "codec": "opus", "sample_rate": 16000, "channels": 1, "frame_ms": 20}); err != nil {
+	if err := transport.json(map[string]any{"type": "ready", "version": 1, "codec": "opus", "sample_rate": 16000, "channels": 1, "frame_ms": 20, "hardware_media": preparation == nil}); err != nil {
 		return
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
@@ -124,14 +134,28 @@ func (api *API) serveMediaSocket(w http.ResponseWriter, r *http.Request, open fu
 	close(transport.ready)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+	uplinkReady := session.UplinkReady()
 	for {
 		select {
+		case <-uplinkReady:
+			uplinkReady = nil
+			api.logger.Info("call media valid uplink", "component", "calls", "session_id", session.CallID(), "path", r.URL.Path)
+			if preparation != nil {
+				if err := transport.json(map[string]any{"type": "uplink_ready", "preparation_id": preparation.id}); err != nil {
+					return
+				}
+			}
 		case <-session.Done():
+			api.logger.Info("call media session finished", "component", "calls", "session_id", session.CallID(), "path", r.URL.Path, "failure_code", callmedia.AudioFailureCode(session.Err()), "elapsed_ms", time.Since(started).Milliseconds())
 			return
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second)); err != nil {
+			if err := validate(); err != nil {
+				transport.Finish(err, session.Statistics())
+				return
+			}
+			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(2*time.Second)); err != nil {
 				return
 			}
 			if err := transport.json(map[string]any{"type": "stats", "final": false, "audio": session.Statistics()}); err != nil {
@@ -165,7 +189,7 @@ func (t *mediaSocketTransport) Read(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	if kind != websocket.BinaryMessage {
-		return nil, callmedia.ErrInvalidRTP
+		return nil, callmedia.ErrInvalidAudio
 	}
 	_ = t.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	return data, nil
@@ -183,13 +207,13 @@ func (t *mediaSocketTransport) Write(ctx context.Context, data []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_ = t.conn.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
+	_ = t.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	return t.conn.WriteMessage(websocket.BinaryMessage, data)
 }
 func (t *mediaSocketTransport) json(value any) error {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	_ = t.conn.SetWriteDeadline(time.Now().Add(time.Second))
+	_ = t.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	return t.conn.WriteJSON(value)
 }
 func (t *mediaSocketTransport) Finish(reason error, stats callmedia.AudioStatistics) {
@@ -201,7 +225,7 @@ func (t *mediaSocketTransport) Finish(reason error, stats callmedia.AudioStatist
 	if reason != nil {
 		code = websocket.CloseInternalServerErr
 	}
-	_ = t.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, ""), time.Now().Add(time.Second))
+	_ = t.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, ""), time.Now().Add(2*time.Second))
 }
 func (t *mediaSocketTransport) InterruptRead() { _ = t.conn.SetReadDeadline(time.Now()) }
 
@@ -233,4 +257,48 @@ func (api *API) revalidateSocketAuthentication(request *http.Request) error {
 	}
 	_, err = api.authenticator.Authenticate(auth.ContextWithSessionClient(request.Context(), requestSessionClient(request)), auth.SessionToken(cookie.Value))
 	return err
+}
+
+func (api *API) preparedMediaSocket(w http.ResponseWriter, r *http.Request, p *outgoingPreparation) {
+	if r.Method != http.MethodGet {
+		writeError(w, 405, "method_not_allowed", "Only GET is supported", "")
+		return
+	}
+	leases, ok := api.preparationLease()
+	service, mediaOK := api.callMedia.(preparedSocketService)
+	if !ok || !mediaOK {
+		api.writeCallMediaError(w, r, mediaapp.ErrUnavailable)
+		return
+	}
+	require := func() error {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.state == preparationCancelled || p.state == preparationFailed {
+			return callmedia.ErrCanceled
+		}
+		if p.call.ID != "" {
+			return api.callLeases.Require(r.Context(), p.call.ID, p.owner.HolderID)
+		}
+		return leases.RequireOutgoing(p.id, p.owner.HolderID)
+	}
+	if err := require(); err != nil {
+		api.writeCallLeaseError(w, r, "authorize prepared media", err)
+		return
+	}
+	api.serveMediaSocketPrepared(w, r, func(token string, transport callmedia.SocketTransport) (*callmedia.Session, error) {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.state == preparationCancelled || p.state == preparationFailed || p.state == preparationCommitted || p.session != nil {
+			return nil, mediaapp.ErrConflict
+		}
+		if err := leases.RequireOutgoing(p.id, p.owner.HolderID); err != nil {
+			return nil, err
+		}
+		session, err := service.PrepareSocket(r.Context(), p.id, token, transport)
+		if err == nil {
+			p.session = session
+			p.transport = transport.(*mediaSocketTransport)
+		}
+		return session, err
+	}, require, p)
 }

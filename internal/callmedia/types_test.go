@@ -18,7 +18,7 @@ func TestPCMFormatIsExplicitAndBounded(t *testing.T) {
 		if got, want := format.FrameBytes(), sampleRate/50*2; got != want {
 			t.Fatalf("frame bytes = %d, want %d", got, want)
 		}
-		if got := format.RTPFrameSamples(); got != 960 {
+		if got := format.OpusFrameSamples(); got != 960 {
 			t.Fatalf("RTP frame samples = %d, want 960", got)
 		}
 	}
