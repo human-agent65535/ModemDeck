@@ -301,6 +301,22 @@ extension Collection where Element == ModemDeckContact {
     }
 }
 
+extension Collection where Element == ModemDeckMessageThread {
+    func modemDeckThread(lineID: String, number: String) -> ModemDeckMessageThread? {
+        let compact = number.filter { !" ().-/".contains($0) }
+        guard !compact.isEmpty else { return nil }
+        let identity = modemDeckCanonicalPhoneIdentity(compact)
+        return first { thread in
+            guard thread.lineId == lineID else { return false }
+            let peer = thread.peer.filter { !" ().-/".contains($0) }
+            if let identity, let peerIdentity = modemDeckCanonicalPhoneIdentity(peer) {
+                return identity == peerIdentity
+            }
+            return peer == compact
+        }
+    }
+}
+
 private func modemDeckCanonicalPhoneIdentity(_ value: String) -> String? {
     let source = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !source.isEmpty else { return nil }

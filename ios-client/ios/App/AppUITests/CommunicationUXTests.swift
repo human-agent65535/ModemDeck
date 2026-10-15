@@ -809,6 +809,52 @@ final class CommunicationUXTests: XCTestCase {
         }
     }
 
+    func testDirectMessageShowsLineAndReusesExistingThread() async throws {
+        var app = try await launch()
+        app.buttons["section-calls"].tap()
+        XCTAssertTrue(app.buttons["call-uat-call-missed"].waitForExistence(timeout: 5))
+        app.buttons["call-uat-call-missed"].tap()
+        let message = app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH %@)", "消息", "section-")).firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        message.tap()
+        XCTAssertTrue(app.staticTexts["发送线路"].waitForExistence(timeout: 5), "A new peer shows the sending line")
+        capture("direct-message-new-peer", app: app)
+
+        app = try await launch()
+        app.buttons["section-contacts"].tap()
+        XCTAssertTrue(app.buttons["contact-uat-contact-example"].waitForExistence(timeout: 5))
+        app.buttons["contact-uat-contact-example"].tap()
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        message.tap()
+        let history = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "UAT 消息")).firstMatch
+        XCTAssertTrue(history.waitForExistence(timeout: 5), "An existing thread opens its conversation")
+        XCTAssertFalse(app.staticTexts["发送线路"].exists)
+        capture("direct-message-existing-thread", app: app)
+    }
+
+    func testCallStartFailureOutsideDialerIsPresented() async throws {
+        addUIInterruptionMonitor(withDescription: "Microphone permission") { alert in
+            let deny = alert.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Don")).firstMatch
+            guard deny.exists else { return false }
+            deny.tap()
+            return true
+        }
+        let app = try await launch()
+        app.buttons["section-contacts"].tap()
+        XCTAssertTrue(app.buttons["contact-uat-contact-example"].waitForExistence(timeout: 5))
+        app.buttons["contact-uat-contact-example"].tap()
+        let call = app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH %@)", "呼叫", "section-")).firstMatch
+        XCTAssertTrue(call.waitForExistence(timeout: 5))
+        call.tap()
+        // Interact once so a pending system permission prompt reaches the monitor.
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        app.swipeUp()
+        XCTAssertTrue(app.alerts["无法发起通话"].waitForExistence(timeout: 10))
+        capture("call-start-failure-alert", app: app)
+        app.alerts["无法发起通话"].buttons["好"].tap()
+        XCTAssertFalse(app.alerts["无法发起通话"].waitForExistence(timeout: 2))
+    }
+
     func testCallBatchDeleteRequiresConfirmationAndUpdatesHome() async throws {
         let app = try await launch()
         app.buttons["section-calls"].tap()

@@ -515,7 +515,8 @@ struct ModemDeckDialerView: View {
         let displayName = matchedContact?.displayName ?? target.original
         Task {
             await callController.start(lineID: line.id, number: target.original, displayName: displayName,
-                                       recording: draft.recordingInitialized ? draft.recording : nil)
+                                       recording: draft.recordingInitialized ? draft.recording : nil,
+                                       reportsFailureInline: true)
             if callController.call != nil && callController.errorMessage.isEmpty { draft.clear() }
         }
     }
@@ -1359,18 +1360,22 @@ private struct ModemDeckDetailAction: View {
     let title: String
     let icon: String
     var prominent = false
+    var busy = false
 
     var body: some View {
-        Label(title, systemImage: icon)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundColor(prominent ? .mdOnAccent : .mdAccent)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(prominent ? Color.mdAccent : Color.mdSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(prominent ? Color.clear : Color.mdBorder, lineWidth: 1)
-            )
+        HStack(spacing: 6) {
+            if busy { ProgressView().tint(prominent ? .mdOnAccent : .mdAccent) }
+            Label(title, systemImage: icon)
+        }
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundColor(prominent ? .mdOnAccent : .mdAccent)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background(prominent ? Color.mdAccent : Color.mdSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(prominent ? Color.clear : Color.mdBorder, lineWidth: 1)
+        )
     }
 }
 
@@ -1386,6 +1391,7 @@ struct ModemDeckCallDetailView: View {
         store.recordings.filter { $0.call.id == initialCall.id }
     }
     @ObservedObject var controller: ModemDeckSessionController
+    @ObservedObject private var callController: ModemDeckCallController
     let contact: ModemDeckContact?
     let showsBackButton: Bool
     let onChanged: () -> Void
@@ -1409,6 +1415,7 @@ struct ModemDeckCallDetailView: View {
         initialCall = call
         _store = ObservedObject(wrappedValue: controller.callsStore)
         self.controller = controller
+        _callController = ObservedObject(wrappedValue: controller.callController)
         self.contact = contact
         self.showsBackButton = showsBackButton
         self.onChanged = onChanged
@@ -1471,11 +1478,12 @@ struct ModemDeckCallDetailView: View {
                             ModemDeckDetailAction(
                                 title: controller.text("呼叫", "Call"),
                                 icon: "phone.fill",
-                                prominent: true
+                                prominent: true,
+                                busy: callController.busy
                             )
                         }
                         .buttonStyle(.plain)
-                        .disabled(dialLine == nil || controller.callController.busy || !controller.isOnline)
+                        .disabled(dialLine == nil || callController.busy || !controller.isOnline)
 
                         NavigationLink {
                             ModemDeckDirectMessageView(
@@ -1790,6 +1798,7 @@ struct ModemDeckRecordingDetailView: View {
         store.recordings.first(where: { $0.id == initialRecording.id }) ?? initialRecording
     }
     @ObservedObject var controller: ModemDeckSessionController
+    @ObservedObject private var callController: ModemDeckCallController
     let contact: ModemDeckContact?
     let showsBackButton: Bool
     let onChanged: () -> Void
@@ -1812,6 +1821,7 @@ struct ModemDeckRecordingDetailView: View {
         initialRecording = recording
         _store = ObservedObject(wrappedValue: controller.callsStore)
         self.controller = controller
+        _callController = ObservedObject(wrappedValue: controller.callController)
         self.contact = contact
         self.showsBackButton = showsBackButton
         self.onChanged = onChanged
@@ -1921,11 +1931,12 @@ struct ModemDeckRecordingDetailView: View {
                             ModemDeckDetailAction(
                                 title: controller.text("呼叫", "Call"),
                                 icon: "phone.fill",
-                                prominent: true
+                                prominent: true,
+                                busy: callController.busy
                             )
                         }
                         .buttonStyle(.plain)
-                        .disabled(dialLine == nil || controller.callController.busy || !controller.isOnline)
+                        .disabled(dialLine == nil || callController.busy || !controller.isOnline)
 
                         NavigationLink {
                             ModemDeckDirectMessageView(

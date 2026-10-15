@@ -624,6 +624,7 @@ struct ModemDeckHeaderAction: Identifiable {
     let title: String
     var color = Color.mdMuted
     var disabled = false
+    var busy = false
     let action: () -> Void
 }
 
@@ -716,14 +717,20 @@ struct ModemDeckIdentityHeader: View {
 
     private func headerButton(_ item: ModemDeckHeaderAction) -> some View {
         Button(action: item.action) {
-            Image(systemName: item.icon)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(item.color)
-                .frame(width: 38, height: 40)
+            Group {
+                if item.busy {
+                    ProgressView().tint(item.color)
+                } else {
+                    Image(systemName: item.icon)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(item.color)
+                }
+            }
+            .frame(width: 38, height: 40)
         }
         .buttonStyle(.plain)
-        .disabled(item.disabled)
-        .opacity(item.disabled ? 0.45 : 1)
+        .disabled(item.disabled || item.busy)
+        .opacity(item.disabled && !item.busy ? 0.45 : 1)
         .accessibilityLabel(item.title)
     }
 }
@@ -731,6 +738,7 @@ struct ModemDeckIdentityHeader: View {
 struct ModemDeckContactDetailView: View {
     let contact: ModemDeckContact
     @ObservedObject var controller: ModemDeckSessionController
+    @ObservedObject private var callController: ModemDeckCallController
     var showsBackButton = true
     var onChanged: (ModemDeckContact) -> Void = { _ in }
     var onDeleted: (String) -> Void = { _ in }
@@ -751,6 +759,7 @@ struct ModemDeckContactDetailView: View {
     ) {
         self.contact = contact
         self.controller = controller
+        _callController = ObservedObject(wrappedValue: controller.callController)
         self.showsBackButton = showsBackButton
         self.onChanged = onChanged
         self.onDeleted = onDeleted
@@ -823,12 +832,17 @@ struct ModemDeckContactDetailView: View {
                                 Button {
                                     startCall(to: phone.displayNumber)
                                 } label: {
-                                    Label(controller.text("呼叫", "Call"), systemImage: "phone.fill")
-                                        .frame(maxWidth: .infinity, minHeight: 42)
+                                    HStack(spacing: 6) {
+                                        if callController.busy {
+                                            ProgressView().tint(.mdOnAccent)
+                                        }
+                                        Label(controller.text("呼叫", "Call"), systemImage: "phone.fill")
+                                    }
+                                    .frame(maxWidth: .infinity, minHeight: 42)
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(.mdAccent)
-                                .disabled(defaultLine == nil || !controller.isOnline)
+                                .disabled(defaultLine == nil || callController.busy || !controller.isOnline)
 
                                 NavigationLink {
                                     ModemDeckDirectMessageView(
@@ -1360,12 +1374,32 @@ struct ModemDeckDirectMessageView: View {
     var contactBound = false
     @ObservedObject var controller: ModemDeckSessionController
     var preferredLineID: String? = nil
+    @ObservedObject private var messagesStore: ModemDeckMessagesStore
     @Environment(\.presentationMode) private var presentationMode
 
     @State private var content = ""
     @State private var sendAttempt = UUID().uuidString
     @State private var sending = false
     @State private var errorMessage = ""
+    @State private var thread: ModemDeckMessageThread?
+    @State private var sentMessages: [ModemDeckMessage] = []
+
+    init(
+        number: String,
+        displayName: String,
+        avatarSource: String? = nil,
+        contactBound: Bool = false,
+        controller: ModemDeckSessionController,
+        preferredLineID: String? = nil
+    ) {
+        self.number = number
+        self.displayName = displayName
+        self.avatarSource = avatarSource
+        self.contactBound = contactBound
+        self.controller = controller
+        self.preferredLineID = preferredLineID
+        _messagesStore = ObservedObject(wrappedValue: controller.messagesStore)
+    }
 
     private var defaultLine: ModemDeckLine? {
         let id = preferredLineID ?? controller.bootstrap?.lineSettings.defaultLineId
@@ -1375,6 +1409,20 @@ struct ModemDeckDirectMessageView: View {
     }
 
     var body: some View {
+        if let thread {
+            // An existing or newly created thread replaces the composer so history and delivery are visible.
+            ModemDeckConversationView(
+                thread: thread,
+                controller: controller,
+                contact: messagesStore.contacts.modemDeckContact(id: thread.contactId, number: thread.peer),
+                onChanged: { Task { await messagesStore.load() } }
+            )
+        } else {
+            composeView
+        }
+    }
+
+    private var composeView: some View {
         VStack(spacing: 0) {
             ModemDeckIdentityHeader(
                 title: displayName,
@@ -1396,9 +1444,36 @@ struct ModemDeckDirectMessageView: View {
             ) {
                 presentationMode.wrappedValue.dismiss()
             }
-            Spacer()
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(sentMessages) { message in
+                        ModemDeckMessageBubble(
+                            message: message,
+                            controller: controller,
+                            timestampReveal: 0,
+                            showsDeliveryStatus: true
+                        )
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+            }
             ModemDeckInlineError(message: errorMessage)
                 .padding(.horizontal, 16)
+            if let line = defaultLine {
+                HStack(spacing: 6) {
+                    Text(controller.text("发送线路", "Sending from"))
+                        .font(.caption)
+                        .foregroundColor(.mdMuted)
+                    ModemDeckLineTag(line: line)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background(Color.mdSurface)
+                .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
+            }
             composer
         }
         .background(Color.mdBackground)
@@ -1406,6 +1481,19 @@ struct ModemDeckDirectMessageView: View {
         .modemDeckInteractiveBack()
         // An edited draft is a new message; an unedited one is a retry.
         .onChange(of: content) { _ in sendAttempt = UUID().uuidString }
+        .task {
+            if messagesStore.threads.isEmpty { await messagesStore.load() }
+            resolveExistingThread()
+        }
+        .onChange(of: messagesStore.threads.map(\.id)) { _ in resolveExistingThread() }
+    }
+
+    private func resolveExistingThread() {
+        // Never swap screens under an in-progress draft.
+        guard thread == nil, !sending,
+              content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let line = defaultLine else { return }
+        thread = messagesStore.threads.modemDeckThread(lineID: line.id, number: number)
     }
 
     private var composer: some View {
@@ -1443,10 +1531,13 @@ struct ModemDeckDirectMessageView: View {
         sending = true
         Task {
             do {
-                _ = try await controller.api.sendMessage(lineID: line.id, to: number, content: message, attempt: attempt)
-                Task { await controller.messagesStore.load() }
+                let sent = try await controller.api.sendMessage(lineID: line.id, to: number, content: message, attempt: attempt)
+                sentMessages.append(sent)
                 content = ""
                 errorMessage = ""
+                await messagesStore.load()
+                thread = messagesStore.threads.modemDeckThread(lineID: sent.lineId, number: sent.peer) ??
+                    messagesStore.threads.modemDeckThread(lineID: line.id, number: number)
             } catch {
                 ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
@@ -2200,6 +2291,7 @@ private struct ModemDeckTimestampPan: UIGestureRecognizerRepresentable {
 struct ModemDeckConversationView: View {
     let thread: ModemDeckMessageThread
     @ObservedObject var controller: ModemDeckSessionController
+    @ObservedObject private var callController: ModemDeckCallController
     let contact: ModemDeckContact?
     let showsBackButton: Bool
     let onChanged: () -> Void
@@ -2236,6 +2328,7 @@ struct ModemDeckConversationView: View {
     ) {
         self.thread = thread
         self.controller = controller
+        _callController = ObservedObject(wrappedValue: controller.callController)
         self.contact = contact
         self.showsBackButton = showsBackButton
         self.onChanged = onChanged
@@ -2664,7 +2757,8 @@ struct ModemDeckConversationView: View {
                 icon: "phone.fill",
                 title: controller.text("呼叫", "Call"),
                 color: .mdAccent,
-                disabled: dialLine == nil || controller.callController.busy || !controller.isOnline
+                disabled: dialLine == nil || callController.busy || !controller.isOnline,
+                busy: callController.busy
             ) { startCall() },
             ModemDeckHeaderAction(
                 id: "favorite",

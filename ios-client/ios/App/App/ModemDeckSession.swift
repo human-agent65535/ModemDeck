@@ -670,6 +670,12 @@ struct ModemDeckEndedCall: Identifiable, Equatable {
     }
 }
 
+struct ModemDeckCallStartFailure: Equatable {
+    let id = UUID()
+    let message: String
+    let microphoneDenied: Bool
+}
+
 @MainActor
 final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallStateObserver {
     private struct DTMFRequest: Equatable {
@@ -698,6 +704,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     @Published private(set) var dtmfBusy = false
     @Published var errorMessage = ""
     @Published var connectionFailureMessage = ""
+    @Published var startFailure: ModemDeckCallStartFailure?
     @Published var testCallResult = ""
 
     private let api: ModemDeckAPIClient
@@ -849,11 +856,13 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
         lineID: String,
         number: String,
         displayName: String,
-        recording: Bool?
+        recording: Bool?,
+        reportsFailureInline: Bool = false
     ) async {
         guard !busy, call == nil else { return }
         busy = true
         errorMessage = ""
+        startFailure = nil
         defer { busy = false }
         var preparationID: String?
         do {
@@ -895,6 +904,13 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             }
             ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
+            // The dialer renders errorMessage inline; other call buttons rely on the root alert.
+            if !reportsFailureInline {
+                startFailure = ModemDeckCallStartFailure(
+                    message: error.localizedDescription,
+                    microphoneDenied: (error as? ModemDeckAPIError)?.code == "microphone_permission_denied"
+                )
+            }
         }
     }
 
