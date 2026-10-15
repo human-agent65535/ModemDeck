@@ -171,7 +171,7 @@ const emit = defineEmits<{
 
   .batch-action-bar > strong {
     max-width: 76px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
 
 }

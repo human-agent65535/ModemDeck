@@ -437,7 +437,7 @@ onBeforeUnmount(() => {
 
 .select-control__option-copy small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .select-control.is-compact .select-control__trigger {

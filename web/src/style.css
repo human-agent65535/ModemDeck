@@ -13,14 +13,14 @@
   --border-strong: #d0d5dd;
   --accent: #117864;
   --accent-strong: #0c624f;
-  --accent-soft: #dff1ed;
+  --accent-soft: #e1f0e9;
   --accent-border: #b8ddd5;
   --accent-border-strong: #9fcfc4;
   --success: #18794e;
   --success-soft: #e7f5ed;
   --success-border: #c8e5de;
   --success-border-strong: #aed8cf;
-  --blue: #2563a9;
+  --blue: #2568a6;
   --blue-soft: #eaf2fb;
   --warning: #946200;
   --warning-strong: #7a4b00;
@@ -28,7 +28,7 @@
   --warning-border: #e9cf93;
   --favorite: #a86400;
   --favorite-border: #d6ae55;
-  --danger: #c43d4b;
+  --danger: #b93643;
   --danger-strong: #8f2631;
   --danger-soft: #fcebee;
   --danger-border: #f0d2d6;
@@ -36,16 +36,89 @@
   --on-accent: #ffffff;
   --control-muted: #e7ebee;
   --skeleton: #e9edf1;
-  --shadow: 0 12px 30px rgb(16 24 40 / 12%);
-  --shadow-lg: 0 18px 48px rgb(16 24 40 / 18%);
+  /*
+   * Surfaces and elevation are semantic so a future dark theme only needs to
+   * redefine these values. --shadow-color is an RGB triplet for rgb() alpha.
+   */
+  --surface-canvas: var(--background);
+  --surface-raised: var(--surface);
+  --surface-sunken: var(--surface-subtle);
+  --surface-overlay: var(--surface);
+  --shadow-color: 16 24 40;
+  --elev-1: 0 1px 3px rgb(var(--shadow-color) / 12%);
+  --elev-2: 0 12px 30px rgb(var(--shadow-color) / 12%);
+  --elev-3: 0 18px 48px rgb(var(--shadow-color) / 18%);
+  --shadow: var(--elev-2);
+  --shadow-lg: var(--elev-3);
+  /* Line identity palette. Kept apart from accent/success/danger semantics. */
+  --line-teal-fg: #075e54;
+  --line-teal-bg: #d7f1ed;
+  --line-teal-border: #78c4ba;
+  --line-teal-dot: #1f9483;
+  --line-blue-fg: #1e4f8a;
+  --line-blue-bg: #dfeafa;
+  --line-blue-border: #87add6;
+  --line-blue-dot: #3a76c4;
+  --line-indigo-fg: #343d91;
+  --line-indigo-bg: #e2e5fb;
+  --line-indigo-border: #9199dc;
+  --line-indigo-dot: #5560c9;
+  --line-violet-fg: #6b3287;
+  --line-violet-bg: #f0e1f8;
+  --line-violet-border: #bf8bd7;
+  --line-violet-dot: #9550b8;
+  --line-green-fg: #35651e;
+  --line-green-bg: #e2f1d9;
+  --line-green-border: #91c277;
+  --line-green-dot: #5a9a3a;
+  --line-amber-fg: #765000;
+  --line-amber-bg: #fff0bd;
+  --line-amber-border: #e2ba55;
+  --line-amber-dot: #c28e00;
+  --line-orange-fg: #8b3e08;
+  --line-orange-bg: #ffe3cf;
+  --line-orange-border: #e9a16d;
+  --line-orange-dot: #d06a22;
+  --line-red-fg: #982d22;
+  --line-red-bg: #f8dad5;
+  --line-red-border: #de8072;
+  --line-red-dot: #c8503f;
+  /* Type scale: 11px is the minimum rendered UI size. */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --leading-2xs: 16px;
+  --leading-xs: 16px;
+  --leading-sm: 18px;
+  --leading-base: 20px;
+  --leading-md: 22px;
+  --leading-lg: 26px;
+  --leading-xl: 30px;
+  --leading-2xl: 38px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-strong: 650;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
-  --radius-control: 8px;
-  --radius-surface: 10px;
-  --radius-dialog: 12px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --radius-control: var(--radius-sm);
+  --radius-surface: var(--radius-md);
+  --radius-dialog: var(--radius-md);
   --touch-target: 44px;
   --layer-popover: 80;
   --layer-drawer: 100;
@@ -80,8 +153,8 @@
   );
   color-scheme: light;
   font-family:
-    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   color: var(--text);
   background: var(--background);
   font-synthesis: none;
@@ -197,7 +270,11 @@ h1,
 h2,
 h3,
 strong {
-  font-weight: 650;
+  font-weight: var(--weight-strong);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 .sr-only {
@@ -523,7 +600,7 @@ strong {
   gap: 5px;
   margin-top: 3px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .audio-settings-menu__body {
@@ -620,7 +697,7 @@ strong {
   min-height: 34px;
   padding: 11px 14px 7px;
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   text-transform: uppercase;
   border-bottom: 1px solid var(--border);
@@ -663,7 +740,7 @@ strong {
   gap: 7px;
   padding: 7px 12px;
   color: var(--danger);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   background: var(--danger-soft);
   border-bottom: 1px solid var(--danger-border);
 }
@@ -727,7 +804,7 @@ strong {
 
 .dashboard-summary-strip span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .dashboard-detail-section {
@@ -756,7 +833,7 @@ strong {
   align-items: center;
   gap: 2px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .dashboard-detail-section > header a:hover {
@@ -816,7 +893,7 @@ strong {
 .dashboard-line-row small,
 .dashboard-contact-row small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .dashboard-contact-row {
@@ -879,7 +956,7 @@ strong {
 
 .dashboard-message-detail .detail-section > small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .list-pane,
@@ -1078,7 +1155,7 @@ textarea::placeholder {
   gap: 8px;
   padding: 0 14px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .infinite-scroll-trigger:has(> :first-child) {
@@ -1088,7 +1165,7 @@ textarea::placeholder {
 
 .infinite-scroll-trigger button {
   color: var(--accent-strong);
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   background: transparent;
 }
 
@@ -1151,12 +1228,12 @@ textarea::placeholder {
 }
 
 .list-item__content strong {
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .list-item__content small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .list-item__title,
@@ -1171,7 +1248,7 @@ textarea::placeholder {
 .list-item__title time {
   flex: 0 0 auto;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .list-item__preview b {
@@ -1182,9 +1259,9 @@ textarea::placeholder {
   place-items: center;
   padding: 0 5px;
   color: var(--on-accent);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   background: var(--accent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .avatar {
@@ -1216,13 +1293,13 @@ textarea::placeholder {
 .avatar--small {
   width: 34px;
   height: 34px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .avatar--medium {
   width: 42px;
   height: 42px;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .avatar--large {
@@ -1274,10 +1351,10 @@ textarea::placeholder {
   gap: 7px;
   padding: 0 11px;
   color: var(--accent-strong);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
   background: var(--accent-soft);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   transition:
     color var(--motion-fast) var(--ease-standard),
     background-color var(--motion-base) var(--ease-standard),
@@ -1299,9 +1376,9 @@ textarea::placeholder {
   justify-content: center;
   gap: 7px;
   padding: 0 14px;
-  font-size: 13px;
-  font-weight: 650;
-  border-radius: 8px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  border-radius: var(--radius-sm);
   transition:
     color var(--motion-fast) var(--ease-standard),
     background-color var(--motion-base) var(--ease-standard),
@@ -1373,13 +1450,13 @@ textarea::placeholder {
 
 .state-panel strong {
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .state-panel p {
   max-width: 380px;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -1634,7 +1711,7 @@ dd {
   display: block;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   text-align: right;
 }
 
@@ -1904,7 +1981,7 @@ dd {
 
 .dialer-line small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .keypad {
@@ -1950,7 +2027,7 @@ dd {
 .keypad__key small {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 750;
   line-height: 1;
 }
@@ -2008,7 +2085,7 @@ dd {
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
 }
 
@@ -2032,7 +2109,7 @@ dd {
 .phone-fields legend {
   margin-bottom: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .phone-row {
@@ -2048,7 +2125,7 @@ dd {
   padding: 8px 10px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .phone-row__number {
@@ -2065,7 +2142,7 @@ dd {
   padding: 8px 10px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .primary-radio {
@@ -2073,7 +2150,7 @@ dd {
   align-items: center;
   gap: 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .dialog-actions {
@@ -2237,7 +2314,7 @@ dd {
   align-items: center;
   padding: 0 8px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   background: var(--surface-hover);
   border: 1px solid var(--border);
@@ -2404,7 +2481,7 @@ dd {
 .tls-facts code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   overflow-wrap: anywhere;
   word-break: normal;
 }
@@ -2830,7 +2907,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
 
 .settings-form .field-status {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .settings-form-actions {
@@ -3114,7 +3191,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     padding: 4px 0 5px;
     place-items: center;
     color: var(--muted);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1;
     background: transparent;
   }

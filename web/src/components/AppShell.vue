@@ -657,7 +657,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 0 4px;
   color: var(--on-accent);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 800;
   line-height: 1;
   background: var(--danger);

@@ -43,7 +43,7 @@
 
 .workspace-detail-header :deep(.workspace-detail-identity h2) {
   overflow: hidden;
-  font-size: 17px;
+  font-size: var(--text-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -51,7 +51,7 @@
 .workspace-detail-header :deep(.workspace-detail-identity span) {
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -65,11 +65,11 @@
   .workspace-detail-header :deep(.avatar--large) {
     width: 44px;
     height: 44px;
-    font-size: 13px;
+    font-size: var(--text-sm);
   }
 
   .workspace-detail-header :deep(.workspace-detail-identity h2) {
-    font-size: 16px;
+    font-size: var(--text-md);
   }
 }
 </style>

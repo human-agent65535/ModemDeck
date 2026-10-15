@@ -27,7 +27,90 @@ extension Color {
     static let mdBlue = adaptive(0x2568A6, 0x92C5F3)
     static let mdBlueSoft = adaptive(0xEAF2F9, 0x20384D)
     static let mdDanger = adaptive(0xB93643, 0xFF9B9E)
+    static let mdDangerSoft = adaptive(0xFCEBEE, 0x3D2226)
+    static let mdSuccess = adaptive(0x18794E, 0x7BD6A2)
+    static let mdWarning = adaptive(0x946200, 0xF0C35C)
+    static let mdWarningSoft = adaptive(0xFFF5D8, 0x3A2F14)
+    static let mdFavorite = adaptive(0xA86400, 0xF2B544)
+    // Filled call controls carry a white glyph: >= 4.5:1 against it in both
+    // appearances and >= 3:1 against mdBackground.
+    static let mdCallEnd = adaptive(0xC72E3D, 0xD03A47)
+    static let mdCallAnswer = adaptive(0x1B8449, 0x1C874B)
     static let modemDeckTint = mdAccent
+}
+
+/// Line identity colors. Matches the Web `--line-<id>-*` palette and stays
+/// apart from mdAccent/mdDanger so a line never reads as a status color.
+struct ModemDeckLineColor {
+    let foreground: Color
+    let soft: Color
+    let border: Color
+
+    private init(_ fg: (UInt32, UInt32), _ soft: (UInt32, UInt32), _ border: (UInt32, UInt32)) {
+        foreground = .adaptive(fg.0, fg.1)
+        self.soft = .adaptive(soft.0, soft.1)
+        self.border = .adaptive(border.0, border.1)
+    }
+
+    static let teal = Self((0x075E54, 0x7FD8CB), (0xD7F1ED, 0x173B36), (0x78C4BA, 0x2F6E65))
+    static let blue = Self((0x1E4F8A, 0x9CC3F2), (0xDFEAFA, 0x1C2F47), (0x87ADD6, 0x3A5F8E))
+    static let indigo = Self((0x343D91, 0xB3B9F5), (0xE2E5FB, 0x262B52), (0x9199DC, 0x4D5499))
+    static let violet = Self((0x6B3287, 0xD9B0EE), (0xF0E1F8, 0x372443), (0xBF8BD7, 0x704A86))
+    static let green = Self((0x35651E, 0xAED89A), (0xE2F1D9, 0x223A1A), (0x91C277, 0x4C7239))
+    static let amber = Self((0x765000, 0xF0CD6E), (0xFFF0BD, 0x3A3014), (0xE2BA55, 0x7A6224))
+    static let orange = Self((0x8B3E08, 0xF5B286), (0xFFE3CF, 0x40271A), (0xE9A16D, 0x87542F))
+    static let red = Self((0x982D22, 0xF2A196), (0xF8DAD5, 0x45221E), (0xDE8072, 0x8E463C))
+
+    static func preset(_ id: String) -> ModemDeckLineColor? {
+        switch id {
+        case "teal": return .teal
+        case "blue": return .blue
+        case "indigo": return .indigo
+        case "violet": return .violet
+        case "green": return .green
+        case "amber": return .amber
+        case "orange": return .orange
+        case "red": return .red
+        default: return nil
+        }
+    }
+
+    /// Same order and FNV-1a hash as Web lineTone.ts, so an unlabeled line
+    /// gets the same color on both clients; teal/green/red are never chosen.
+    static let automatic: [ModemDeckLineColor] = [.blue, .amber, .violet, .orange, .indigo]
+
+    static func automatic(for lineID: String) -> ModemDeckLineColor {
+        let key = lineID.trimmingCharacters(in: .whitespacesAndNewlines)
+        var hash: UInt32 = 2_166_136_261
+        for scalar in (key.isEmpty ? "line" : key).unicodeScalars {
+            hash ^= scalar.value
+            hash = hash &* 16_777_619
+        }
+        return automatic[Int(hash % UInt32(automatic.count))]
+    }
+}
+
+enum ModemDeckRadius {
+    static let small: CGFloat = 8
+    static let medium: CGFloat = 12
+    static let large: CGFloat = 20
+    static let xLarge: CGFloat = 28
+}
+
+enum ModemDeckSpacing {
+    static let xxs: CGFloat = 4
+    static let xs: CGFloat = 8
+    static let sm: CGFloat = 12
+    static let md: CGFloat = 16
+    static let lg: CGFloat = 20
+    static let xl: CGFloat = 24
+    static let xxl: CGFloat = 32
+}
+
+extension RoundedRectangle {
+    static func modemDeck(_ radius: CGFloat) -> RoundedRectangle {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+    }
 }
 
 enum ModemDeckAppearance: String, CaseIterable, Identifiable {
@@ -534,11 +617,11 @@ private struct ModemDeckOfflineBanner: View {
         .foregroundColor(.mdText)
         .padding(.horizontal, 12)
         .frame(minHeight: 34)
-        .background(Color.orange.opacity(0.16))
+        .background(Color.mdWarningSoft)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("connection-offline")
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.orange.opacity(0.25)).frame(height: 1)
+            Rectangle().fill(Color.mdWarning.opacity(0.25)).frame(height: 1)
         }
     }
 }
@@ -566,7 +649,7 @@ private struct ModemDeckUnavailableView: View {
         VStack(spacing: 18) {
             Image(systemName: "wifi.exclamationmark")
                 .font(.system(size: 50))
-                .foregroundColor(.orange)
+                .foregroundColor(.mdWarning)
             Text(controller.text("暂时无法连接", "Unable to Connect"))
                 .font(.title2.bold())
                 .foregroundColor(.mdText)
@@ -979,7 +1062,7 @@ private struct ModemDeckPadNavigationRail: View {
                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                         .padding(.horizontal, 14)
                         .background(selection == section ? Color.mdSurface : Color.clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1020,9 +1103,9 @@ struct ModemDeckHomeLineGrid: View {
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
                 .background(Color.mdSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle.modemDeck(ModemDeckRadius.medium)
                         .stroke(Color.mdBorder, lineWidth: 1)
                 )
             } else {
@@ -1034,7 +1117,7 @@ struct ModemDeckHomeLineGrid: View {
                 }
                 .padding(4)
                 .background(Color.mdSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
             }
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -1053,8 +1136,8 @@ private struct ModemDeckHomeLineCard: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundColor(line.tint)
                 .frame(width: 34, height: 34)
-                .background(line.tint.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(line.palette.soft)
+                .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.small))
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
@@ -1083,7 +1166,7 @@ private struct ModemDeckHomeLineCard: View {
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
         .background(Color.mdSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
         .accessibilityElement(children: .combine)
         .modemDeckCopyMenu([
             .init(label: controller.text("复制号码", "Copy Number"), value: line.phoneNumber),
@@ -1250,7 +1333,7 @@ struct ModemDeckSearchField: View {
         .padding(.horizontal, 12)
         .frame(minHeight: ModemDeckLayout.searchVisualHeight)
         .background(Color.mdSurfaceHover)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
         .frame(minHeight: ModemDeckLayout.controlHitSize)
         .contentShape(Rectangle())
         .onTapGesture { (focus ?? $focused).wrappedValue = true }
@@ -1364,7 +1447,7 @@ struct ModemDeckCollectionFilters<Extra: View>: View {
             .foregroundColor(count > 0 ? .mdAccent : .mdMuted)
             .frame(width: 44, height: 44)
             .background(count > 0 ? Color.mdAccentSoft : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
             .contentShape(Rectangle())
         }
         .accessibilityIdentifier("collection-filters")
@@ -1383,10 +1466,10 @@ struct ModemDeckToolbarButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle.modemDeck(ModemDeckRadius.small)
                     .fill(active ? Color.mdAccentSoft : Color.mdSurface)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        RoundedRectangle.modemDeck(ModemDeckRadius.small)
                             .stroke(active ? Color.mdAccent.opacity(0.45) : Color.mdBorder, lineWidth: 1)
                     )
                 Image(systemName: icon)
@@ -1427,7 +1510,7 @@ struct ModemDeckSegmentPicker: View {
                 } label: {
                     ZStack {
                         if selection == option.id && !compact {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            RoundedRectangle.modemDeck(ModemDeckRadius.small)
                                 .fill(Color.mdSurface)
                                 .padding(.vertical, 4)
                         }
@@ -1451,7 +1534,7 @@ struct ModemDeckSegmentPicker: View {
         }
         .frame(height: ModemDeckLayout.controlHitSize)
         .background(compact ? Color.clear : Color.mdSurfaceHover)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
     }
 }
 
@@ -1476,15 +1559,15 @@ struct ModemDeckLineTag: View {
         Text(line.displayName)
             .font(.caption.weight(.semibold))
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-            .foregroundColor(line.tint)
+            .foregroundColor(line.palette.foreground)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .frame(minHeight: 23)
-            .background(line.tint.opacity(0.09))
-            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .background(line.palette.soft)
+            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.small))
             .overlay(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(line.tint.opacity(0.55), lineWidth: 1)
+                RoundedRectangle.modemDeck(ModemDeckRadius.small)
+                    .stroke(line.palette.border, lineWidth: 1)
             )
     }
 }
@@ -1557,7 +1640,7 @@ struct ModemDeckBatchCopyMenu: View {
             .foregroundColor(.mdText)
             .frame(maxWidth: .infinity, minHeight: 52)
             .background(Color.mdSurfaceHover)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
         }
         .accessibilityLabel(controller.text("复制", "Copy"))
     }
@@ -1637,9 +1720,9 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
         }
         .padding(12)
         .background(Color.mdSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle.modemDeck(ModemDeckRadius.large)
                 .stroke(Color.mdBorder, lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.10), radius: 14, y: 4)
@@ -1668,10 +1751,10 @@ struct ModemDeckBatchActionButton: View {
             }
             .foregroundColor(destructive ? .mdDanger : .mdText)
             .frame(maxWidth: .infinity, minHeight: 52)
-            .background(destructive ? Color.mdDanger.opacity(0.07) : Color.mdSurfaceHover)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(destructive ? Color.mdDangerSoft : Color.mdSurfaceHover)
+            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle.modemDeck(ModemDeckRadius.medium)
                     .stroke(destructive ? Color.mdDanger.opacity(0.18) : Color.mdBorder, lineWidth: 1)
             )
         }
@@ -1682,17 +1765,11 @@ struct ModemDeckBatchActionButton: View {
 }
 
 extension ModemDeckLine {
-    var tint: Color {
-        switch lineColor {
-        case "blue": return .mdBlue
-        case "indigo": return .indigo
-        case "violet": return .purple
-        case "green", "teal": return .mdAccent
-        case "amber", "orange": return .orange
-        case "red": return .mdDanger
-        default: return .mdAccent
-        }
+    var palette: ModemDeckLineColor {
+        ModemDeckLineColor.preset(lineColor ?? "") ?? .automatic(for: id)
     }
+
+    var tint: Color { palette.foreground }
 }
 
 struct ModemDeckStateView: View {
@@ -1755,7 +1832,7 @@ struct ModemDeckInlineError: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color.mdSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.small))
         }
     }
 }

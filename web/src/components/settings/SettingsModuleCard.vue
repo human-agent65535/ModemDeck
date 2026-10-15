@@ -61,7 +61,7 @@ const headingTag = computed(() => `h${props.headingLevel}`)
   padding: 18px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 
 .settings-module-card--subtle {
@@ -83,7 +83,7 @@ const headingTag = computed(() => `h${props.headingLevel}`)
   place-items: center;
   color: var(--accent-strong);
   background: var(--accent-soft);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
 }
 
 .settings-module-card__icon--danger {
@@ -98,7 +98,7 @@ const headingTag = computed(() => `h${props.headingLevel}`)
 
 .settings-module-card__icon--brand {
   color: var(--on-accent);
-  font-size: 20px;
+  font-size: var(--text-lg);
   font-weight: 750;
   background: linear-gradient(145deg, var(--accent), var(--accent-strong));
   box-shadow: 0 6px 18px rgb(11 120 102 / 18%);
@@ -122,14 +122,14 @@ const headingTag = computed(() => `h${props.headingLevel}`)
 .settings-module-card__title {
   margin: 0;
   color: var(--text);
-  font-size: 15px;
+  font-size: var(--text-md);
   text-transform: none;
 }
 
 .settings-module-card__copy p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 

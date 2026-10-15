@@ -102,14 +102,14 @@ withDefaults(
 .settings-section__copy h3 {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-base);
   text-transform: none;
 }
 
 .settings-section__copy p {
   margin: 3px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.45;
 }
 </style>

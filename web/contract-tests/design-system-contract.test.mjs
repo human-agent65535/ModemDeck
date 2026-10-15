@@ -154,3 +154,56 @@ test('binary switches share the global visual primitive', async () => {
   assert.doesNotMatch(proxy, /class="proxy-switch"/)
   assert.doesNotMatch(style, /\.settings-toggle-row\s*\{/)
 })
+
+test('type, radius, elevation and surface scales come from shared tokens', async () => {
+  const style = await readFile(new URL('../src/style.css', import.meta.url), 'utf8')
+  const root = style.slice(0, style.indexOf('\n}'))
+  for (const token of [
+    '--text-2xs', '--text-xs', '--text-sm', '--text-base', '--text-md',
+    '--text-lg', '--text-xl', '--text-2xl', '--leading-base',
+    '--weight-regular', '--weight-medium', '--weight-strong',
+    '--radius-xs', '--radius-sm', '--radius-md', '--radius-lg', '--radius-pill',
+    '--shadow-color', '--elev-1', '--elev-2', '--elev-3',
+    '--surface-canvas', '--surface-raised', '--surface-sunken', '--surface-overlay',
+    '--space-6', '--space-8', '--space-10'
+  ]) {
+    assert.match(root, new RegExp(`${token}:`), `missing ${token}`)
+  }
+  assert.match(root, /font-family:\s*system-ui,/)
+  assert.doesNotMatch(root, /\bInter\b/)
+  assert.match(style, /\.num\s*\{\s*font-variant-numeric: tabular-nums;/)
+
+  for (const file of await sourceFiles()) {
+    const contents = await readFile(file, 'utf8')
+    for (const size of contents.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)) {
+      assert.ok(
+        Number(size[1]) >= 11,
+        `${file.pathname} renders text below the 11px minimum`
+      )
+    }
+  }
+})
+
+test('line identity colors are theme variables outside status semantics', async () => {
+  const style = await readFile(new URL('../src/style.css', import.meta.url), 'utf8')
+  const lineTone = await readFile(new URL('../src/utils/lineTone.ts', import.meta.url), 'utf8')
+  const { LINE_TONE_PRESETS, lineTonePreset } = await import('../src/utils/lineTone.ts')
+  const root = style.slice(0, style.indexOf('\n}'))
+
+  for (const preset of LINE_TONE_PRESETS) {
+    for (const part of ['fg', 'bg', 'border', 'dot']) {
+      assert.match(root, new RegExp(`--line-${preset.id}-${part}: #[\\da-f]{6};`))
+    }
+    assert.equal(preset.foreground, `var(--line-${preset.id}-fg)`)
+    assert.equal(preset.dot, `var(--line-${preset.id}-dot)`)
+  }
+  assert.doesNotMatch(lineTone, /#[\da-f]{6}/i)
+
+  const automatic = new Set()
+  for (let index = 0; index < 400; index += 1) {
+    automatic.add(lineTonePreset({ id: `line-${index}`, line_color: '' }).id)
+  }
+  for (const reserved of ['teal', 'green', 'red']) {
+    assert.ok(!automatic.has(reserved), `${reserved} must not be auto-assigned`)
+  }
+})

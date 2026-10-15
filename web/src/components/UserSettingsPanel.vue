@@ -801,7 +801,7 @@ onMounted(() => {
 .user-editor small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -870,7 +870,7 @@ onMounted(() => {
   flex: 0 0 auto;
   padding: 5px 9px;
   color: var(--accent-strong);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 750;
   background: var(--accent-soft);
   border-radius: 999px;
@@ -956,7 +956,7 @@ onMounted(() => {
   align-items: center;
   padding: 2px 7px;
   color: var(--muted-strong);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 650;
   line-height: 1.4;
   background: var(--surface-hover);
@@ -971,7 +971,7 @@ onMounted(() => {
 .user-pairing-revoke {
   min-height: 26px;
   padding: 0 7px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .user-lines {
@@ -996,7 +996,7 @@ onMounted(() => {
   align-items: center;
   gap: 5px;
   color: var(--accent-strong);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
 }
 

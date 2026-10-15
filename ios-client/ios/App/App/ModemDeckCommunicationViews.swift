@@ -330,7 +330,7 @@ struct ModemDeckContactRow: View {
             if contact.favorite {
                 Image(systemName: "star.fill")
                     .font(.system(size: 15))
-                    .foregroundColor(.orange)
+                    .foregroundColor(.mdFavorite)
             }
         }
         .padding(.horizontal, ModemDeckLayout.listHorizontalPadding)
@@ -911,7 +911,7 @@ struct ModemDeckContactDetailView: View {
                 title: displayedContact.favorite
                     ? controller.text("取消收藏", "Unfavorite")
                     : controller.text("收藏", "Favorite"),
-                color: displayedContact.favorite ? .orange : .mdMuted,
+                color: displayedContact.favorite ? .mdFavorite : .mdMuted,
                 disabled: favoritePending || deleting || !controller.isOnline
             ) { toggleFavorite() },
             ModemDeckHeaderAction(
@@ -1080,7 +1080,7 @@ struct ModemDeckContactEditor: View {
                             systemImage: favorite ? "star.fill" : "star"
                         )
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(favorite ? .orange : .mdText)
+                        .foregroundColor(favorite ? .mdFavorite : .mdText)
                     }
                     .tint(.mdAccent)
                     .padding(.horizontal, 14)
@@ -2228,7 +2228,7 @@ struct ModemDeckMessageThreadRow: View {
                     if thread.favorite {
                         Image(systemName: "star.fill")
                             .font(.system(size: 12))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.mdFavorite)
                     }
                 }
             }
@@ -2791,7 +2791,7 @@ struct ModemDeckConversationView: View {
                 title: favorite
                     ? controller.text("取消收藏", "Unfavorite")
                     : controller.text("收藏", "Favorite"),
-                color: favorite ? .orange : .mdMuted,
+                color: favorite ? .mdFavorite : .mdMuted,
                 disabled: mutationBusy || !controller.isOnline
             ) { mutateThread(favorite ? .unfavorite : .favorite) },
             ModemDeckHeaderAction(

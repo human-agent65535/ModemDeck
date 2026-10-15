@@ -652,7 +652,7 @@ onBeforeUnmount(() => {
 .about-update__section-heading small {
   overflow: hidden;
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -709,7 +709,7 @@ onBeforeUnmount(() => {
 
 .about-update__target-heading small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -766,7 +766,7 @@ onBeforeUnmount(() => {
   align-items: center;
   padding: 4px 8px;
   color: var(--success);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 750;
   background: var(--success-soft);
   border: 1px solid var(--success-border);
@@ -788,7 +788,7 @@ onBeforeUnmount(() => {
 .about-update__component-state {
   min-width: 88px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 650;
   text-align: right;
 }
@@ -893,7 +893,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   margin-top: 3px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

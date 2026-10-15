@@ -336,7 +336,7 @@ const accessTechnology = computed(() => {
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   transition:
     border-color var(--motion-base) var(--ease-standard),
     box-shadow var(--motion-base) var(--ease-standard),
@@ -415,7 +415,7 @@ const accessTechnology = computed(() => {
   place-items: center;
   color: var(--blue);
   background: var(--blue-soft);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .module-card__identity {
@@ -434,7 +434,7 @@ const accessTechnology = computed(() => {
 }
 
 .module-card__identity strong {
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .module-card__identity small {
@@ -442,7 +442,7 @@ const accessTechnology = computed(() => {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .module-card__identity i {
@@ -462,10 +462,10 @@ const accessTechnology = computed(() => {
   flex: 0 0 auto;
   align-items: center;
   gap: 3px;
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .module-card__call-status {
@@ -475,10 +475,10 @@ const accessTechnology = computed(() => {
   gap: 3px;
   padding: 3px 6px;
   color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   background: var(--accent-soft);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .module-card__data-status {
@@ -505,7 +505,7 @@ const accessTechnology = computed(() => {
   padding: 10px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .module-card__facts div {
@@ -537,14 +537,14 @@ const accessTechnology = computed(() => {
   align-items: center;
   gap: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
 .module-card dd {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.35;
 }
 
@@ -591,7 +591,7 @@ const accessTechnology = computed(() => {
   align-items: center;
   gap: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
@@ -617,8 +617,8 @@ const accessTechnology = computed(() => {
   justify-content: center;
   gap: 5px;
   color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   white-space: nowrap;
 }
 
@@ -626,7 +626,7 @@ const accessTechnology = computed(() => {
   padding: 0 8px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
 }
 
@@ -635,7 +635,7 @@ const accessTechnology = computed(() => {
   color: var(--danger);
   background: var(--surface);
   border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--border));
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
 }
 

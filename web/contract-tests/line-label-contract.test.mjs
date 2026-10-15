@@ -209,5 +209,5 @@ test('settings edit the stable line identity from preset colors', () => {
   )
   assert.match(lineTagSource, /flex:\s*0 0 auto/)
   assert.equal(LINE_TONE_PRESETS.length, 8)
-  assert.equal(lineTone(line).foreground, '#6b3287')
+  assert.equal(lineTone(line).foreground, 'var(--line-violet-fg)')
 })
