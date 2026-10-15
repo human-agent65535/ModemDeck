@@ -1554,8 +1554,25 @@ extension View {
 
 struct ModemDeckLineTag: View {
     let line: ModemDeckLine
+    /// Dot + name without the tag chrome, for secondary rows such as the call subtitle.
+    var compact = false
 
     var body: some View {
+        if compact {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(line.palette.foreground)
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+                Text(line.displayName)
+                    .lineLimit(1)
+            }
+        } else {
+            tag
+        }
+    }
+
+    private var tag: some View {
         Text(line.displayName)
             .font(.caption.weight(.semibold))
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)

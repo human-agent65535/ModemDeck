@@ -331,7 +331,7 @@ final class CommunicationUXTests: XCTestCase {
     func testActiveCallCanCollapseAndRestoreWithoutLosingKeypad() async throws {
         let app = try await launch(callSurface: true)
         XCTAssertTrue(app.buttons["call-collapse"].waitForExistence(timeout: 12))
-        app.buttons["键盘"].tap()
+        app.buttons["拨号盘"].tap()
         try await Task.sleep(nanoseconds: 400_000_000)
         capture("refresh-active-call-keypad", app: app)
         app.buttons["call-collapse"].tap()
@@ -340,7 +340,7 @@ final class CommunicationUXTests: XCTestCase {
         XCTAssertTrue(app.buttons["message-\(threadID)"].waitForExistence(timeout: 6))
         capture("refresh-mini-call", app: app)
         app.buttons["call-restore"].tap()
-        XCTAssertTrue(app.buttons["隐藏键盘"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["隐藏拨号盘"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["call-collapse"].exists)
     }
 
@@ -440,7 +440,10 @@ final class CommunicationUXTests: XCTestCase {
                 ])
                 XCTAssertTrue(app.staticTexts["call-recording-status"].waitForExistence(timeout: 5))
                 XCTAssertEqual(app.staticTexts["call-recording-status"].label, enabled ? "录音已开启" : "录音已关闭")
-                XCTAssertFalse(app.buttons["call-recording"].exists)
+                // Outgoing calls can change recording before they connect.
+                let recording = app.buttons["call-recording"]
+                XCTAssertTrue(recording.exists)
+                XCTAssertEqual(recording.value as? String, enabled ? "已开启" : "已关闭")
                 capture("outgoing-\(state)-recording-\(enabled ? "on" : "off")", app: app)
                 app.terminate()
             }
@@ -511,9 +514,10 @@ final class CommunicationUXTests: XCTestCase {
                 } else { realCallEndFrame = end.frame }
                 if !testCall {
                     let keypad = app.buttons["call-keypad"]
-                    for _ in 0..<3 where !keypad.isHittable { app.scrollViews.firstMatch.swipeUp() }
+                    let recording = app.buttons["call-recording"]
+                    for _ in 0..<3 where !keypad.isHittable || !recording.isHittable { app.scrollViews.firstMatch.swipeUp() }
                     XCTAssertTrue(keypad.isHittable, "Auxiliary controls must remain reachable at larger text sizes")
-                    XCTAssertTrue(app.buttons["call-recording"].exists)
+                    XCTAssertTrue(recording.isHittable, "Auxiliary controls must remain reachable at larger text sizes")
                     XCTAssertLessThan(keypad.frame.maxY, end.frame.minY)
                     XCTAssertLessThan(app.buttons["call-recording"].frame.maxY, end.frame.minY)
                 }

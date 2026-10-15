@@ -11,6 +11,7 @@ import {
 import {
   callState,
   dial,
+  isLiveCallSession,
   lineHasActiveCall,
   occupiedLineIDs as collectOccupiedLineIDs,
   showActiveCallForLine
@@ -109,9 +110,12 @@ const activeCallPresent = computed(() => Boolean(presentedCallSession.value))
 const showingCall = computed(
   () => activeCallPresent.value && !uiState.callMinimized
 )
+const liveCallCount = computed(() => callState.sessions.filter(isLiveCallSession).length)
+// With several live calls the call surface lists them, so the line picker is not reused.
 const showLineSwitcher = computed(
   () =>
-    !showingCall.value || callState.session?.control_state === 'occupied'
+    !showingCall.value ||
+    (callState.session?.control_state === 'occupied' && liveCallCount.value < 2)
 )
 const lineSwitcherID = computed({
   get: () =>
@@ -746,6 +750,18 @@ onBeforeUnmount(() => {
   display: flex;
   min-height: 0;
   flex-direction: column;
+  /* A live call outranks the workspace it floats over. */
+  background: linear-gradient(180deg, var(--accent-soft) 0, var(--surface) 120px);
+}
+
+.dialer-panel--call:not(.dialer-panel--permanent) {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-3);
+}
+
+.dialer-panel--call .dialer-toolbar {
+  background: transparent;
+  border-bottom-color: transparent;
 }
 
 .dialer-panel {
@@ -1116,6 +1132,20 @@ onBeforeUnmount(() => {
   .dialer-surface-enter-from .dialer-panel,
   .dialer-surface-leave-to .dialer-panel {
     transform: translateY(var(--space-3));
+  }
+}
+
+@media (max-width: 860px) {
+  /* The phone call sheet covers the whole screen; AppShell hides the tab bar. */
+  .drawer-backdrop.drawer-backdrop--call {
+    padding: 0;
+  }
+
+  .drawer-backdrop--call .dialer-panel.dialer-panel--call {
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
   }
 }
 

@@ -9,6 +9,9 @@ final class ModemDeckAudioRoute: NSObject, ObservableObject {
     @Published private(set) var active = false
     @Published private(set) var output = "none"
     @Published private(set) var externalInputs: [AVAudioSessionPortDescription] = []
+    /// Read-only presentation of the current CallKit-owned route; never sent to diagnostics.
+    @Published private(set) var currentInputUID = ""
+    @Published private(set) var currentOutputName = ""
     @Published private(set) var errorMessage = ""
     private var routeObserver: NSObjectProtocol?
     var hasReceiver: Bool { UIDevice.current.userInterfaceIdiom == .phone }
@@ -52,6 +55,8 @@ final class ModemDeckAudioRoute: NSObject, ObservableObject {
         let session = AVAudioSession.sharedInstance()
         output = Self.port(session.currentRoute.outputs.first?.portType)
         externalInputs = (session.availableInputs ?? []).filter { $0.portType != .builtInMic }
+        currentInputUID = session.currentRoute.inputs.first?.uid ?? ""
+        currentOutputName = session.currentRoute.outputs.first?.portName ?? ""
         guard active else { return }
         ModemDeckDiagnostics.shared.record(.audio, "route_changed", fields: Self.fields(session))
     }
