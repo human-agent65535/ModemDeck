@@ -32,9 +32,10 @@ extension Color {
     static let mdWarning = adaptive(0x946200, 0xF0C35C)
     static let mdWarningSoft = adaptive(0xFFF5D8, 0x3A2F14)
     static let mdFavorite = adaptive(0xA86400, 0xF2B544)
-    // Filled call controls carry a white glyph in both appearances.
-    static let mdCallEnd = adaptive(0xC72E3D, 0xD9434F)
-    static let mdCallAnswer = adaptive(0x1E8E4F, 0x2A9D5C)
+    // Filled call controls carry a white glyph: >= 4.5:1 against it in both
+    // appearances and >= 3:1 against mdBackground.
+    static let mdCallEnd = adaptive(0xC72E3D, 0xD03A47)
+    static let mdCallAnswer = adaptive(0x1B8449, 0x1C874B)
     static let modemDeckTint = mdAccent
 }
 
