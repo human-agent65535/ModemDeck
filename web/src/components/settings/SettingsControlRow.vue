@@ -58,13 +58,13 @@ withDefaults(
 
 .settings-control-row strong {
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .settings-control-row small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

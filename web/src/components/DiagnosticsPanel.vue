@@ -1986,7 +1986,7 @@ onBeforeUnmount(() => {
 
 .diagnostic-capability__flags {
   color: var(--muted);
-  font-size: 10px !important;
+  font-size: var(--text-2xs) !important;
   line-height: 1.4;
 }
 

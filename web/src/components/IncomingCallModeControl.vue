@@ -390,7 +390,7 @@ onBeforeUnmount(() => {
   .incoming-call-mode__menu small,
   .incoming-call-mode__notice,
   .incoming-call-mode__error {
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
 
   .incoming-call-mode__menu > button {

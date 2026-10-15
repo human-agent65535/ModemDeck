@@ -97,14 +97,14 @@ withDefaults(
 .settings-preference-row__copy h3 {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-base);
   text-transform: none;
 }
 
 .settings-preference-row__copy p {
   margin: 3px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.4;
 }
 
@@ -121,7 +121,7 @@ withDefaults(
 
 .settings-preference-row__feedback {
   margin-top: 10px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 @media (max-width: 860px) {

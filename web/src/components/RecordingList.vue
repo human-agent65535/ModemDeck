@@ -203,7 +203,7 @@ watch(
 
 .recording-list header span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .recording-list__state,
@@ -266,7 +266,7 @@ watch(
 .recording-list__meta span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

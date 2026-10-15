@@ -222,7 +222,7 @@ onBeforeUnmount(() => {
 }
 
 .field small {
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .audio-device-controls__default {
@@ -251,7 +251,7 @@ onBeforeUnmount(() => {
 .microphone-test small {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .microphone-level {
@@ -289,7 +289,7 @@ onBeforeUnmount(() => {
   gap: 7px;
   margin: 0;
   color: var(--danger);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 1.45;
 }
 

@@ -231,7 +231,7 @@ struct ModemDeckListRow<Content: View>: View {
                 Button { confirmingDelete = true } label: {
                     Label(controller.text("删除", "Delete"), systemImage: "trash")
                 }
-                .tint(.red)
+                .tint(.mdDanger)
                 .disabled(unavailable)
             }
         }

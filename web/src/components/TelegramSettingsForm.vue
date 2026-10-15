@@ -891,7 +891,7 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
 }
 
@@ -906,7 +906,7 @@ onMounted(() => {
   gap: 5px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -989,7 +989,7 @@ onMounted(() => {
   align-items: center;
   gap: 5px;
   color: var(--accent-strong);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
 }
 
@@ -1067,7 +1067,7 @@ onMounted(() => {
 
 .telegram-access-options small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 1.35;
 }
 
@@ -1081,7 +1081,7 @@ onMounted(() => {
 .telegram-user-select > small,
 .telegram-scope-empty {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .telegram-line-scopes > .field-error {

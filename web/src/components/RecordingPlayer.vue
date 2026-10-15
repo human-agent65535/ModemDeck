@@ -307,7 +307,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   justify-content: space-between;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
@@ -315,7 +315,7 @@ onBeforeUnmount(() => {
 .recording-audio-player__error {
   grid-column: 1 / -1;
   color: var(--danger);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .recording-audio-player--compact {

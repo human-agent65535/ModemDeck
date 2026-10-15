@@ -84,14 +84,14 @@ const messageID = `confirmation-message-${useId()}`
 }
 
 .confirmation-dialog h2 {
-  font-size: 17px;
+  font-size: var(--text-md);
   line-height: 1.35;
 }
 
 .confirmation-dialog p {
   margin-top: 7px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.55;
   /* Multi-part summaries put each affected kind on its own line. */
   white-space: pre-line;
@@ -110,10 +110,10 @@ const messageID = `confirmation-message-${useId()}`
   min-height: 38px;
   padding: 0 14px;
   color: var(--on-accent);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
   background: var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .confirmation-action.is-secondary {

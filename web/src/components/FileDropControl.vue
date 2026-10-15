@@ -210,7 +210,7 @@ function handleDrop(event: DragEvent): void {
 
 .file-drop-control__copy small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .file-drop-control__action {

@@ -538,7 +538,7 @@ onMounted(() => {
   margin: 0;
   padding: 0 12px 6px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 750;
   letter-spacing: 0.08em;
   line-height: 1.2;

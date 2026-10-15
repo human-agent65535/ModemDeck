@@ -21,7 +21,7 @@ struct ModemDeckPairingView: View {
                     Spacer(minLength: 24)
 
                     ZStack {
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        RoundedRectangle.modemDeck(ModemDeckRadius.xLarge)
                             .fill(Color.modemDeckTint.opacity(0.12))
                             .frame(width: 108, height: 108)
                         Image(systemName: "qrcode.viewfinder")
@@ -37,7 +37,7 @@ struct ModemDeckPairingView: View {
                             ? "在 Web 设置中打开“配对”，然后扫描二维码。"
                             : "Open Pairing in Web settings, then scan the QR code.")
                             .font(.body)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.mdMuted)
                             .multilineTextAlignment(.center)
                     }
 
@@ -68,13 +68,15 @@ struct ModemDeckPairingView: View {
                                     ? "粘贴二维码中的完整 JSON 内容"
                                     : "Paste the complete JSON payload from the QR code")
                                     .font(.footnote)
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(.mdMuted)
                                 TextEditor(text: $manualPayload)
                                     .font(.system(.footnote, design: .monospaced))
+                                    .scrollContentBackground(.hidden)
                                     .frame(minHeight: 130)
                                     .padding(8)
-                                    .background(Color(.secondarySystemBackground))
-                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .background(Color.mdSurface)
+                                    .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
+                                    .overlay(RoundedRectangle.modemDeck(ModemDeckRadius.medium).stroke(Color.mdBorder, lineWidth: 1))
 
                                 Button(chinese ? "连接" : "Connect") {
                                     Task { await session.pair(using: manualPayload) }
@@ -97,11 +99,11 @@ struct ModemDeckPairingView: View {
                     if !session.errorMessage.isEmpty {
                         Label(session.errorMessage, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote)
-                            .foregroundColor(.red)
+                            .foregroundColor(.mdDanger)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(14)
-                            .background(Color.red.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(Color.mdDangerSoft)
+                            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
                     }
 
                     Spacer(minLength: 24)
@@ -110,7 +112,7 @@ struct ModemDeckPairingView: View {
                 .padding(.horizontal, 24)
                 .frame(maxWidth: .infinity)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color.mdBackground.ignoresSafeArea())
             .navigationBarHidden(true)
         }
         .navigationViewStyle(.stack)

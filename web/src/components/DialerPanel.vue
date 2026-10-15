@@ -971,7 +971,7 @@ onBeforeUnmount(() => {
 
 .dialer-contact-match__copy small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .dialer-contact-match__copy strong {

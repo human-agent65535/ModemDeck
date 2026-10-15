@@ -937,7 +937,7 @@ struct ModemDeckCallRecordRow: View {
                     if call.favorite {
                         Image(systemName: "star.fill")
                             .font(.system(size: 12))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.mdFavorite)
                     }
                 }
             }
@@ -1303,7 +1303,7 @@ struct ModemDeckRecordingRow: View {
                     if recording.favorite {
                         Image(systemName: "star.fill")
                             .font(.system(size: 12))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.mdFavorite)
                     }
                 }
             }
@@ -1659,7 +1659,7 @@ struct ModemDeckCallDetailView: View {
             title: favorite
                 ? controller.text("取消收藏", "Unfavorite")
                 : controller.text("收藏", "Favorite"),
-            color: favorite ? .orange : .mdMuted,
+            color: favorite ? .mdFavorite : .mdMuted,
             disabled: mutationBusy || !controller.isOnline
         ) { mutateCall(favorite ? .unfavorite : .favorite) })
         items.append(ModemDeckHeaderAction(
@@ -2061,7 +2061,7 @@ struct ModemDeckRecordingDetailView: View {
                 title: favorite
                     ? controller.text("取消收藏", "Unfavorite")
                     : controller.text("收藏", "Favorite"),
-                color: favorite ? .orange : .mdMuted,
+                color: favorite ? .mdFavorite : .mdMuted,
                 disabled: mutationBusy || !controller.isOnline
             ) { toggleFavorite() },
             ModemDeckHeaderAction(
@@ -2173,7 +2173,7 @@ struct ModemDeckMiniCallBar: View {
                 }
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
-                    .background(Color(red: 0.78, green: 0.18, blue: 0.24))
+                    .background(Color.mdCallEnd)
                     .clipShape(Circle())
             }
             .disabled(endedCall == nil && (!canEnd || callController.ending))
@@ -2399,7 +2399,7 @@ struct ModemDeckActiveCallView: View {
                         title: recordingTitle,
                         icon: callController.recordingEnabled ? "stop.fill" : "circle.fill",
                         selected: callController.recordingEnabled,
-                        selectedColor: .red,
+                        selectedColor: .mdDanger,
                         disabled: !callController.recordingReady || callController.recordingBusy || callController.busy
                     ) {
                         Task { await callController.toggleRecording() }
@@ -2432,18 +2432,18 @@ struct ModemDeckActiveCallView: View {
                 .accessibilityIdentifier("call-ended-done")
             } else if isIncomingRinging {
                 ModemDeckCallPrimaryAction(
-                    title: callController.ending ? controller.text("正在结束…", "Ending…") : controller.text("拒绝", "Decline"), icon: "phone.down.fill", color: .red,
+                    title: callController.ending ? controller.text("正在结束…", "Ending…") : controller.text("拒绝", "Decline"), icon: "phone.down.fill", color: .mdCallEnd,
                     busy: callController.ending, disabled: callController.ending || !canReject
                 ) { Task { await callController.end() } }
                 .accessibilityIdentifier("call-decline")
                 ModemDeckCallPrimaryAction(
-                    title: controller.text("接听", "Answer"), icon: "phone.fill", color: .green,
+                    title: controller.text("接听", "Answer"), icon: "phone.fill", color: .mdCallAnswer,
                     disabled: callController.busy || callController.ending || !canAnswer
                 ) { Task { await callController.answer() } }
                 .accessibilityIdentifier("call-answer")
             } else {
                 ModemDeckCallPrimaryAction(
-                    title: callController.ending ? controller.text("正在结束…", "Ending…") : controller.text("挂断", "End"), icon: "phone.down.fill", color: .red,
+                    title: callController.ending ? controller.text("正在结束…", "Ending…") : controller.text("挂断", "End"), icon: "phone.down.fill", color: .mdCallEnd,
                     busy: callController.ending, disabled: callController.ending || !canHangup
                 ) { Task { await callController.end() } }
                 .accessibilityIdentifier("call-end")

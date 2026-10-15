@@ -45,13 +45,13 @@ const toneStyle = computed(() => ({
   align-items: center;
   padding: 0 7px;
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 </style>

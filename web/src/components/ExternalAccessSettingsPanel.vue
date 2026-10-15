@@ -929,7 +929,7 @@ onBeforeUnmount(() => {
 
 .ios-pairing-facts dt {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   text-transform: uppercase;
 }
