@@ -925,11 +925,12 @@ onBeforeUnmount(() => {
   color: var(--danger);
 }
 
+/* Three per row; a short last row is centered rather than left in column one. */
 .call-surface__controls {
-  display: grid;
+  display: flex;
   width: min(100%, 264px);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  justify-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-4) var(--space-3);
   margin-top: auto;
   padding-top: var(--space-6);

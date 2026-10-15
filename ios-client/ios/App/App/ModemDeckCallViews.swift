@@ -2605,7 +2605,7 @@ struct ModemDeckActiveCallView: View {
 
     // MARK: Controls
 
-    private enum ControlKind: Hashable { case mute, keypad, audio, record, placeholder(Int) }
+    private enum ControlKind: Hashable { case mute, keypad, audio, record }
 
     /// Mute · Keypad · Audio / Record. Only actions this call supports.
     private var controlKinds: [ControlKind] {
@@ -2618,13 +2618,9 @@ struct ModemDeckActiveCallView: View {
     private var auxiliaryControls: some View {
         let columns = dynamicTypeSize.isAccessibilitySize ? 2 : 3
         let kinds = controlKinds
+        // Rows are centered, so a short last row (e.g. Record alone) sits under the middle.
         let rows: [[ControlKind]] = stride(from: 0, to: kinds.count, by: columns).map { start in
-            var row = Array(kinds[start..<min(start + columns, kinds.count)])
-            // Keep the column grid when a later row is short.
-            if kinds.count > columns {
-                while row.count < columns { row.append(.placeholder(start + row.count)) }
-            }
-            return row
+            Array(kinds[start..<min(start + columns, kinds.count)])
         }
         let cellWidth: CGFloat = dynamicTypeSize.isAccessibilitySize ? 128 : 84
         return VStack(spacing: ModemDeckSpacing.lg) {
@@ -2680,8 +2676,6 @@ struct ModemDeckActiveCallView: View {
                 Task { await callController.toggleRecording() }
             }
             .accessibilityIdentifier("call-recording")
-        case .placeholder:
-            Color.clear.frame(height: 1).accessibilityHidden(true)
         }
     }
 
