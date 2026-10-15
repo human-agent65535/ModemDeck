@@ -205,7 +205,11 @@ extension View {
 
 extension ModemDeckSessionController {
     var usesChinese: Bool {
-        let language = session?.language ?? Locale.preferredLanguages.first ?? "en"
+        // The server reports "auto" (or nothing) when the system language follows each device.
+        let configured = session?.language.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let language = configured.isEmpty || configured.lowercased() == "auto"
+            ? Locale.preferredLanguages.first ?? "en"
+            : configured
         return language.lowercased().hasPrefix("zh")
     }
 
@@ -417,6 +421,28 @@ struct ModemDeckRootView: View {
             }
         } message: {
             Text(callController.connectionFailureMessage)
+        }
+        .alert(
+            controller.text("无法发起通话", "Call Could Not Start"),
+            isPresented: Binding(
+                get: { callController.startFailure != nil && callController.call == nil },
+                set: { if !$0 { callController.startFailure = nil } }
+            ),
+            presenting: callController.startFailure
+        ) { failure in
+            if failure.microphoneDenied, let url = URL(string: UIApplication.openSettingsURLString) {
+                Button(controller.text("打开设置", "Open Settings")) {
+                    callController.startFailure = nil
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button(controller.text("好", "OK"), role: .cancel) {
+                callController.startFailure = nil
+            }
+        } message: { failure in
+            Text(failure.microphoneDenied
+                ? controller.text("拨打电话前需要允许麦克风访问。", "Microphone access is required before placing a call.")
+                : failure.message)
         }
         .task {
             guard !started else { return }
