@@ -31,8 +31,5 @@ await run('xcodebuild', [
   '-sdk', 'iphonesimulator',
   '-destination', 'generic/platform=iOS Simulator',
   '-derivedDataPath', derivedData,
-  '-onlyUsePackageVersionsFromResolvedFile',
-  '-disableAutomaticPackageResolution',
-  '-skipPackageUpdates',
   'build'
 ])

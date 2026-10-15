@@ -26,36 +26,6 @@ test('native app keeps a shared Release archive scheme separate from simulator U
   assert.doesNotMatch(uat, /buildForArchiving="YES"/)
 })
 
-test('native preview shows one persistent header only for the settings flow', async () => {
-  const [builder, styles] = await Promise.all([
-    source('scripts/build-web-preview.mjs'),
-    source('assets/native-ios.css')
-  ])
-
-  assert.match(builder, /nativeIOSSettingsHeaderVisible/)
-  assert.match(
-    builder,
-    /<header v-if=\"nativeIOSSettingsHeaderVisible\" class=\"shell-header\">/
-  )
-  assert.match(styles, /\.app-shell \.shell-main[\s\S]*safe-area-inset-top/)
-  assert.match(styles, /native-ios-settings-header-visible[\s\S]*padding-top: 0/)
-  assert.match(styles, /\.shell-header__controls[\s\S]*display: none/)
-  assert.match(styles, /\.settings-detail-header[\s\S]*display: none/)
-})
-
-test('native communication details keep back navigation beside the avatar', async () => {
-  const [builder, navigation] = await Promise.all([
-    source('scripts/build-web-preview.mjs'),
-    source('assets/nativeIOSNavigation.ts')
-  ])
-
-  assert.match(builder, /nativeIOSMobileBackKey/)
-  assert.match(builder, /WorkspaceDetailHeader\.vue/)
-  assert.match(builder, /workspace-detail-header__native-back/)
-  assert.match(builder, /nativeIOSMobileBack && !\$slots\.leading/)
-  assert.match(navigation, /nativeIOSMobileBackKey/)
-})
-
 test('native iOS registers APNs and PushKit tokens after pairing', async () => {
   const [delegate, native, entitlements, info, debugConfig, releaseConfig] = await Promise.all([
     source('ios/App/App/AppDelegate.swift'),
@@ -93,17 +63,15 @@ test('native iOS registers APNs and PushKit tokens after pairing', async () => {
 })
 
 test('CallKit owns native WSS Opus audio and keeps synthetic calls local', async () => {
-  const [native, audio, bridge, builder, project, resolved] = await Promise.all([
+  const [native, audio, session, project] = await Promise.all([
     source('ios/App/App/ModemDeckNative.swift'),
     source('ios/App/App/ModemDeckCallAudio.swift'),
-    source('assets/native-ios.ts'),
-    source('scripts/build-web-preview.mjs'),
-    source('ios/App/App.xcodeproj/project.pbxproj'),
-    source('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved')
+    source('ios/App/App/ModemDeckSession.swift'),
+    source('ios/App/App.xcodeproj/project.pbxproj')
   ])
 
   assert.match(project, /MDNetEq.xcframework in Frameworks/)
-  assert.doesNotMatch(project + resolved, /Copus|swift-opus/)
+  assert.doesNotMatch(project, /Capacitor|CapApp-SPM|Cordova|Copus|swift-opus/)
   assert.match(audio, /import ModemDeckAudioCore/)
   assert.doesNotMatch(audio, /import WebRTC|RTCPeerConnection/)
   assert.match(audio, /func didActivate/)
@@ -143,24 +111,9 @@ test('CallKit owns native WSS Opus audio and keeps synthetic calls local', async
   assert.match(native, /setCurrentCallMuted/)
   assert.match(native, /PresentedCall/)
   assert.match(native, /markCallActive/)
-  assert.match(native, /notifyListeners\("callState"/)
-  assert.match(native, /func currentCallState\(_ call: CAPPluginCall\)/)
-  assert.match(bridge, /setNativeIOSCallMuted/)
-  assert.match(bridge, /startNativeIOSOutgoingCall/)
-  assert.match(bridge, /answerNativeIOSCall/)
-  assert.match(bridge, /endNativeIOSCall/)
-  assert.match(bridge, /sendNativeIOSCallDTMF/)
-  assert.match(bridge, /readNativeIOSCallState/)
-  assert.match(bridge, /listenNativeIOSCallState/)
-  assert.match(builder, /nativeIOSMode, setNativeIOSCallMuted/)
-  assert.match(builder, /if \(nativeIOSMode\)[\s\S]*callMediaState\.status = 'active'/)
-  assert.match(builder, /startNativeIOSOutgoingCall/)
-  assert.match(builder, /answerNativeIOSCall/)
-  assert.match(builder, /endNativeIOSCall/)
-  assert.match(builder, /sendNativeIOSCallDTMF/)
-  assert.match(builder, /acceptNativeIOSCallState/)
-  assert.match(builder, /isNativeIOSTestCallSession/)
-  assert.match(builder, /function showIncomingCallNotification[\s\S]*if \(nativeIOSMode\) return/)
+  assert.match(session, /ModemDeckPushCoordinator\.shared\.observeCallState\(self\)/)
+  assert.match(session, /func callStateDidChange\(_ state: \[String: Any\]\)/)
+  assert.match(native, /callStateObserver\?\.callStateDidChange\(currentCallStatePayload\(\)\)/)
 })
 
 test('native call control preserves server defaults and serializes completed DTMF actions', async () => {
@@ -245,10 +198,9 @@ test('every VoIP push that must be reported reaches CallKit', async () => {
 })
 
 test('tracked iOS configuration contains no personal signing identity', async () => {
-  const [project, sharedConfig, capacitorConfig] = await Promise.all([
+  const [project, sharedConfig] = await Promise.all([
     source('ios/App/App.xcodeproj/project.pbxproj'),
-    source('ios/Config/ModemDeck.xcconfig'),
-    source('capacitor.config.json')
+    source('ios/Config/ModemDeck.xcconfig')
   ])
   const trackedPaths = execFileSync('git', ['ls-files', '-z'], { cwd: rootPath })
     .toString('utf8')
@@ -276,7 +228,6 @@ test('tracked iOS configuration contains no personal signing identity', async ()
   assert.match(sharedConfig, /MODEMDECK_BUNDLE_IDENTIFIER = com\.example\.modemdeck/)
   assert.match(sharedConfig, /#include\? "\.\.\/LocalSigning\.xcconfig"/)
   assert.match(project, /PRODUCT_BUNDLE_IDENTIFIER = "\$\(MODEMDECK_BUNDLE_IDENTIFIER\)"/)
-  assert.equal(JSON.parse(capacitorConfig).appId, 'com.example.modemdeck')
 })
 
 test('SwiftUI is the universal iPhone and iPad application root', async () => {
@@ -436,13 +387,6 @@ test('native pairing decodes the explicit server_url key exactly once', async ()
   )
 })
 
-test('native home omits overview and recent activity heading rows', async () => {
-  const builder = await source('scripts/build-web-preview.mjs')
-
-  assert.match(builder, /v-if=\"false\"[\s\S]*dashboard-overview-row/)
-  assert.match(builder, /v-if=\"false\" class=\"dashboard-list-label\"/)
-})
-
 test('native recents keeps real line identities and shortcuts into the shared calls store', async () => {
   const [app, home] = await Promise.all([
     source('ios/App/App/ModemDeckApp.swift'), source('ios/App/App/ModemDeckHomeView.swift')
@@ -454,73 +398,30 @@ test('native recents keeps real line identities and shortcuts into the shared ca
   assert.doesNotMatch(app + home, /ModemDeckHomeSummaryGrid|unreadMessageCount|missedCallCount|onlineLineCount/)
 })
 
-test('native contact import is injected into Settings Contacts only', async () => {
-  const [builder, button] = await Promise.all([
-    source('scripts/build-web-preview.mjs'),
-    source('assets/NativeContactImportButton.vue')
-  ])
-
-  assert.match(builder, /ContactSyncSettings\.vue/)
-  assert.doesNotMatch(builder, /ContactsView\.vue/)
-  assert.match(button, /class=\"primary-button native-contact-import\"/)
-  assert.match(button, /contacts\.importFromIPhone/)
-})
-
-test('native WebView prevents double-tap and input focus zoom', async () => {
-  const [builder, styles, capacitorConfig] = await Promise.all([
-    source('scripts/build-web-preview.mjs'),
-    source('assets/native-ios.css'),
-    source('capacitor.config.json')
-  ])
-
-  assert.match(builder, /maximum-scale=1\.0, user-scalable=no/)
-  assert.match(styles, /touch-action: manipulation/)
-  assert.match(styles, /input,[\s\S]*font-size: 16px !important/)
-  assert.equal(JSON.parse(capacitorConfig).ios.zoomEnabled, false)
-})
-
-test('native preview injects iPhone settings and the packaged app version', async () => {
-  const builder = await source('scripts/build-web-preview.mjs')
-
-  assert.match(builder, /NativeIOSSettingsPanel/)
-  assert.match(builder, /readNativeIOSAppInfo/)
-  assert.match(builder, /nativeAppVersion\.value/)
-})
-
-test('native notification permission and delivery remain wired during migration', async () => {
-  const [bridge, panel, delegate, scene, swift, session, capacitorConfig] = await Promise.all([
-    source('assets/native-ios.ts'),
-    source('assets/NativeIOSSettingsPanel.vue'),
+test('native notification permission and delivery use the SwiftUI session', async () => {
+  const [settings, delegate, scene, native, session] = await Promise.all([
+    source('ios/App/App/ModemDeckSettingsView.swift'),
     source('ios/App/App/AppDelegate.swift'),
     source('ios/App/App/SceneDelegate.swift'),
     source('ios/App/App/ModemDeckNative.swift'),
-    source('ios/App/App/ModemDeckSession.swift'),
-    source('capacitor.config.json')
+    source('ios/App/App/ModemDeckSession.swift')
   ])
 
   for (const method of [
-    'notificationStatus',
     'requestNotificationPermission',
     'openNotificationSettings',
-    'showNotification'
+    'scheduleLocalTestNotification'
   ]) {
-    assert.match(bridge, new RegExp(`\\b${method}\\b`))
-    assert.match(swift, new RegExp(`\\b${method}\\b`))
+    assert.match(settings, new RegExp(`controller\\.${method}\\(`))
+    assert.match(session, new RegExp(`func ${method}\\(`))
   }
-  assert.match(panel, /showNativeIOSNotification/)
-  assert.match(panel, /sendTestSMSNotification/)
-  assert.match(panel, /testNotificationScheduled/)
-  assert.match(swift, /UNTimeIntervalNotificationTrigger/)
-  assert.equal(
-    JSON.parse(capacitorConfig).ios.handleApplicationNotifications,
-    false
-  )
-  assert.match(swift, /#if DEBUG[\s\S]*installModemDeckUATCredentialFromEnvironment/)
+  assert.match(session, /UNUserNotificationCenter\.current\(\)\.requestAuthorization/)
+  assert.match(session, /UNTimeIntervalNotificationTrigger/)
+  assert.match(native, /#if DEBUG[\s\S]*installModemDeckUATCredentialFromEnvironment/)
   assert.match(delegate, /#if DEBUG[\s\S]*installModemDeckUATCredentialFromEnvironment/)
   assert.match(scene, /AppDelegate\)\?\.credentialStore/)
   assert.match(scene, /UIHostingController/)
   assert.match(session, /ModemDeckPushCoordinator\.shared\.configure\(store: credentialStore\)/)
-  assert.match(session, /scheduleLocalTestNotification/)
 })
 
 test('native notifications refresh foreground data, deep-link taps, and shield private app snapshots', async () => {
@@ -977,7 +878,7 @@ test('home stays a quick view with shared row actions and split detail', async (
   assert.match(session, /messagesStore\.apply\(\.read, to: \[thread\.id\]\)/)
 })
 
-test('outgoing native calls require prepared media and the legacy plugin cannot directly dial', async () => {
+test('outgoing native calls require prepared media', async () => {
   const [api, native, audio] = await Promise.all([
     source('ios/App/App/ModemDeckAPI.swift'), source('ios/App/App/ModemDeckNative.swift'),
     source('ios/App/App/ModemDeckCallAudio.swift')
@@ -985,8 +886,5 @@ test('outgoing native calls require prepared media and the legacy plugin cannot 
   assert.doesNotMatch(api, /func startCall\(/)
   assert.match(native, /preparation: ModemDeckCallPreparation,/)
   assert.doesNotMatch(native, /preparation: ModemDeckCallPreparation\? = nil/)
-  const plugin = native.split('@objc func startOutgoingCall(_ call: CAPPluginCall) {')[1].split('@objc func answerCall')[0]
-  assert.match(plugin, /OUTGOING_MEDIA_REQUIRED/)
-  assert.doesNotMatch(plugin, /shared\.startOutgoingCall/)
   assert.doesNotMatch(audio, /endLateCommittedCall/)
 })

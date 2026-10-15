@@ -1,4 +1,3 @@
 #include "Config/ModemDeck.xcconfig"
 
-CAPACITOR_DEBUG = true
 MODEMDECK_APNS_ENVIRONMENT = development

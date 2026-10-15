@@ -98,8 +98,14 @@ call audio remain native platform services.
 # Use the same installed Xcode for builds, tests, and simulator tools.
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 
+# Run the native checks (Node.js and Xcode; no npm dependencies to install).
+npm test
+
 # Build the simulator application.
 npm run build:ios
+
+# Open the native Xcode project.
+npm run open:ios
 
 # Rebuild, install, and launch on the preferred Pro Max simulator.
 npm run run:ios:iphone
@@ -116,9 +122,9 @@ Manual JSON paste remains available for a simulator or a device without camera
 access. Read-only validation is safe; sending an SMS or placing a call is a real
 external action and must be performed deliberately during UAT.
 
-The older Capacitor preview builder remains temporarily available through
-`npm run sync:ios` while migration tests are retained, but it is no longer the
-app target's UI source and its generated `public` directory is not packaged.
+The app builds directly from the native Xcode project. There is no Capacitor
+runtime, JavaScript bridge, or Web preview/sync step. The Web client builds
+independently from `web/`; iOS tests use Node's built-in test runner.
 
 ## APNs and PushKit deployment
 
