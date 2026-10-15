@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 import type { ModemDeckGateway } from '../api/gateway'
-import type { CallTestStatus } from '../api/types'
+import { ApiError, type CallTestStatus } from '../api/types'
 
 type Dependencies = {
   gateway: Pick<ModemDeckGateway, 'startCallTest' | 'getCallTestStatus' | 'endCallTest'>
@@ -9,6 +9,15 @@ type Dependencies = {
   unavailable: () => boolean
   failureMessage: () => string
   notify: () => (() => void)
+}
+
+// A dropped poll is retried while the server lease is still valid. Definitive
+// answers (ended, missing, unauthorized) and malformed responses stop at once.
+const MAX_POLL_FAILURES = 4
+
+function transientPollFailure(cause: unknown): boolean {
+  if (!(cause instanceof ApiError) || cause.code === 'invalid_response') return false
+  return cause.status === 0 || cause.status === 408 || cause.status === 429 || cause.status >= 500
 }
 
 // Timers and late responses are scoped to a generation so a stopped test cannot
@@ -26,6 +35,7 @@ export function createCallTestController(dependencies: Dependencies) {
   let scheduleTimer: ReturnType<typeof setTimeout> | undefined
   let closeNotification: (() => void) | undefined
   let language = 'en-US'
+  let pollFailures = 0
 
   function clearTimers() {
     clearTimeout(pollTimer)
@@ -60,6 +70,7 @@ export function createCallTestController(dependencies: Dependencies) {
       const status = await dependencies.gateway.getCallTestStatus(id)
       if (token !== generation) return
       if (status.id !== id) throw new Error(dependencies.failureMessage())
+      pollFailures = 0
       state.session = status
       if (status.phase !== 'active') {
         await stop(status.phase === 'failed' ? dependencies.failureMessage() : '')
@@ -68,6 +79,10 @@ export function createCallTestController(dependencies: Dependencies) {
       pollTimer = setTimeout(() => { void poll(id, token) }, 500)
     } catch (cause) {
       if (token !== generation) return
+      if (transientPollFailure(cause) && ++pollFailures < MAX_POLL_FAILURES) {
+        pollTimer = setTimeout(() => { void poll(id, token) }, 500)
+        return
+      }
       await stop(cause instanceof Error ? cause.message : dependencies.failureMessage())
     }
   }
@@ -105,6 +120,7 @@ export function createCallTestController(dependencies: Dependencies) {
       state.session = status
       if (status.phase !== 'active') throw new Error(dependencies.failureMessage())
       state.status = 'running'
+      pollFailures = 0
       limitTimer = setTimeout(() => { void stop() }, 60_000)
       dependencies.startMedia(status.id)
       void poll(status.id, token)

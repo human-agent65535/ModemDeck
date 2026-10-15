@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/calltest"
 )
 
@@ -34,11 +35,7 @@ func (api *API) browserCallTest(response http.ResponseWriter, request *http.Requ
 			if !decodeJSONBody(w, r, &input) {
 				return
 			}
-			language := "en"
-			if strings.HasPrefix(strings.ToLower(input.Language), "zh") {
-				language = "zh"
-			}
-			status, err := api.callTests.StartBrowser(owner, language)
+			status, err := api.callTests.StartBrowser(owner, browserCallTestUser(r), callTestLanguage(input.Language))
 			if err != nil {
 				api.writeCallTestError(w, r, err)
 				return
@@ -48,4 +45,21 @@ func (api *API) browserCallTest(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	api.callTestResource(response, request, owner, path)
+}
+
+// browserCallTestUser groups every login session of one account with its iOS
+// tests. Single-administrator installs have no principal.
+func browserCallTestUser(request *http.Request) string {
+	if principal, ok := auth.PrincipalFromContext(request.Context()); ok && principal.UserID != "" {
+		return calltest.UserKey(principal.UserID)
+	}
+	return calltest.LegacyAdminUser
+}
+
+// callTestLanguage maps a locale to the prompt languages bundled with tests.
+func callTestLanguage(locale string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(locale)), "zh") {
+		return "zh"
+	}
+	return "en"
 }

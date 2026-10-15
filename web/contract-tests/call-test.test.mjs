@@ -7,6 +7,7 @@ import { createCallTestController } from '../src/state/callTest.ts'
 import { callTestPath, parseCallTestStatus } from '../src/api/contract.ts'
 import { callAudioWebSocketURL } from '../src/state/callAudioProtocol.ts'
 import { showBrowserNotification } from '../src/state/browserNotifications.ts'
+import { ApiError } from '../src/api/types.ts'
 
 const snapshot = (id = 'test-a', phase = 'active') => ({
   id, phase, accepted_at: new Date().toISOString(), expires_at: new Date(Date.now() + 60_000).toISOString(),
@@ -156,14 +157,52 @@ test('a real call blocks start and can preempt a pending test', async t => {
   assert.deepEqual(controller.events, [['end', 'test-a']])
 })
 
-test('poll failures release audio and late responses cannot revive a stopped test', async t => {
-  const pending = deferred()
-  const controller = setup(t, { gateway: { getCallTestStatus: () => pending.promise } })
+test('transient poll failures retry while repeated failures release audio', async t => {
+  let calls = 0
+  const flaky = setup(t, { gateway: { getCallTestStatus: async id => {
+    calls += 1
+    if (calls === 1) throw new ApiError('Connection lost')
+    return snapshot(id)
+  } } })
+  await flaky.start('en-US')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(flaky.state.status, 'running')
+  t.mock.timers.tick(500)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(flaky.state.status, 'running')
+  assert.equal(calls, 2)
+  await flaky.stop()
+
+  const controller = setup(t, { gateway: { getCallTestStatus: async () => { throw new ApiError('Connection lost') } } })
   await controller.start('en-US')
-  pending.reject(new Error('Connection lost'))
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await new Promise(resolve => setImmediate(resolve))
+    t.mock.timers.tick(500)
+  }
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(controller.state.status, 'error')
   assert.equal(controller.state.error, 'Connection lost')
+  assert.deepEqual(controller.events.slice(-2), [['stop', 'test-a'], ['end', 'test-a']])
+})
+
+test('malformed status responses are not retried as network failures', async t => {
+  for (const failure of [new Error('Invalid call test phase'), new ApiError('bad body', 200, 'invalid_response')]) {
+    const controller = setup(t, { gateway: { getCallTestStatus: async () => { throw failure } } })
+    await controller.start('en-US')
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(controller.state.status, 'error')
+    assert.equal(controller.state.error, failure.message)
+  }
+})
+
+test('definitive poll errors stop at once and late responses cannot revive a stopped test', async t => {
+  const pending = deferred()
+  const controller = setup(t, { gateway: { getCallTestStatus: () => pending.promise } })
+  await controller.start('en-US')
+  pending.reject(new ApiError('The test call has ended', 410, 'test_call_ended'))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(controller.state.status, 'error')
+  assert.equal(controller.state.error, 'The test call has ended')
   assert.deepEqual(controller.events.slice(-2), [['stop', 'test-a'], ['end', 'test-a']])
 
   const next = deferred()
@@ -203,7 +242,7 @@ test('empty real-call snapshots preserve diagnostics and stale diagnostic cleanu
     ['syncCallMedia', 'shutdownCallMedia', 'stopCallTestMedia'].includes(statement.name?.text))
     .map(statement => statement.getText(ast).replace(/^export /, '')).join('\n')
   const state = { callID: '', status: 'idle' }
-  const context = vm.createContext({ preparationMedia: undefined, mediaTarget: 'calls', attemptedCallID: '', fixtureCallMediaPreview: true,
+  const context = vm.createContext({ preparationMedia: undefined, testMediaCallID: '', attemptedCallID: '', fixtureCallMediaPreview: true,
     callMediaState: state, setIdle: () => { state.callID = ''; state.status = 'idle' } })
   vm.runInContext(ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context)
   context.syncCallMedia({ id: 'test-a', phase: 'active', media_available: true }, 'call-tests')
@@ -214,4 +253,13 @@ test('empty real-call snapshots preserve diagnostics and stale diagnostic cleanu
   assert.equal(state.callID, 'real-call')
   context.shutdownCallMedia()
   assert.equal(state.status, 'idle')
+
+  // Ending a diagnostic whose media state was already cleared still hands media
+  // back to real calls, so a later empty snapshot is not swallowed.
+  context.syncCallMedia({ id: 'test-b', phase: 'active', media_available: true }, 'call-tests')
+  state.callID = ''
+  context.stopCallTestMedia('test-b')
+  context.syncCallMedia({ id: 'real-2', phase: 'active', media_available: true })
+  context.syncCallMedia(null)
+  assert.equal(state.callID, '')
 })

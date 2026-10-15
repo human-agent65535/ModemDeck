@@ -33,14 +33,38 @@ type Status struct {
 	FailureCode string    `json:"failure_code,omitempty"`
 }
 
+const (
+	// Push tests keep a per-device cooldown so repeated starts cannot spam a
+	// paired phone. Browser tests ring locally and may restart once ended.
+	pushTestCooldown = 30 * time.Second
+	maxActiveTests   = 16
+	maxActivePerUser = 2
+	// Ended tests stay readable briefly for final status. Bound that history per
+	// account too, so restarting quickly cannot fill the shared limit.
+	maxRetainedTests   = 64
+	maxRetainedPerUser = 6
+	// LegacyAdminUser groups tests from single-administrator sessions, which have
+	// no user ID. It cannot collide with UserKey values.
+	LegacyAdminUser = "admin"
+)
+
+// UserKey groups an account's iOS and browser tests under one limit.
+func UserKey(userID string) string {
+	return "user\x00" + userID
+}
+
 type Service struct {
 	mu       sync.Mutex
 	sessions map[string]*session
+	starting map[string]string
 	push     PushSender
 	logger   *slog.Logger
 	ctx      context.Context
 	cancel   context.CancelFunc
 	workers  sync.WaitGroup
+	// beforeBuild runs after a start reserves capacity; tests use it to hold
+	// a start in flight. It is nil in production.
+	beforeBuild func()
 }
 
 func New(push PushSender, logger *slog.Logger) *Service {
@@ -48,20 +72,24 @@ func New(push PushSender, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{sessions: make(map[string]*session), push: push, logger: logger, ctx: ctx, cancel: cancel}
+	return &Service{sessions: make(map[string]*session), starting: make(map[string]string), push: push, logger: logger, ctx: ctx, cancel: cancel}
 }
 
 func (s *Service) Start(userID, credentialID string, language ...string) (Status, error) {
 	if s == nil || s.push == nil || userID == "" || credentialID == "" {
 		return Status{}, ErrUnavailable
 	}
-	return s.start(userID+"\x00"+credentialID, userID, credentialID, language...)
+	return s.start(userID+"\x00"+credentialID, UserKey(userID), userID, credentialID, language...)
 }
 
 // StartBrowser connects a session-scoped test directly, without Apple push or
 // modem access. It shares the same leases, audio endpoint and lifetime as iOS.
-func (s *Service) StartBrowser(owner string, language ...string) (Status, error) {
-	status, err := s.start(owner, "", "", language...)
+// The user key (UserKey or LegacyAdminUser) bounds one account's tests.
+func (s *Service) StartBrowser(owner, user string, language ...string) (Status, error) {
+	if user == "" {
+		return Status{}, ErrUnavailable
+	}
+	status, err := s.start(owner, user, "", "", language...)
 	if err != nil {
 		return Status{}, err
 	}
@@ -72,32 +100,93 @@ func (s *Service) StartBrowser(owner string, language ...string) (Status, error)
 	return answered, err
 }
 
-func (s *Service) start(owner, userID, credentialID string, language ...string) (Status, error) {
-	if s == nil || owner == "" {
+// admitLocked reserves capacity before the runtime is built outside s.mu.
+func (s *Service) admitLocked(owner, user string) error {
+	if s.ctx.Err() != nil {
+		return ErrUnavailable
+	}
+	active, userActive, userRetained := 0, 0, 0
+	for reservedOwner, reservedUser := range s.starting {
+		if reservedOwner == owner {
+			return ErrBusy
+		}
+		active++
+		if reservedUser == user {
+			userActive++
+			userRetained++
+		}
+	}
+	for _, existing := range s.sessions {
+		live := existing.ctx.Err() == nil
+		if existing.owner == owner && (live ||
+			existing.push && time.Since(existing.snapshot().AcceptedAt) < pushTestCooldown) {
+			return ErrBusy
+		}
+		if existing.user == user {
+			userRetained++
+		}
+		if live {
+			active++
+			if existing.user == user {
+				userActive++
+			}
+		}
+	}
+	if active >= maxActiveTests || userActive >= maxActivePerUser ||
+		userRetained >= maxRetainedPerUser ||
+		len(s.sessions)+len(s.starting) >= maxRetainedTests {
+		return ErrBusy
+	}
+	return nil
+}
+
+func (s *Service) start(owner, user, userID, credentialID string, language ...string) (Status, error) {
+	if s == nil || owner == "" || user == "" {
 		return Status{}, ErrUnavailable
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.ctx.Err() != nil {
-		return Status{}, ErrUnavailable
+	if err := s.admitLocked(owner, user); err != nil {
+		s.mu.Unlock()
+		return Status{}, err
 	}
-	for _, existing := range s.sessions {
-		if existing.owner == owner && (existing.ctx.Err() == nil || time.Since(existing.snapshot().AcceptedAt) < 30*time.Second) {
-			return Status{}, ErrBusy
-		}
+	s.starting[owner] = user
+	// Count the in-flight start as a worker so Close waits for the runtime
+	// built outside the lock; run takes over this count on success.
+	s.workers.Add(1)
+	s.mu.Unlock()
+
+	if s.beforeBuild != nil {
+		s.beforeBuild()
 	}
-	if len(s.sessions) >= 16 {
-		return Status{}, ErrBusy
+	entry, err := s.newSession(owner, user, credentialID, language...)
+
+	s.mu.Lock()
+	delete(s.starting, owner)
+	if err == nil && s.ctx.Err() != nil {
+		entry.close()
+		err = ErrUnavailable
 	}
+	if err != nil {
+		s.mu.Unlock()
+		s.workers.Done()
+		return Status{}, err
+	}
+	s.sessions[entry.status.ID] = entry
+	s.mu.Unlock()
+	go s.run(entry, userID, credentialID)
+	return entry.snapshot(), nil
+}
+
+func (s *Service) newSession(owner, user, credentialID string, language ...string) (*session, error) {
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
-		return Status{}, err
+		return nil, err
 	}
 	random[6], random[8] = random[6]&0x0f|0x40, random[8]&0x3f|0x80
 	id := fmt.Sprintf("test-%x-%x-%x-%x-%x", random[:4], random[4:6], random[6:8], random[8:10], random[10:])
 	ctx, cancel := context.WithCancel(s.ctx)
 	now := time.Now().UTC()
-	entry := &session{status: Status{ID: id, AcceptedAt: now, ExpiresAt: now.Add(35 * time.Second), Phase: "scheduled", TestPhase: "scheduled"}, owner: owner, ctx: ctx, cancel: cancel, audio: newAudioEndpoint(language...)}
+	entry := &session{status: Status{ID: id, AcceptedAt: now, ExpiresAt: now.Add(35 * time.Second), Phase: "scheduled", TestPhase: "scheduled"}, owner: owner, user: user, push: credentialID != "", ctx: ctx, cancel: cancel, audio: newAudioEndpoint(language...)}
 	runtime, err := mediaapp.NewRuntime(mediaapp.RuntimeOptions{
 		Calls: entry, Refresher: entry, Controller: entry, EndpointOpener: entry.audio,
 		OnAudioStats: callmedia.AudioStatsLogger(s.logger),
@@ -106,7 +195,7 @@ func (s *Service) start(owner, userID, credentialID string, language ...string) 
 	if err != nil {
 		cancel()
 		_ = entry.audio.Close()
-		return Status{}, err
+		return nil, err
 	}
 	entry.runtime = runtime
 	entry.lifecycle, err = runtime.Lifecycle()
@@ -116,19 +205,16 @@ func (s *Service) start(owner, userID, credentialID string, language ...string) 
 		_, err = entry.Refresh(ctx)
 	}
 	if err == nil && credentialID == "" {
+		entry.mu.Lock()
 		entry.status.Phase, entry.status.TestPhase = "ringing", "ringing"
+		entry.mu.Unlock()
 		_, err = entry.Refresh(ctx)
 	}
 	if err != nil {
-		cancel()
-		_ = runtime.Media.Close(context.Background())
-		_ = entry.audio.Close()
-		return Status{}, err
+		entry.close()
+		return nil, err
 	}
-	s.sessions[id] = entry
-	s.workers.Add(1)
-	go s.run(entry, userID, credentialID)
-	return entry.snapshot(), nil
+	return entry, nil
 }
 
 func (s *Service) run(entry *session, userID, credentialID string) {
@@ -219,9 +305,16 @@ func (s *Service) lookup(id, owner string) (*session, error) {
 }
 
 func (s *Service) Status(id, owner string) (Status, error) {
+	status, _, err := s.StatusWithAudio(id, owner)
+	return status, err
+}
+
+// StatusWithAudio reads the call phase and audio counters from one lookup so a
+// status poll reports a consistent snapshot.
+func (s *Service) StatusWithAudio(id, owner string) (Status, AudioStatus, error) {
 	entry, err := s.lookup(id, owner)
 	if err != nil {
-		return Status{}, err
+		return Status{}, AudioStatus{}, err
 	}
 	status := entry.snapshot()
 	if status.Phase == "active" {
@@ -230,7 +323,7 @@ func (s *Service) Status(id, owner string) (Status, error) {
 		// New clients use the same PUT lease endpoint as production calls.
 		_, _ = entry.runtime.Leases.Renew(entry.ctx, id, owner)
 	}
-	return status, nil
+	return status, entry.audioStatus(), nil
 }
 
 func (s *Service) Answer(id, owner string) (Status, error) {
@@ -293,9 +386,7 @@ func (s *Service) AudioStatus(id, owner string) (AudioStatus, error) {
 	if err != nil {
 		return AudioStatus{}, err
 	}
-	status := entry.audio.Snapshot()
-	status.AudioStatistics = entry.runtime.Core.Statistics(id)
-	return status, nil
+	return entry.audioStatus(), nil
 }
 
 func (s *Service) Renew(ctx context.Context, id, owner string) (calllease.Status, error) {

@@ -601,7 +601,7 @@ test('hardware silence does not suppress local ringback', () => {
 test('ringing-out and active preserve prepared socket owner and update only renderer cadence', () => {
   const posted=[],runtime={contextEpoch:7,node:{port:{postMessage:message=>posted.push(message)}}}
   let stopped=0
-  const ctx=vm.createContext({mediaTarget:'calls',preparationMedia:{id:'p1',callID:'c1'},audioRuntime:runtime,browserSoundState:{waiting:true},fixtureCallMediaPreview:false,
+  const ctx=vm.createContext({testMediaCallID:'',preparationMedia:{id:'p1',callID:'c1'},audioRuntime:runtime,browserSoundState:{waiting:true},fixtureCallMediaPreview:false,
     attemptedCallID:'',setIdle:()=>stopped++})
   vm.runInContext(mediaFunctions(['syncCallMedia']),ctx)
   ctx.syncCallMedia({id:'c1',phase:'ringing-out'})

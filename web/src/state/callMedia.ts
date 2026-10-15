@@ -89,7 +89,9 @@ let queuedInputDeviceID: string | undefined
 let inputSwitchPromise: Promise<void> | undefined
 let recoveryTimeoutID: number | undefined
 let mediaLockAbort: AbortController | undefined
-let mediaTarget: CallMediaTarget = 'calls'
+// The diagnostic that owns browser media, if any. Keyed by test ID so ending
+// that test releases it even after media state was already cleared.
+let testMediaCallID = ''
 
 type MediaOwnership = {
   target: CallMediaTarget
@@ -668,7 +670,7 @@ async function ownAndConnect(
           completeCleanup = resolve
         })
         const ownership: MediaOwnership = {
-          target: mediaTarget,
+          target: testMediaCallID === callID ? 'call-tests' : 'calls',
           ownerToken: globalThis.crypto.randomUUID(),
           claimed: false,
           releaseCallID: preparationMedia ? undefined : callID,
@@ -703,7 +705,7 @@ async function ownAndConnect(
 
 export async function prepareOutgoingCallMedia(preparation: OutgoingCallPreparation): Promise<void> {
   stopResources()
-  mediaTarget = 'calls'
+  testMediaCallID = ''
   if (fixtureMode) {
     callMediaState.callID = preparation.preparation_id
     callMediaState.status = 'active'
@@ -747,9 +749,13 @@ export function adoptPreparedCallMedia(session: CallSession): void {
 }
 
 export function syncCallMedia(session: Pick<CallSession, 'id' | 'phase' | 'media_available'> | null, target: CallMediaTarget = 'calls'): void {
-  // Empty real-call snapshots do not interrupt an app-owned diagnostic.
-  if (!session && target === 'calls' && mediaTarget === 'call-tests') return
-  mediaTarget = target
+  if (target === 'call-tests') {
+    testMediaCallID = session?.id || ''
+  } else if (testMediaCallID) {
+    // Empty real-call snapshots do not interrupt an app-owned diagnostic.
+    if (!session) return
+    testMediaCallID = ''
+  }
   if (session && preparationMedia && (session.id === preparationMedia.id || session.id === preparationMedia.callID) &&
       session.phase !== 'ended' && session.phase !== 'failed' && session.phase !== 'ending') {
     const requested = session.phase === 'ringing-out'
@@ -880,13 +886,13 @@ function queueCallInputReplacement(deviceID: string): void {
 }
 
 export function shutdownCallMedia(): void {
-  mediaTarget = 'calls'
+  testMediaCallID = ''
   attemptedCallID = ''
   setIdle('idle')
 }
 
 export function stopCallTestMedia(callID: string): void {
-  if (mediaTarget === 'call-tests' && callMediaState.callID === callID) shutdownCallMedia()
+  if (callID && testMediaCallID === callID) shutdownCallMedia()
 }
 
 export async function releaseCallMediaForSessionEnd(): Promise<void> {

@@ -18,11 +18,22 @@ type session struct {
 	controlMu sync.Mutex
 	status    Status
 	owner     string
+	user      string
+	push      bool
 	ctx       context.Context
 	cancel    context.CancelFunc
 	runtime   *mediaapp.Runtime
 	lifecycle *calllifecycle.Coordinator
 	audio     *audioEndpoint
+}
+
+// close releases a session that was built but never published to the service.
+func (e *session) close() {
+	e.cancel()
+	if e.runtime != nil {
+		_ = e.runtime.Media.Close(context.Background())
+	}
+	_ = e.audio.Close()
 }
 
 func (e *session) snapshot() Status {
@@ -95,4 +106,10 @@ func (e *session) EndCall(_ context.Context, id string) error {
 	}
 	e.finish("owner_expired")
 	return nil
+}
+
+func (e *session) audioStatus() AudioStatus {
+	status := e.audio.Snapshot()
+	status.AudioStatistics = e.runtime.Core.Statistics(e.snapshot().ID)
+	return status
 }

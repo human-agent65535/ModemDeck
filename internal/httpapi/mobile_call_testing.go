@@ -44,11 +44,7 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 	path := strings.TrimPrefix(request.URL.Path, "/api/v1/mobile/call-tests")
 	if path == "" {
 		api.postOnly(response, request, func(w http.ResponseWriter, r *http.Request) {
-			language := "en"
-			if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "zh") {
-				language = "zh"
-			}
-			status, err := api.callTests.Start(principal.UserID, credentialID, language)
+			status, err := api.callTests.Start(principal.UserID, credentialID, callTestLanguage(r.Header.Get("Accept-Language")))
 			if err != nil {
 				api.writeCallTestError(w, r, err)
 				return
@@ -115,12 +111,7 @@ func (api *API) callTestResource(response http.ResponseWriter, request *http.Req
 		}
 		writeJSON(response, http.StatusOK, status)
 	case "status":
-		status, err := api.callTests.Status(id, owner)
-		if err != nil {
-			api.writeCallTestError(response, request, err)
-			return
-		}
-		audio, err := api.callTests.AudioStatus(id, owner)
+		status, audio, err := api.callTests.StatusWithAudio(id, owner)
 		if err != nil {
 			api.writeCallTestError(response, request, err)
 			return

@@ -296,9 +296,16 @@ func TestMobileTestSocketUsesSharedRuntimeWithoutTURN(t *testing.T) {
 	if _, err := codec.Decode(payload); err != nil {
 		t.Fatal(err)
 	}
-	quality, err = service.AudioStatus(started.ID, owner)
-	if err != nil {
-		t.Fatal(err)
+	// The sent counter advances after the write returns, so the client can read
+	// the frame before the server records it.
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		quality, err = service.AudioStatus(started.ID, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if quality.SentPackets > 0 || time.Now().After(deadline) {
+			break
+		}
 	}
 	if quality.Transport != "websocket" || quality.ReceivedPackets != 1 || quality.SentPackets == 0 {
 		t.Fatalf("shared WSS stats: %+v", quality)
