@@ -188,6 +188,11 @@ SIMCTL_CHILD_MODEMDECK_UAT_TOKEN="$MODEMDECK_UAT_TOKEN" \
   npm run run:ios:iphone
 ```
 
+Add `SIMCTL_CHILD_MODEMDECK_UAT_CALL_STATE` (`ringing`, `ringing-out`,
+`connecting` or `active`) to show the in-call surface with a synthetic call that
+starts no CallKit, audio or WSS session, and `SIMCTL_CHILD_MODEMDECK_UAT_CALL_KEYPAD=1`
+to open its keypad on an active call.
+
 Set `SIMCTL_CHILD_MODEMDECK_UAT_CALL_STATE=active` as well to render the native
 in-call surface without creating a server call. Add
 `SIMCTL_CHILD_MODEMDECK_UAT_CALL_KEYPAD=1` to open its DTMF keypad immediately
