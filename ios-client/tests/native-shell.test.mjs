@@ -732,7 +732,8 @@ test('native dialer preserves its draft, line choice, recording preference and D
   assert.match(app, /\.sheet\(isPresented: \$showingDialer\)/)
   assert.match(app, /\.presentationDragIndicator\(\.visible\)/)
   assert.match(calls, /pressedDigits: dtmfDigits/)
-  assert.match(calls, /ModemDeckInCallKeyStyle/)
+  // The in-call keypad reuses the dialer key without the dialer-only "+" long press.
+  assert.match(calls, /ModemDeckDialKeyButton\(digit: key\.0, letters: key\.1, allowsPlus: false/)
 })
 
 test('CallKit foreground reconciliation opens the native active-call surface', async () => {

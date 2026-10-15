@@ -232,8 +232,8 @@ test('call rows reuse one selectable surface without a trailing callback button'
 test('call timer is excluded from live announcements', async () => {
   const surface = await source('../src/components/CallSurface.vue')
 
-  assert.match(surface, /<section class="call-surface">/)
-  assert.match(surface, /<span role="status" aria-live="polite" aria-atomic="true">/)
-  assert.match(surface, /<strong v-if="duration" aria-live="off">\{\{ duration \}\}<\/strong>/)
+  assert.match(surface, /<section class="call-surface" :class="\{ 'is-incoming': incoming \}">/)
+  assert.match(surface, /<span class="call-surface__phase" role="status" aria-live="polite" aria-atomic="true">/)
+  assert.match(surface, /<strong v-if="duration" class="call-surface__timer" aria-live="off">\{\{ duration \}\}<\/strong>/)
   assert.doesNotMatch(surface, /class="call-surface" aria-live=/)
 })

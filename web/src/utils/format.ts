@@ -58,6 +58,15 @@ export function formatDuration(seconds: number): string {
     : translate('common.durationSeconds', { count: remainder })
 }
 
+/** Live call clock shared with iOS: `mm:ss`, then `h:mm:ss` past an hour. */
+export function formatCallClock(seconds: number): string {
+  const safe = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(safe / 3600)
+  const minutes = String(Math.floor((safe % 3600) / 60)).padStart(2, '0')
+  const remainder = String(safe % 60).padStart(2, '0')
+  return hours > 0 ? `${hours}:${minutes}:${remainder}` : `${minutes}:${remainder}`
+}
+
 export function primaryPhone(phones: Array<{ number: string; primary: boolean }>): string {
   return phones.find(phone => phone.primary)?.number || phones[0]?.number || ''
 }

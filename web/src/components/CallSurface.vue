@@ -3,14 +3,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Circle,
+  CircleDot,
   Grip,
+  Headphones,
   LoaderCircle,
-  Mic,
   MicOff,
   PhoneCall,
   PhoneOff,
   RefreshCw,
-  Square,
   Volume2,
   X
 } from '@lucide/vue'
@@ -19,9 +19,11 @@ import {
   callState,
   dismissCall as dismissRealCall,
   hangupCall as hangupRealCall,
+  isLiveCallSession,
   rejectCall as rejectRealCall,
   retryActiveCallMedia,
-  sendDTMF
+  sendDTMF,
+  showActiveCallForLine
 } from '../state/call'
 import {
   callMediaState,
@@ -39,10 +41,11 @@ import {
   lineSupports
 } from '../state/workspace'
 import { knownCallBearerLabel } from '../callBearer'
-import { formatDuration } from '../utils/format'
+import { formatCallClock } from '../utils/format'
+import { lineTone } from '../utils/lineTone'
 import { phoneKeypad } from '../utils/phoneKeypad'
+import AudioDeviceControls from './AudioDeviceControls.vue'
 import CommunicationAvatar from './CommunicationAvatar.vue'
-import LineTag from './LineTag.vue'
 import CallTestFeedback from './CallTestFeedback.vue'
 import { answerCallTest, callTestSession, callTestState, callTestStatusLabel, dismissCallTest, stopCallTest } from '../state/callTestRuntime'
 
@@ -50,7 +53,10 @@ const props = defineProps<{ session: CallSession }>()
 const { t } = useI18n()
 const now = ref(Date.now())
 const dtmfOpen = ref(false)
+const devicesOpen = ref(false)
 const dtmfDisplay = ref<HTMLOutputElement>()
+const answerButton = ref<HTMLButtonElement>()
+const incomingAnnouncement = ref('')
 let timer: number | undefined
 
 const session = computed(() => props.session)
@@ -82,6 +88,10 @@ const contactNumber = computed(() => {
   const number = presentedNumber.value
   return number && number !== contactName.value ? number : ''
 })
+const lineLabel = computed(() =>
+  line.value ? line.value.line_label.trim() || session.value.line_id || t('lines.line') : ''
+)
+const lineDot = computed(() => (line.value ? lineTone(line.value).dot : ''))
 const phaseLabel = computed(() => {
   if (isTestCall.value && session.value.phase === 'active') return callTestStatusLabel.value
   if (!isTestCall.value) {
@@ -107,12 +117,13 @@ const phaseLabel = computed(() => {
   }
   return session.value ? labels[session.value.phase] : ''
 })
-const duration = computed(() => {
-  const start = session.value?.active_at
+function callClock(call: CallSession | undefined): string {
+  const start = call?.active_at
   if (!start) return ''
-  const end = session.value?.ended_at ? Date.parse(session.value.ended_at) : now.value
-  return formatDuration(Math.max(0, Math.floor((end - Date.parse(start)) / 1000)))
-})
+  const end = call?.ended_at ? Date.parse(call.ended_at) : now.value
+  return formatCallClock(Math.max(0, Math.floor((end - Date.parse(start)) / 1000)))
+}
+const duration = computed(() => callClock(session.value))
 const incoming = computed(
   () =>
     session.value?.direction === 'incoming' &&
@@ -215,15 +226,55 @@ const mediaControllable = computed(
     callMediaState.status === 'recovering' ||
     callMediaState.status === 'active'
 )
+const keypadAvailable = computed(() => active.value && !isTestCall.value)
 const showMediaControls = computed(
   () =>
     !terminal.value &&
     owned.value &&
     !dtmfOpen.value &&
+    !devicesOpen.value &&
     (mediaControllable.value ||
+      keypadAvailable.value ||
+      recordingAdjustable.value ||
       callMediaState.playbackBlocked ||
       callMediaState.status === 'error')
 )
+const statusTone = computed(() => {
+  if (terminal.value || occupied.value) return 'is-idle'
+  if (incoming.value) return 'is-incoming'
+  return active.value ? 'is-live' : 'is-pending'
+})
+// Concurrent calls are listed instead of reusing the dialer line picker.
+const concurrentCalls = computed(() =>
+  isTestCall.value ? [] : callState.sessions.filter(isLiveCallSession)
+)
+function callPeer(call: CallSession): string {
+  return (
+    call.display_name ||
+    contactForNumber(call.remote_number)?.display_name ||
+    displayPhoneNumber(call.remote_number, call.line_id) ||
+    t('calls.unknownNumber')
+  )
+}
+function callLineLabel(call: CallSession): string {
+  const callLine = lineForKey(call.line_id)
+  return callLine?.line_label.trim() || call.line_id
+}
+function callLineDot(call: CallSession): string {
+  const callLine = lineForKey(call.line_id)
+  return callLine ? lineTone(callLine).dot : 'var(--muted)'
+}
+function callPhaseLabel(call: CallSession): string {
+  if (call.phase === 'active') return t('calls.inCall')
+  if (call.phase === 'ringing') return call.direction === 'incoming' ? t('calls.incoming') : t('calls.waitingAnswer')
+  if (call.phase === 'ringing-out') return t('calls.waitingAnswer')
+  if (call.phase === 'dialing') return t('calls.dialing')
+  return t('calls.connectingCall')
+}
+function closeCallPanels(): void {
+  dtmfOpen.value = false
+  devicesOpen.value = false
+}
 const statusError = computed(
   () => isTestCall.value ? callTestState.error :
     callState.error ||
@@ -249,8 +300,32 @@ watch(
   () => [session.value?.id, session.value?.phase] as const,
   ([, phase]) => {
     if (phase !== 'active') dtmfOpen.value = false
+    if (phase === 'ended' || phase === 'failed') devicesOpen.value = false
   }
 )
+
+// Desktop keeps the incoming panel non-modal, so announce it assertively and
+// offer a shortcut to Answer instead of moving focus while someone types.
+watch(
+  incoming,
+  value => {
+    incomingAnnouncement.value = ''
+    if (!value) return
+    void nextTick(() => {
+      incomingAnnouncement.value = [
+        t('calls.incomingFrom', { name: contactName.value, line: lineLabel.value || session.value.line_id }),
+        t('calls.answerShortcutHint')
+      ].join(' ')
+    })
+  },
+  { immediate: true }
+)
+
+function focusAnswerShortcut(event: KeyboardEvent): void {
+  if (!incoming.value || !event.altKey || !event.shiftKey || event.code !== 'KeyA') return
+  event.preventDefault()
+  answerButton.value?.focus()
+}
 
 function tone(digit: string): void {
   void playDTMFTone(digit)
@@ -269,43 +344,85 @@ onMounted(() => {
   timer = window.setInterval(() => {
     now.value = Date.now()
   }, 1000)
+  window.addEventListener('keydown', focusAnswerShortcut)
 })
 onBeforeUnmount(() => {
   if (timer !== undefined) window.clearInterval(timer)
+  window.removeEventListener('keydown', focusAnswerShortcut)
 })
 </script>
 
+
 <template>
-    <section class="call-surface">
-      <div class="call-surface__content" :class="{ 'is-dtmf-open': dtmfOpen }">
+    <section class="call-surface" :class="{ 'is-incoming': incoming }">
+      <p class="sr-only" aria-live="assertive" aria-atomic="true">{{ incomingAnnouncement }}</p>
+      <div
+        class="call-surface__content"
+        :class="{ 'is-dtmf-open': dtmfOpen, 'is-devices-open': devicesOpen }"
+      >
+        <ul
+          v-if="concurrentCalls.length > 1"
+          class="call-surface__calls"
+          :aria-label="t('calls.concurrentCalls')"
+        >
+          <li v-for="call in concurrentCalls" :key="call.id">
+            <button
+              class="call-card"
+              :class="{ 'is-current': call.id === session.id }"
+              type="button"
+              :aria-current="call.id === session.id ? 'true' : undefined"
+              @click="showActiveCallForLine(call.line_id)"
+            >
+              <span class="call-card__copy">
+                <strong>{{ callPeer(call) }}</strong>
+                <small>
+                  <span class="call-line-dot" :style="{ backgroundColor: callLineDot(call) }" aria-hidden="true" />
+                  {{ callLineLabel(call) }} · {{ callPhaseLabel(call) }}
+                </small>
+              </span>
+              <span class="call-card__meta">
+                <strong v-if="callClock(call)">{{ callClock(call) }}</strong>
+                <small :class="{ 'is-owned': call.control_state === 'owned' }">
+                  {{ call.control_state === 'owned' ? t('calls.controlledHere') : t('calls.controlledElsewhere') }}
+                </small>
+              </span>
+            </button>
+          </li>
+        </ul>
+
         <div class="call-surface__identity">
-          <CommunicationAvatar
-            channel="call"
-            :name="contactName"
-            :address="presentedNumber"
-            :src="contact?.avatar"
-            :contact-bound="Boolean(contact)"
-            size="large"
-          />
-          <strong>{{ contactName }}</strong>
-          <span v-if="contactNumber">{{ contactNumber }}</span>
-          <div class="call-surface__line">
-            <LineTag
-              v-if="line"
-              :line="line"
-              :fallback="session.line_id"
+          <span class="call-surface__avatar" :class="{ 'is-ringing': incoming }">
+            <span v-if="incoming" class="call-surface__ring call-surface__ring--inner" aria-hidden="true" />
+            <span v-if="incoming" class="call-surface__ring call-surface__ring--outer" aria-hidden="true" />
+            <CommunicationAvatar
+              channel="call"
+              :name="contactName"
+              :address="presentedNumber"
+              :src="contact?.avatar"
+              :contact-bound="Boolean(contact)"
+              size="large"
             />
-            <small v-else-if="isTestCall">{{ t('callTest.testOnly') }}</small>
-            <small v-else>{{ session.line_id }}</small>
+          </span>
+          <strong class="call-surface__name">{{ contactName }}</strong>
+          <div class="call-surface__meta">
+            <span v-if="contactNumber" class="call-surface__number">{{ contactNumber }}</span>
+            <span v-if="contactNumber && (line || isTestCall)" aria-hidden="true">·</span>
+            <span v-if="line" class="call-surface__line">
+              <span class="call-line-dot" :style="{ backgroundColor: lineDot }" aria-hidden="true" />
+              {{ lineLabel }}
+            </span>
+            <span v-else-if="isTestCall">{{ t('callTest.testOnly') }}</span>
+            <span v-else-if="session.line_id" class="call-surface__line">{{ session.line_id }}</span>
             <small v-if="bearerLabel" class="call-surface__bearer">{{ bearerLabel }}</small>
           </div>
         </div>
 
         <div class="call-surface__status">
-          <span role="status" aria-live="polite" aria-atomic="true">
+          <span class="call-surface__phase" role="status" aria-live="polite" aria-atomic="true">
+            <span class="call-surface__status-dot" :class="statusTone" aria-hidden="true" />
             {{ occupied ? occupiedLabel : phaseLabel }}
           </span>
-          <strong v-if="duration" aria-live="off">{{ duration }}</strong>
+          <strong v-if="duration" class="call-surface__timer" aria-live="off">{{ duration }}</strong>
         </div>
 
         <div
@@ -349,19 +466,62 @@ onBeforeUnmount(() => {
             :class="{ 'is-active': callMediaState.muted }"
             type="button"
             :title="callMediaState.muted ? t('calls.unmute') : t('calls.mute')"
-            :aria-label="
-              callMediaState.muted
-                ? t('calls.unmuteMicrophone')
-                : t('calls.muteMicrophone')
-            "
+            :aria-label="t('calls.muteMicrophone')"
             :aria-pressed="callMediaState.muted"
             @click="toggleCallMute"
           >
-            <span class="call-control__icon">
-              <MicOff v-if="callMediaState.muted" :size="24" />
-              <Mic v-else :size="24" />
+            <span class="call-control__icon"><MicOff :size="22" /></span>
+            <span class="call-control__label">{{ t('calls.mute') }}</span>
+          </button>
+          <button
+            v-if="keypadAvailable"
+            class="call-control"
+            type="button"
+            :title="dtmfUnavailable || t('calls.keypad')"
+            :aria-label="t('calls.keypad')"
+            :aria-expanded="dtmfOpen"
+            :disabled="callState.busy || Boolean(dtmfUnavailable)"
+            @click="devicesOpen = false; dtmfOpen = true"
+          >
+            <span class="call-control__icon"><Grip :size="22" /></span>
+            <span class="call-control__label">{{ t('calls.keypadShort') }}</span>
+          </button>
+          <button
+            v-if="mediaControllable"
+            class="call-control"
+            type="button"
+            :title="t('calls.audioDevices')"
+            :aria-label="t('calls.audioDevices')"
+            :aria-expanded="devicesOpen"
+            @click="dtmfOpen = false; devicesOpen = true"
+          >
+            <span class="call-control__icon"><Headphones :size="22" /></span>
+            <span class="call-control__label">{{ t('calls.audioDevices') }}</span>
+          </button>
+          <button
+            v-if="recordingAdjustable"
+            class="call-control call-control--recording"
+            :class="{ 'is-active': callRecordingState.enabled }"
+            type="button"
+            :title="
+              callRecordingState.enabled
+                ? t('calls.stopRecording')
+                : t('calls.startRecording')
+            "
+            :aria-label="t('calls.record')"
+            :aria-pressed="callRecordingState.enabled"
+            :disabled="
+              busy ||
+              callRecordingState.busy ||
+              !recordingControlReady
+            "
+            @click="toggleRecording"
+          >
+            <span class="call-control__icon" aria-hidden="true">
+              <CircleDot v-if="callRecordingState.enabled" :size="22" />
+              <Circle v-else :size="20" fill="currentColor" />
             </span>
-            <span>{{ callMediaState.muted ? t('calls.unmute') : t('calls.mute') }}</span>
+            <span class="call-control__label">{{ t('calls.record') }}</span>
           </button>
           <button
             v-if="callMediaState.playbackBlocked"
@@ -371,8 +531,8 @@ onBeforeUnmount(() => {
             :aria-label="t('calls.enableCallAudio')"
             @click="resumeCallAudio"
           >
-            <span class="call-control__icon"><Volume2 :size="24" /></span>
-            <span>{{ t('calls.speaker') }}</span>
+            <span class="call-control__icon"><Volume2 :size="22" /></span>
+            <span class="call-control__label">{{ t('calls.speaker') }}</span>
           </button>
           <button
             v-if="callMediaState.status === 'error'"
@@ -382,9 +542,18 @@ onBeforeUnmount(() => {
             :aria-label="t('calls.retryBrowserAudio')"
             @click="retryActiveCallMedia(session)"
           >
-            <span class="call-control__icon"><RefreshCw :size="23" /></span>
-            <span>{{ t('calls.retryAudio') }}</span>
+            <span class="call-control__icon"><RefreshCw :size="21" /></span>
+            <span class="call-control__label">{{ t('calls.retryAudio') }}</span>
           </button>
+        </div>
+
+        <div
+          v-if="devicesOpen && owned && !terminal"
+          class="call-surface__devices"
+          role="group"
+          :aria-label="t('calls.audioDevices')"
+        >
+          <AudioDeviceControls compact />
         </div>
 
         <Transition name="dtmf">
@@ -420,35 +589,6 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="call-surface__primary-actions keypad-action-grid">
-        <button
-          v-if="recordingAdjustable"
-          class="call-footer-action call-footer-action--recording keypad-action-item"
-          :class="{ 'is-active': callRecordingState.enabled }"
-          type="button"
-          :title="
-            callRecordingState.enabled
-              ? t('calls.stopRecording')
-              : t('calls.startRecording')
-          "
-          :aria-label="
-            callRecordingState.enabled
-              ? t('calls.stopCallRecording')
-              : t('calls.startCallRecording')
-          "
-          :aria-pressed="callRecordingState.enabled"
-          :disabled="
-            busy ||
-            callRecordingState.busy ||
-            !recordingControlReady
-          "
-          @click="toggleRecording"
-        >
-          <span class="call-footer-action__icon" aria-hidden="true">
-            <Square v-if="callRecordingState.enabled" :size="18" fill="currentColor" />
-            <Circle v-else :size="20" fill="currentColor" />
-          </span>
-          <small>{{ t('calls.record') }}</small>
-        </button>
         <template v-if="incoming">
           <span class="call-primary-action call-primary-action--start keypad-action-item">
             <button
@@ -467,10 +607,12 @@ onBeforeUnmount(() => {
           </span>
           <span class="call-primary-action call-primary-action--end keypad-action-item">
             <button
+              ref="answerButton"
               class="call-button call-button--answer"
               type="button"
               :title="answerUnavailable || t('calls.answer')"
               :aria-label="t('calls.answer')"
+              aria-keyshortcuts="Alt+Shift+A"
               :aria-describedby="answerUnavailable ? 'call-capability-notice' : undefined"
               :disabled="busy || Boolean(answerUnavailable)"
               @click="answerCall"
@@ -498,20 +640,13 @@ onBeforeUnmount(() => {
             <small>{{ t('calls.hangup') }}</small>
           </span>
           <button
-            v-if="active && !isTestCall"
+            v-if="dtmfOpen || devicesOpen"
             class="call-footer-action call-footer-action--keypad keypad-action-item"
-            :class="{ 'is-active': dtmfOpen }"
             type="button"
-            :title="dtmfUnavailable || t('calls.keypad')"
-            :aria-label="dtmfOpen ? t('calls.hideKeypad') : t('calls.keypad')"
-            :aria-expanded="dtmfOpen"
-            :disabled="callState.busy || Boolean(dtmfUnavailable)"
-            @click="dtmfOpen = !dtmfOpen"
+            :aria-label="dtmfOpen ? t('calls.hideKeypad') : t('calls.hideAudioDevices')"
+            @click="closeCallPanels"
           >
-            <span class="call-footer-action__icon" aria-hidden="true">
-              <Grip :size="24" />
-            </span>
-            <small>{{ t('calls.keypadShort') }}</small>
+            <span class="call-footer-action__text">{{ t('calls.hide') }}</span>
           </button>
         </template>
         <span
@@ -540,7 +675,7 @@ onBeforeUnmount(() => {
   flex: 1;
   flex-direction: column;
   overflow: hidden;
-  background: var(--surface);
+  background: transparent;
 }
 
 .call-surface__content {
@@ -549,8 +684,92 @@ onBeforeUnmount(() => {
   flex: 1;
   flex-direction: column;
   align-items: center;
-  padding: 28px 20px 18px;
+  padding: var(--space-6) var(--space-5) var(--space-4);
   overflow-y: auto;
+}
+
+.call-surface__calls {
+  display: grid;
+  width: 100%;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  list-style: none;
+}
+
+.call-card {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-1);
+}
+
+.call-card:hover {
+  background: var(--surface-hover);
+}
+
+.call-card.is-current {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent), var(--elev-1);
+}
+
+.call-card__copy,
+.call-card__meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.call-card__copy {
+  flex: 1;
+}
+
+.call-card__meta {
+  align-items: flex-end;
+}
+
+.call-card strong {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-card__meta strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.call-card small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-card small.is-owned {
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
+.call-line-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
 }
 
 .call-surface__identity {
@@ -559,76 +778,125 @@ onBeforeUnmount(() => {
   min-width: 0;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   text-align: center;
 }
 
-.call-surface__identity :deep(.avatar--large) {
-  width: 84px;
-  height: 84px;
-  margin-bottom: 9px;
-  font-size: 23px;
+.call-surface__avatar {
+  position: relative;
+  display: inline-grid;
+  margin-bottom: var(--space-3);
+  place-items: center;
 }
 
-.call-surface__identity > strong,
-.call-surface__identity > span {
+.call-surface__avatar :deep(.avatar--large) {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  font-size: 24px;
+}
+
+.call-surface__ring {
+  position: absolute;
+  inset: -14px;
+  border: 2px solid var(--call-answer);
+  border-radius: 50%;
+  opacity: 0;
+  animation: mobile-call-wave 1.6s ease-out infinite;
+  pointer-events: none;
+}
+
+.call-surface__ring--outer {
+  inset: -28px;
+  animation-delay: 320ms;
+}
+
+.call-surface__name,
+.call-surface__meta > span {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.call-surface__identity > strong {
-  font-size: 22px;
-  line-height: 1.2;
+.call-surface__name {
+  font-size: var(--text-lg);
+  font-weight: 650;
+  line-height: 1.25;
 }
 
-.call-surface__identity > span {
+.call-surface__meta {
+  display: flex;
+  max-width: 100%;
+  min-height: 22px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1) 6px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-sm);
+}
+
+.call-surface__number {
+  font-variant-numeric: tabular-nums;
 }
 
 .call-surface__line {
-  display: flex;
-  min-height: 24px;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin-top: 5px;
+  gap: 6px;
 }
 
-.call-surface__line > small {
-  max-width: 140px;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.call-surface__line .call-surface__bearer {
+.call-surface__bearer {
   color: var(--accent-strong);
+  font-size: var(--text-2xs);
   font-weight: 650;
 }
 
 .call-surface__status {
   display: flex;
-  min-height: 54px;
+  min-height: 64px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  margin-top: 12px;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
 }
 
-.call-surface__status span {
-  color: var(--muted);
-  font-size: 14px;
+.call-surface__phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-strong);
+  font-size: var(--text-sm);
+  font-weight: 550;
 }
 
-.call-surface__status strong {
+.call-surface__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.call-surface__status-dot.is-live {
+  background: var(--success);
+}
+
+.call-surface__status-dot.is-incoming {
+  background: var(--call-answer);
+}
+
+.call-surface__status-dot.is-pending {
+  background: var(--warning);
+}
+
+.call-surface__timer {
+  color: var(--text);
+  font-size: var(--text-2xl);
   font-variant-numeric: tabular-nums;
-  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.15;
 }
 
 .call-surface__notices {
@@ -638,7 +906,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 5px 10px;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .call-surface__notices p {
@@ -647,7 +915,7 @@ onBeforeUnmount(() => {
   gap: 5px;
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   text-align: center;
 }
 
@@ -658,33 +926,35 @@ onBeforeUnmount(() => {
 }
 
 .call-surface__controls {
-  display: flex;
+  display: grid;
   width: min(100%, 264px);
-  min-height: 82px;
-  flex-wrap: wrap;
-  align-items: start;
-  justify-content: center;
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  justify-items: center;
+  gap: var(--space-4) var(--space-3);
   margin-top: auto;
-  padding-top: 22px;
+  padding-top: var(--space-6);
 }
 
 .call-control {
   display: flex;
-  width: 72px;
+  width: 80px;
   min-height: 80px;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  font-size: 11px;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: var(--text-xs);
   background: transparent;
+}
+
+.call-control:disabled {
+  color: var(--muted);
 }
 
 .call-control__icon {
   display: inline-grid;
-  width: 58px;
-  height: 58px;
+  width: 56px;
+  height: 56px;
   place-items: center;
   color: var(--text);
   background: var(--surface-hover);
@@ -693,19 +963,45 @@ onBeforeUnmount(() => {
   transition:
     color var(--motion-base) var(--ease-standard),
     background var(--motion-base) var(--ease-standard),
-    border-color var(--motion-base) var(--ease-standard),
-    transform var(--motion-base) var(--ease-standard);
+    border-color var(--motion-base) var(--ease-standard);
+}
+
+.call-control__label {
+  max-width: 100%;
+  overflow: hidden;
+  line-height: 1.25;
+  text-align: center;
+  text-overflow: ellipsis;
 }
 
 .call-control:not(.is-active):hover:not(:disabled) .call-control__icon {
   background: var(--control-muted);
-  transform: translateY(-1px);
 }
 
+.call-control:disabled .call-control__icon {
+  color: var(--muted);
+  background: transparent;
+  border-style: dashed;
+}
+
+/* On is inverted, like the system phone app and the native client. */
 .call-control.is-active .call-control__icon {
-  color: var(--on-accent);
-  background: var(--accent);
-  border-color: var(--accent);
+  color: var(--surface);
+  background: var(--text);
+  border-color: var(--text);
+}
+
+.call-control--recording.is-active .call-control__icon {
+  color: var(--call-recording-on);
+}
+
+.call-surface__devices {
+  width: min(100%, 320px);
+  margin-top: auto;
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
 
 .call-surface__dtmf {
@@ -725,7 +1021,7 @@ onBeforeUnmount(() => {
   grid-column: 1 / -1;
   overflow-x: auto;
   color: var(--text);
-  font-size: 24px;
+  font-size: var(--text-xl);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 38px;
@@ -738,17 +1034,23 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-.call-surface__content.is-dtmf-open {
+.call-surface__content.is-dtmf-open,
+.call-surface__content.is-devices-open {
   padding-top: 18px;
   padding-bottom: 26px;
 }
 
-.call-surface__content.is-dtmf-open .call-surface__identity :deep(.avatar--large) {
+.call-surface__content.is-dtmf-open .call-surface__avatar,
+.call-surface__content.is-devices-open .call-surface__avatar {
   display: none;
 }
 
-.call-surface__content.is-dtmf-open .call-surface__identity > strong {
-  font-size: 18px;
+.call-surface__content.is-dtmf-open .call-surface__name {
+  font-size: var(--text-md);
+}
+
+.call-surface__content.is-dtmf-open .call-surface__timer {
+  font-size: var(--text-xl);
 }
 
 .call-surface__content.is-dtmf-open .call-surface__status {
@@ -795,61 +1097,23 @@ onBeforeUnmount(() => {
 
 .call-primary-action small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .call-footer-action {
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 550;
   background: transparent;
-}
-
-.call-footer-action--recording {
-  grid-column: 1;
 }
 
 .call-footer-action--keypad {
   grid-column: 3;
+  grid-template-rows: var(--keypad-action-primary-size);
 }
 
-.call-footer-action__icon {
-  display: inline-flex;
-  width: var(--keypad-action-secondary-size);
-  height: var(--keypad-action-secondary-size);
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  color: var(--text);
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  transition:
-    color var(--motion-base) var(--ease-standard),
-    background var(--motion-base) var(--ease-standard),
-    border-color var(--motion-base) var(--ease-standard);
-}
-
-.call-footer-action:not(.is-active):hover:not(:disabled) .call-footer-action__icon {
-  background: var(--control-muted);
-}
-
-.call-footer-action--recording.is-active .call-footer-action__icon {
-  color: var(--on-accent);
-  background: var(--danger);
-  border-color: var(--danger);
-}
-
-.call-footer-action--keypad.is-active .call-footer-action__icon {
-  color: var(--on-accent);
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.call-footer-action > small {
-  color: inherit;
-  font-size: 11px;
-  white-space: nowrap;
+.call-footer-action:not(.is-active):hover:not(:disabled) {
+  color: var(--accent-strong);
 }
 
 .call-button--dismiss {
@@ -859,7 +1123,7 @@ onBeforeUnmount(() => {
 
 .call-button--dismiss:hover:not(:disabled) {
   color: var(--text);
-  background: #e2e6e9;
+  background: var(--control-muted);
 }
 
 .dtmf-enter-active,
@@ -877,10 +1141,10 @@ onBeforeUnmount(() => {
 
 @media (max-width: 860px) {
   .call-surface__content {
-    padding-top: max(38px, env(safe-area-inset-top));
+    padding-top: max(32px, env(safe-area-inset-top));
   }
 
-  .call-surface__identity :deep(.avatar--large) {
+  .call-surface__avatar :deep(.avatar--large) {
     width: 96px;
     height: 96px;
     font-size: 26px;
@@ -896,15 +1160,22 @@ onBeforeUnmount(() => {
     padding-top: max(20px, env(safe-area-inset-top));
   }
 
-  .call-surface__identity :deep(.avatar--large) {
+  .call-surface__avatar :deep(.avatar--large) {
     width: 68px;
     height: 68px;
-    margin-bottom: 4px;
     font-size: 19px;
   }
 
+  .call-surface__avatar {
+    margin-bottom: var(--space-2);
+  }
+
+  .call-surface__timer {
+    font-size: var(--text-xl);
+  }
+
   .call-surface__status {
-    min-height: 42px;
+    min-height: 48px;
     margin-top: 6px;
   }
 
@@ -916,8 +1187,7 @@ onBeforeUnmount(() => {
     padding-bottom: 18px;
   }
 
-  .call-surface__content.is-dtmf-open .call-surface__identity > span,
-  .call-surface__content.is-dtmf-open .call-surface__line {
+  .call-surface__content.is-dtmf-open .call-surface__meta {
     display: none;
   }
 
@@ -945,10 +1215,13 @@ onBeforeUnmount(() => {
   .dtmf-enter-active,
   .dtmf-leave-active,
   .call-control__icon,
-  .call-footer-action__icon {
+  .call-surface__ring {
     transition: none;
     animation: none;
   }
-}
 
+  .call-surface__ring {
+    display: none;
+  }
+}
 </style>

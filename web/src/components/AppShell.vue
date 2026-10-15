@@ -76,6 +76,8 @@ const occupiedLineCount = computed(() => occupiedLineIDs().size)
 const activeCallPresent = computed(() =>
   Boolean(callTestSession.value || callState.session)
 )
+// The mobile call sheet is modal; the tab bar and dial button would compete with it.
+const callSheetOpen = computed(() => activeCallPresent.value && !uiState.callMinimized)
 const incomingCallRinging = computed(
   () =>
     callTestSession.value?.phase === 'ringing' ||
@@ -402,7 +404,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'has-call-sheet': callSheetOpen }">
     <aside class="rail" :aria-label="t('shell.primaryNavigation')">
       <RouterLink
         class="brand-mark"

@@ -340,7 +340,7 @@ test('active calls own the dialer surface and keep modal call controls reachable
   assert.match(dialer, /@media \(max-width: 1100px\)/)
   assert.match(surface, /role="group"\s+:aria-label="t\('calls\.controls'\)"/)
   assert.match(surface, /role="group"\s+:aria-label="t\('calls\.keypad'\)"/)
-  assert.match(surface, /class="call-surface__content" :class="\{ 'is-dtmf-open': dtmfOpen \}"/)
+  assert.match(surface, /class="call-surface__content"\s+:class="\{ 'is-dtmf-open': dtmfOpen, 'is-devices-open': devicesOpen \}"/)
   assert.match(surface, /@media \(prefers-reduced-motion: reduce\)/)
   assert.match(surface, /max\(20px, env\(safe-area-inset-top\)\)/)
 })

@@ -34,6 +34,13 @@
   --danger-border: #f0d2d6;
   --danger-border-strong: #efc3ca;
   --on-accent: #ffffff;
+  /* Filled call actions carry a white glyph (>= 4.5:1); same values as iOS. */
+  --call-end: #c72e3d;
+  --call-end-strong: #a72634;
+  --call-answer: #1b8449;
+  --call-answer-strong: #166c3c;
+  /* Recording glyph on the inverted (text-colored) on-state control. */
+  --call-recording-on: #ff9b9e;
   --control-muted: #e7ebee;
   --skeleton: #e9edf1;
   /*
@@ -2072,11 +2079,19 @@ dd {
 }
 
 .call-button--hangup {
-  background: var(--danger);
+  background: var(--call-end);
 }
 
 .call-button--hangup:hover:not(:disabled) {
-  background: var(--danger-strong);
+  background: var(--call-end-strong);
+}
+
+.call-button--answer {
+  background: var(--call-answer);
+}
+
+.call-button--answer:hover:not(:disabled) {
+  background: var(--call-answer-strong);
 }
 
 .editor-dialog {
@@ -3287,45 +3302,6 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     transform: translateY(-11px) scale(0.96);
   }
 
-  @keyframes mobile-call-ring {
-    0%,
-    100% {
-      transform: rotate(0);
-    }
-
-    18% {
-      transform: rotate(-10deg);
-    }
-
-    36% {
-      transform: rotate(10deg);
-    }
-
-    54% {
-      transform: rotate(-7deg);
-    }
-
-    72% {
-      transform: rotate(7deg);
-    }
-  }
-
-  @keyframes mobile-call-wave {
-    0% {
-      opacity: 0;
-      transform: scale(0.72);
-    }
-
-    35% {
-      opacity: 0.9;
-    }
-
-    100% {
-      opacity: 0;
-      transform: scale(1.18);
-    }
-  }
-
   @keyframes mobile-call-audio-wave {
     0%,
     24%,
@@ -3423,6 +3399,10 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
 
   .drawer-backdrop {
     padding: 0 0 var(--mobile-nav-height);
+  }
+
+  .app-shell.has-call-sheet .mobile-nav {
+    display: none;
   }
 
   .dialer-panel {
@@ -3687,5 +3667,46 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+/* Shared call ring motion: the mobile dial button and the incoming call avatar.
+   Owners disable it under prefers-reduced-motion. */
+@keyframes mobile-call-ring {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+
+  18% {
+    transform: rotate(-10deg);
+  }
+
+  36% {
+    transform: rotate(10deg);
+  }
+
+  54% {
+    transform: rotate(-7deg);
+  }
+
+  72% {
+    transform: rotate(7deg);
+  }
+}
+
+@keyframes mobile-call-wave {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+
+  35% {
+    opacity: 0.9;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
   }
 }
