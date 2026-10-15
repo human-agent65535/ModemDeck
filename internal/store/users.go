@@ -198,8 +198,10 @@ func (s *Store) CreateMember(ctx context.Context, input CreateMemberInput) (User
 	}
 	if _, err := transaction.ExecContext(
 		ctx,
-		`INSERT INTO modemdeck_user_preferences (user_id, default_line_id)
-		 VALUES (?, ?)`,
+		`INSERT INTO modemdeck_user_preferences (user_id, default_line_id, language)
+		 VALUES (?, ?, COALESCE((
+			SELECT language FROM modemdeck_system_settings WHERE singleton = 1
+		 ), 'auto'))`,
 		userID,
 		firstString(lineIDs),
 	); err != nil {

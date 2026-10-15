@@ -85,3 +85,40 @@ func TestSystemSettingsPersistLanguageAndRejectStaleRevision(t *testing.T) {
 		t.Fatalf("invalid UpdateSystemSettings() error = %v", err)
 	}
 }
+
+func TestNewMembersStartFromServerLanguage(t *testing.T) {
+	t.Parallel()
+	repository, _ := newContactTestStore(t)
+	ctx := context.Background()
+
+	server, err := repository.SystemSettings(ctx)
+	if err != nil {
+		t.Fatalf("SystemSettings() error = %v", err)
+	}
+	server, err = repository.UpdateSystemSettings(ctx, SystemLanguageZhCN, server.Revision)
+	if err != nil {
+		t.Fatalf("UpdateSystemSettings(server) error = %v", err)
+	}
+	member, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:     "member",
+		PasswordHash: "member-hash",
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+	if _, err := repository.UpdateSystemSettings(
+		ctx,
+		SystemLanguageEnUS,
+		server.Revision,
+	); err != nil {
+		t.Fatalf("UpdateSystemSettings(server change) error = %v", err)
+	}
+
+	personal, err := repository.SystemSettings(memberTestContext(member))
+	if err != nil {
+		t.Fatalf("SystemSettings(member) error = %v", err)
+	}
+	if personal.Language != SystemLanguageZhCN {
+		t.Fatalf("member language = %q, want the server language at creation", personal.Language)
+	}
+}
