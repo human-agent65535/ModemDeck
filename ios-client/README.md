@@ -251,6 +251,69 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -resultBundlePath "DerivedData/uat-ui-$(date +%Y%m%d-%H%M%S).xcresult" test
 ```
 
+### Running AppUITests reproducibly
+
+`AppUITests` (currently only `CommunicationUXTests`) runs only through the
+**App-UAT** scheme; `-scheme App` reports that it is not configured for the
+test action. Every case talks to the fixture server at
+`https://127.0.0.1:18943`, so start the `--mutable` server above first. A fresh
+checkout or worktree must also build the audio core once, otherwise the build
+fails with "There is no XCFramework found":
+
+```sh
+node ../scripts/build-native-audio-core.mjs --ios
+```
+
+Create a dedicated simulator rather than reusing one that another session may
+have booted, and address it by UDID throughout:
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+UAT_SIMULATOR_ID=$(xcrun simctl create "ModemDeck UITest" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro-Max)
+xcrun simctl boot "$UAT_SIMULATOR_ID"
+xcrun simctl bootstatus "$UAT_SIMULATOR_ID"
+xcrun simctl keychain "$UAT_SIMULATOR_ID" add-root-cert \
+  DerivedData/uat-mock/server-cert.pem
+```
+
+`testReducedMotionEndedResultClosesWithoutAnimation` fails unless Reduce Motion
+is on. The simulator resets this preference at boot, so set it after
+`bootstatus` returns, and post the change notification:
+
+```sh
+xcrun simctl spawn "$UAT_SIMULATOR_ID" \
+  defaults write com.apple.Accessibility ReduceMotionEnabled -bool true
+xcrun simctl spawn "$UAT_SIMULATOR_ID" \
+  notifyutil -p com.apple.accessibility.reduce.motion.status
+```
+
+Then run the full suite with the `xcodebuild … test` command above. To iterate
+on one area, add `-only-testing:` filters, for example the call surface:
+
+```sh
+xcodebuild -project ios/App/App.xcodeproj -scheme App-UAT \
+  -configuration Debug -sdk iphonesimulator \
+  -destination "id=$UAT_SIMULATOR_ID" -derivedDataPath DerivedData \
+  -parallel-testing-enabled NO \
+  -only-testing:AppUITests/CommunicationUXTests/testActiveCallCanCollapseAndRestoreWithoutLosingKeypad \
+  -only-testing:AppUITests/CommunicationUXTests/testCallAudioControlsAndGuidanceRemainVisible \
+  -only-testing:AppUITests/CommunicationUXTests/testCallEndFeedbackAndExplicitTestResult \
+  -only-testing:AppUITests/CommunicationUXTests/testPendingAndCollapsedCallEndKeepTheirPresentation \
+  -only-testing:AppUITests/CommunicationUXTests/testReducedMotionEndedResultClosesWithoutAnimation \
+  -only-testing:AppUITests/CommunicationUXTests/testOutgoingRecordingSnapshotAndActiveToggle \
+  -only-testing:AppUITests/CommunicationUXTests/testCallPrimaryActionsStaySymmetricAndAvoidAnswerToEndOverlap \
+  -only-testing:AppUITests/CommunicationUXTests/testCallStartFailureOutsideDialerIsPresented \
+  test
+```
+
+On an iPhone, `testRotationPreservesConversationAndDraft` and
+`testSplitConversationSurvivesCompactRotation` are skipped because they are
+iPad-only; run an iPad Pro simulator separately to cover them. The call
+surface tests use the DEBUG UAT call fixture, which starts no CallKit, audio,
+or WSS session. When finished, delete the simulator with
+`xcrun simctl delete "$UAT_SIMULATOR_ID"`.
+
 Inspect the retained screenshot attachments, including iPad portrait and
 landscape, as well as the assertions. Stop the fixture server and shut down
 the disposable simulators after testing. These checks are not evidence of
