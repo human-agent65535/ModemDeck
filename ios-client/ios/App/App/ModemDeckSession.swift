@@ -1423,7 +1423,8 @@ final class ModemDeckMessagesStore: ObservableObject {
         let summary = try await api.markAllMessageThreadsRead(lineID: lineID)
         revision += 1
         threads = threads.map { thread in
-            ModemDeckMessageThread(
+            guard lineID.isEmpty || thread.lineId == lineID else { return thread }
+            return ModemDeckMessageThread(
                 key: thread.key,
                 lineId: thread.lineId,
                 peer: thread.peer,

@@ -101,10 +101,14 @@ test('signed-in devices support one-device and all-other-device logout', async (
   assert.doesNotMatch(panel, /device_model_identifier/)
   assert.doesNotMatch(panel, /device\?\.app_build/)
   assert.doesNotMatch(panel, /iosPairing\.pairedAt/)
-  assert.match(panel, /@click="emit\('revoke', session\.id\)"/)
+  assert.match(panel, /@click="emit\('revoke', session, sessionTitle\(session\)\)"/)
+  assert.match(panel, /session\.kind === 'ios'\s*\? t\('iosPairing\.revoke'\)/)
   assert.match(panel, /@click="emit\('revokeOthers'\)"/)
   assert.match(security, /sessions\.value = sessions\.value\.filter\(session => session\.id !== id\)/)
   assert.match(security, /sessions\.value = sessions\.value\.filter\(session => session\.current\)/)
+  // iOS sessions are pairing credentials, so removal must confirm the revocation.
+  assert.match(security, /await requestConfirmation\(\s*pairing[\s\S]*?t\('iosPairing\.revokeMessage'\)/)
+  assert.match(security, /t\('account\.logoutOtherDevicesWithPairingMessage'\)/)
 })
 
 test('first web visit exposes Quick Start and creates the administrator', async () => {

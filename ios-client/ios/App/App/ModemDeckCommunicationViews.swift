@@ -1826,9 +1826,14 @@ struct ModemDeckMessagesView: View {
             ModemDeckCollectionMenu(controller: controller, selecting: $selecting, busy: batchBusy,
                 selectTitle: controller.text("选择消息", "Select messages"), clearSelection: { selectedIDs.removeAll() }) {
                 Button(action: markAllMessagesRead) {
-                    Label(controller.text("全部标为已读", "Mark All Read"), systemImage: "envelope.open")
+                    Label(
+                        markReadNarrowedToShownThreads
+                            ? controller.text("将显示的对话标为已读", "Mark Shown as Read")
+                            : controller.text("全部标为已读", "Mark All Read"),
+                        systemImage: "envelope.open"
+                    )
                 }
-                .disabled(!controller.isOnline || !filteredThreads.contains { $0.unreadCount > 0 || $0.markedUnread })
+                .disabled(!controller.isOnline || shownUnreadThreads.isEmpty)
             }
         }
         .modemDeckListFilterBar()
@@ -1986,12 +1991,32 @@ struct ModemDeckMessagesView: View {
         }
     }
 
+    /// Search and favorite filters hide unread threads that read-all would
+    /// still clear, so only the line and status filters may use read-all.
+    private var markReadNarrowedToShownThreads: Bool {
+        favoriteOnly || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var shownUnreadThreads: [ModemDeckMessageThread] {
+        filteredThreads.filter { $0.unreadCount > 0 || $0.markedUnread }
+    }
+
     private func markAllMessagesRead() {
-        guard controller.isOnline, !batchBusy else { return }
+        let threads = shownUnreadThreads
+        let narrowed = markReadNarrowedToShownThreads
+        guard controller.isOnline, !batchBusy, !threads.isEmpty else { return }
         batchBusy = true
         Task {
             do {
-                try await store.markAllRead(lineID: lineFilter)
+                if narrowed {
+                    // The thread state endpoint accepts at most 100 threads per request.
+                    for start in stride(from: 0, to: threads.count, by: 100) {
+                        let batch = Array(threads[start..<min(start + 100, threads.count)])
+                        try await store.mutate(.read, threads: batch)
+                    }
+                } else {
+                    try await store.markAllRead(lineID: lineFilter)
+                }
                 await store.load()
                 store.errorMessage = ""
             } catch {

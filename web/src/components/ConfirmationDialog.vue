@@ -93,6 +93,8 @@ const messageID = `confirmation-message-${useId()}`
   color: var(--muted);
   font-size: 13px;
   line-height: 1.55;
+  /* Multi-part summaries put each affected kind on its own line. */
+  white-space: pre-line;
 }
 
 .confirmation-dialog footer {

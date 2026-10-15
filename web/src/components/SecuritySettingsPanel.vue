@@ -4,6 +4,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
 import type { AccountSession } from '../api/types'
+import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
 import { sessionState } from '../state/session'
 import AccountSecurityForm from './AccountSecurityForm.vue'
@@ -30,15 +31,35 @@ async function loadSessions(): Promise<void> {
   }
 }
 
-async function revokeSession(id: string): Promise<void> {
+async function revokeSession(target: AccountSession, label: string): Promise<void> {
   if (revokingID.value || revokingOthers.value) return
+  const pairing = target.kind === 'ios'
+  // Removing an iOS session revokes its pairing credential, not just a sign-in.
+  const confirmed = await requestConfirmation(
+    pairing
+      ? {
+          title: t('iosPairing.revokeTitle'),
+          message: t('iosPairing.revokeMessage'),
+          confirmLabel: t('iosPairing.revokeConfirm'),
+          tone: 'danger'
+        }
+      : {
+          title: t('account.logoutDeviceTitle'),
+          message: t('account.logoutDeviceMessage', { device: label }),
+          confirmLabel: t('account.logoutDevice'),
+          tone: 'danger'
+        }
+  )
+  if (!confirmed) return
+  const id = target.id
   revokingID.value = id
   try {
     await gateway.logoutAccountSession(id)
     sessions.value = sessions.value.filter(session => session.id !== id)
-    showSuccess(t('account.sessionLoggedOut'))
+    showSuccess(pairing ? t('account.pairingRevoked') : t('account.sessionLoggedOut'))
   } catch (cause) {
-    showError(cause instanceof Error ? cause.message : t('account.sessionLogoutFailed'))
+    const fallback = pairing ? t('iosPairing.revokeFailed') : t('account.sessionLogoutFailed')
+    showError(cause instanceof Error ? cause.message : fallback)
   } finally {
     revokingID.value = ''
   }
@@ -46,6 +67,17 @@ async function revokeSession(id: string): Promise<void> {
 
 async function revokeOtherSessions(): Promise<void> {
   if (revokingID.value || revokingOthers.value) return
+  // The server also revokes every iOS pairing credential for this account.
+  const includesPairing = sessions.value.some(session => session.kind === 'ios')
+  const confirmed = await requestConfirmation({
+    title: t('account.logoutOtherDevicesTitle'),
+    message: includesPairing
+      ? t('account.logoutOtherDevicesWithPairingMessage')
+      : t('account.logoutOtherDevicesMessage'),
+    confirmLabel: t('account.logoutOtherDevicesConfirm'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
   revokingOthers.value = true
   try {
     await gateway.logoutOtherAccountSessions()

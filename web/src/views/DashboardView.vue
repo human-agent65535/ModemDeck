@@ -530,14 +530,21 @@ async function batchDelete(): Promise<void> {
     )
     .map(activity => activity.thread)
   const recordings = calls.reduce((total, call) => total + recordingCount(call), 0)
+  // Message activities are whole SMS threads, so state each kind and its scope.
+  const summary = [
+    threads.length
+      ? t('dashboard.deleteSelectedThreads', { count: threads.length }, threads.length)
+      : '',
+    calls.length
+      ? t('dashboard.deleteSelectedCalls', { count: calls.length }, calls.length)
+      : '',
+    recordings
+      ? t('dashboard.deleteSelectedRecordings', { count: recordings }, recordings)
+      : ''
+  ].filter(Boolean)
   const confirmed = await requestConfirmation({
     title: t('dashboard.deleteSelectedTitle'),
-    message: recordings
-      ? t('dashboard.deleteSelectedWithRecordings', {
-          count: selected.length,
-          recordings
-        })
-      : t('dashboard.deleteSelectedMessage', { count: selected.length }),
+    message: summary.join('\n'),
     confirmLabel: t('common.delete'),
     tone: 'danger'
   })
@@ -545,22 +552,57 @@ async function batchDelete(): Promise<void> {
   batchBusy.value = true
   activityMutationError.value = ''
   try {
-    const deletedKeys = new Set(selected.map(activity => activity.key))
-    await Promise.all([
+    const [threadResult, callResult] = await Promise.allSettled([
       deleteMessageThreads(threads),
       deleteCalls(calls)
     ])
-    for (const call of calls) forgetCallRecordings(call.id)
+    if (callResult.status === 'fulfilled') {
+      for (const call of calls) forgetCallRecordings(call.id)
+    }
+    const failures = [
+      threadResult.status === 'rejected'
+        ? t(
+            'dashboard.deleteThreadsFailed',
+            { count: threads.length, error: failureMessage(threadResult.reason) },
+            threads.length
+          )
+        : '',
+      callResult.status === 'rejected'
+        ? t(
+            'dashboard.deleteCallsFailed',
+            { count: calls.length, error: failureMessage(callResult.reason) },
+            calls.length
+          )
+        : ''
+    ].filter(Boolean)
+    // Successful kinds leave the list, and selection reconciliation keeps
+    // only the failed items selected for a retry.
+    const partial =
+      failures.length === 1 && threads.length > 0 && calls.length > 0
+    if (failures.length) {
+      activityMutationError.value = [
+        ...failures,
+        ...(partial ? [t('dashboard.deleteOthersSucceeded')] : [])
+      ].join(t('common.listSeparator'))
+    }
+    const deletedKeys = new Set(
+      selected
+        .filter(activity =>
+          (activity.kind === 'message' ? threadResult : callResult).status === 'fulfilled'
+        )
+        .map(activity => activity.key)
+    )
     if (deletedKeys.has(selectionKey.value)) {
       await router.replace({ name: 'dashboard' })
     }
-    selection.exit()
-  } catch (error) {
-    activityMutationError.value =
-      error instanceof Error ? error.message : t('runtime.requestFailed')
+    if (!failures.length) selection.exit()
   } finally {
     batchBusy.value = false
   }
+}
+
+function failureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : t('runtime.requestFailed')
 }
 
 function onSelectionKeydown(event: KeyboardEvent): void {
