@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { LoaderCircle, LogOut, Monitor, ShieldCheck, Smartphone } from '@lucide/vue'
+import {
+  LoaderCircle,
+  LogOut,
+  Monitor,
+  ShieldCheck,
+  Smartphone,
+  Unlink
+} from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AccountSession } from '../api/types'
@@ -14,7 +21,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  revoke: [id: string]
+  revoke: [session: AccountSession, label: string]
   revokeOthers: []
 }>()
 
@@ -115,11 +122,16 @@ function sessionDescription(session: AccountSession): string {
           class="secondary-button account-sessions__logout"
           type="button"
           :disabled="Boolean(revokingSessionId) || revokingOthers"
-          @click="emit('revoke', session.id)"
+          @click="emit('revoke', session, sessionTitle(session))"
         >
           <LoaderCircle v-if="revokingSessionId === session.id" class="spin" :size="17" />
+          <Unlink v-else-if="session.kind === 'ios'" :size="17" />
           <LogOut v-else :size="17" />
-          {{ t('account.logoutDevice') }}
+          {{
+            session.kind === 'ios'
+              ? t('iosPairing.revoke')
+              : t('account.logoutDevice')
+          }}
         </button>
       </SettingsControlRow>
 

@@ -475,7 +475,17 @@ export default {
     sessionsLoadFailed: 'Unable to load signed-in devices',
     sessionLogoutFailed: 'Unable to log out the device',
     sessionLoggedOut: 'Device logged out',
-    otherSessionsLoggedOut: 'All other devices logged out'
+    otherSessionsLoggedOut: 'All other devices logged out',
+    logoutDeviceTitle: 'Log out this browser?',
+    logoutDeviceMessage:
+      '{device} will need to sign in again. Any call it is handling will end.',
+    logoutOtherDevicesTitle: 'Log out all other devices?',
+    logoutOtherDevicesMessage:
+      'Every other browser will need to sign in again. Any calls they are handling will end.',
+    logoutOtherDevicesWithPairingMessage:
+      'Every other browser will need to sign in again, and pairing is revoked for every Apple device on this account. Apple devices stop receiving calls until they are paired again. Any calls in progress on these devices will end.',
+    logoutOtherDevicesConfirm: 'Log out all',
+    pairingRevoked: 'iOS pairing revoked'
   },
   users: {
     title: 'Users',
@@ -582,7 +592,7 @@ export default {
     replaceConfirm: 'Replace QR code',
     revokeTitle: 'Revoke iOS pairing?',
     revokeMessage:
-      'This Apple device will lose access until it scans a new pairing QR code.',
+      'This Apple device will lose access and stop receiving calls until it scans a new pairing QR code.',
     revokeConfirm: 'Revoke',
     revokeFailed: 'Unable to revoke iOS pairing',
     invalidPayload: 'The server returned invalid pairing data',
@@ -865,9 +875,17 @@ export default {
     loadActivitiesFailed: 'Unable to load communication activity',
     noActivities: 'No communication activity yet',
     deleteSelectedTitle: 'Delete selected activity?',
-    deleteSelectedMessage: 'The {count} selected activity item(s) will be permanently deleted.',
-    deleteSelectedWithRecordings:
-      'The {count} selected activity item(s) and their {recordings} recording(s) will be permanently deleted.',
+    deleteSelectedThreads:
+      '{count} conversation and its entire local message history will be permanently deleted. | {count} conversations and their entire local message history will be permanently deleted.',
+    deleteSelectedCalls:
+      '{count} call record will be permanently deleted. | {count} call records will be permanently deleted.',
+    deleteSelectedRecordings:
+      '{count} recording of the selected calls will also be deleted. | {count} recordings of the selected calls will also be deleted.',
+    deleteThreadsFailed:
+      'Could not delete {count} conversation: {error} | Could not delete {count} conversations: {error}',
+    deleteCallsFailed:
+      'Could not delete {count} call record: {error} | Could not delete {count} call records: {error}',
+    deleteOthersSucceeded: 'The other selected items were deleted',
     loadCallsFailed: 'Unable to load calls',
     loadMessagesFailed: 'Unable to load messages',
     backHome: 'Back to home',

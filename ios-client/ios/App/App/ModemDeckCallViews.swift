@@ -612,11 +612,17 @@ struct ModemDeckCallsView: View {
                 mutateSelectedCalls(.delete)
             }
         } message: {
-            Text(controller.text(
-                "将永久删除 \(selectedCalls.count) 条通话记录。",
-                "This permanently deletes \(selectedCalls.count) call records."
+            Text(modemDeckCallDeletionMessage(
+                controller: controller,
+                calls: selectedCalls.count,
+                recordings: recordingCount(for: selectedCalls)
             ))
         }
+    }
+
+    private func recordingCount(for calls: [ModemDeckCallRecord]) -> Int {
+        let ids = Set(calls.map(\.id))
+        return store.recordings.filter { ids.contains($0.call.id) }.count
     }
 
     private var callListColumn: some View {
@@ -842,6 +848,34 @@ struct ModemDeckCallsView: View {
         selectedIDs.remove(id)
         reloadCalls()
     }
+}
+
+/// The server deletes a call's recording segments with the call, so every
+/// call-deletion confirmation names the recordings it will remove.
+@MainActor
+private func modemDeckCallDeletionMessage(
+    controller: ModemDeckSessionController,
+    calls: Int,
+    recordings: Int
+) -> String {
+    let recordingNoun = recordings == 1 ? "recording" : "recordings"
+    if calls == 1 {
+        return recordings > 0
+            ? controller.text(
+                "该通话记录及其 \(recordings) 个录音将被永久删除。",
+                "This call record and its \(recordings) \(recordingNoun) will be permanently deleted."
+            )
+            : controller.text("该通话记录将被永久删除。", "This call record will be permanently deleted.")
+    }
+    return recordings > 0
+        ? controller.text(
+            "将永久删除 \(calls) 条通话记录及其 \(recordings) 个录音。",
+            "This permanently deletes \(calls) call records and their \(recordings) \(recordingNoun)."
+        )
+        : controller.text(
+            "将永久删除 \(calls) 条通话记录。",
+            "This permanently deletes \(calls) call records."
+        )
 }
 
 struct ModemDeckCallRecordRow: View {
@@ -1591,7 +1625,11 @@ struct ModemDeckCallDetailView: View {
             Button(controller.text("取消", "Cancel"), role: .cancel) {}
             Button(controller.text("删除", "Delete"), role: .destructive) { deleteCall() }
         } message: {
-            Text(controller.text("该通话记录将被永久删除。", "This call record will be permanently deleted."))
+            Text(modemDeckCallDeletionMessage(
+                controller: controller,
+                calls: 1,
+                recordings: recordings.count
+            ))
         }
     }
 

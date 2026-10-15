@@ -152,7 +152,12 @@ test('all communication list panes expose selection and their eligible batch act
   assert.match(dashboard, /@click="batchSetRead\(batchHasUnread\)"/)
   assert.match(dashboard, /const batchAllFavorite = computed/)
   assert.match(dashboard, /@click="batchSetFavorite\(!batchAllFavorite\)"/)
-  assert.match(dashboard, /await Promise\.all\(\[[\s\S]*deleteMessageThreads\(threads\),[\s\S]*deleteCalls\(calls\)/)
+  assert.match(dashboard, /await Promise\.allSettled\(\[\s*deleteMessageThreads\(threads\),\s*deleteCalls\(calls\)/)
+  assert.match(dashboard, /t\('dashboard\.deleteSelectedThreads', \{ count: threads\.length \}, threads\.length\)/)
+  assert.match(dashboard, /t\('dashboard\.deleteSelectedCalls', \{ count: calls\.length \}, calls\.length\)/)
+  assert.match(dashboard, /'dashboard\.deleteThreadsFailed'/)
+  assert.match(dashboard, /'dashboard\.deleteCallsFailed'/)
+  assert.match(dashboard, /if \(!failures\.length\) selection\.exit\(\)/)
   assert.match(dashboard, /:favorite-interactive="false"/)
   assert.match(batchBar, /import SelectionCheckIndicator from/)
   assert.match(
