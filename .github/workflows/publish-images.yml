@@ -119,9 +119,19 @@ jobs:
             echo "version=${version}"
           } >> "${GITHUB_OUTPUT}"
 
+  checks:
+    name: Check release source
+    needs: release
+    if: needs.release.outputs.image-count != '0'
+    uses: ./.github/workflows/checks.yml
+    with:
+      ref: ${{ needs.release.outputs.vcs-ref }}
+
   publish:
     name: Publish ${{ matrix.component }} image
-    needs: release
+    needs:
+      - release
+      - checks
     if: needs.release.outputs.image-count != '0'
     runs-on: ubuntu-24.04
     timeout-minutes: 360

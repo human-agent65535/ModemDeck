@@ -4,7 +4,7 @@ set -Eeuo pipefail
 readonly tests_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly hardware_dir="$(cd -- "${tests_dir}/.." && pwd)"
 readonly trixie_image="debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd"
-readonly go_image="golang:1.26.5-trixie@sha256:4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7"
+readonly go_image="golang:1.26.9-trixie@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c"
 
 if [[ "${MODEMDECK_HARDWARE_TEST_CONTAINER:-}" != "1" ]]; then
   docker run --rm \

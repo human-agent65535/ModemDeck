@@ -3,9 +3,32 @@ useDefault = true
 
 # This source manifest contains verified SHA-256 values for upstream files.
 # Keep all other content/rules active, including non-hash values in this file.
+# Every allowlist names targetRules: in gitleaks v8.30 a global allowlist with
+# paths skips the whole file and ignores condition = "AND" plus its regexes.
 [[allowlists]]
 description = "Upstream audio source file checksums"
 condition = "AND"
+targetRules = ["generic-api-key"]
 paths = ['''^third_party/audio/upstream\.json$''']
 regexTarget = "line"
 regexes = ['''^\s*"[^"]+": "[a-f0-9]{64}",?\s*$''']
+
+# Pinned Opus/Ogg vectors generated from upstream pion oggwriter. The single JSON
+# line holds base64 audio packets, not credentials.
+[[allowlists]]
+description = "Upstream Ogg compatibility test vectors"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^internal/recording/testdata/ogg_upstream_v[0-9.]+\.json$''']
+regexTarget = "line"
+regexes = ['''^\{"source":"github\.com/pion/webrtc/v4@v[0-9.]+/pkg/media/oggwriter",''']
+
+# Fixture-mode pairing tokens encode the word "fixture" (Zml4dHVyZS) and never
+# reach a server. Real pairing tokens elsewhere stay covered.
+[[allowlists]]
+description = "Fixture-mode iOS pairing token"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^web/src/api/fixture\.ts$''']
+regexTarget = "line"
+regexes = ['''^\s*token: 'md_ios_Zml4dHVyZS[A-Za-z0-9_-]*',?\s*$''']

@@ -8,6 +8,7 @@ set -eu
 tests_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(CDPATH='' cd -- "${tests_dir}/../.." && pwd)
 workflow="${repo_dir}/.github/workflows/publish-images.yml"
+checks_workflow="${repo_dir}/.github/workflows/checks.yml"
 planner="${repo_dir}/deploy/release-image-plan.sh"
 
 fail() {
@@ -98,7 +99,9 @@ if grep -Fq 'pull_request_target:' "$workflow"; then
     fail "release workflow must not run privileged publishing from pull requests"
 fi
 
+# Local reusable workflows come from the same checked-out release commit.
 awk '
+    /^[[:space:]]*uses:[[:space:]]*\.\// { next }
     /^[[:space:]]*uses:/ {
         ref = $0
         sub(/^.*@/, "", ref)
@@ -109,6 +112,15 @@ awk '
         }
     }
     END { exit invalid }
-' "$workflow" || fail "every release action must be pinned to a commit SHA"
+' "$workflow" "$checks_workflow" || fail "every release action must be pinned to a commit SHA"
+
+grep -Fq 'uses: ./.github/workflows/checks.yml' "$workflow" ||
+    fail "release workflow does not run repository checks"
+grep -Fq '      - checks' "$workflow" ||
+    fail "release images are published without passing checks"
+grep -Fq 'run: make check' "$checks_workflow" ||
+    fail "checks workflow does not run make check"
+grep -Fq 'persist-credentials: false' "$checks_workflow" ||
+    fail "checks workflow persists repository credentials"
 
 printf '%s\n' "release-workflow-test: ok"
