@@ -460,8 +460,9 @@ case "$port" in
         fail "--port must be numeric"
         ;;
 esac
-[ "$port" -ge 1 ] && [ "$port" -le 65535 ] ||
+if ! { [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; }; then
     fail "--port must be between 1 and 65535"
+fi
 for numeric_value in "$app_uid" "$app_gid" "$agent_gid"; do
     case "$numeric_value" in
         ""|*[!0-9]*)
@@ -488,8 +489,9 @@ case "$cloudflare_enabled" in
     *) fail "MODEMDECK_CLOUDFLARE_ENABLED must be true or false" ;;
 esac
 if [ "$disable_cloudflare" = true ]; then
-    [ -z "$cloudflare_token_arg" ] && [ -z "$cloudflare_hostname_arg" ] ||
+    if [ -n "$cloudflare_token_arg" ] || [ -n "$cloudflare_hostname_arg" ]; then
         fail "--disable-cloudflare cannot be combined with Cloudflare enable options"
+    fi
     cloudflare_enabled=false
 elif [ -n "$cloudflare_token_arg" ]; then
     cloudflare_enabled=true
@@ -515,8 +517,9 @@ validate_cloudflare_token_file() {
     token_file=$1
     [ -r "$token_file" ] ||
         fail "Cloudflare Tunnel token file is not readable: $token_file"
-    [ -f "$token_file" ] && [ ! -L "$token_file" ] ||
+    if [ ! -f "$token_file" ] || [ -L "$token_file" ]; then
         fail "Cloudflare Tunnel token must be a regular non-symlink file: $token_file"
+    fi
     token_size=$(stat -c %s "$token_file" 2>/dev/null ||
         stat -f %z "$token_file")
     [ "$token_size" -le 4097 ] ||
@@ -581,8 +584,9 @@ validate_assignment() {
     assignment_file=$1
     [ -r "$assignment_file" ] ||
         fail "assignment file is not readable: $assignment_file"
-    [ -f "$assignment_file" ] && [ ! -L "$assignment_file" ] ||
+    if [ ! -f "$assignment_file" ] || [ -L "$assignment_file" ]; then
         fail "assignment file must be a regular non-symlink file: $assignment_file"
+    fi
     [ -s "$assignment_file" ] ||
         fail "assignment file is empty: $assignment_file"
     assignment_size=$(stat -c %s "$assignment_file" 2>/dev/null ||
@@ -604,8 +608,9 @@ fi
 
 [ -r "$media_bindings_file" ] ||
     fail "media bindings file is not readable: $media_bindings_file"
-[ -f "$media_bindings_file" ] && [ ! -L "$media_bindings_file" ] ||
+if [ ! -f "$media_bindings_file" ] || [ -L "$media_bindings_file" ]; then
     fail "media bindings file must be a regular non-symlink file: $media_bindings_file"
+fi
 media_bindings_size=$(stat -c %s "$media_bindings_file" 2>/dev/null ||
     stat -f %z "$media_bindings_file")
 [ "$media_bindings_size" -le 65536 ] ||
@@ -1184,8 +1189,9 @@ prepare_secret() {
 
     install -d -o root -g root -m 0700 "$secret_directory"
     if [ -e "$secret_file" ] || [ -L "$secret_file" ]; then
-        [ -f "$secret_file" ] && [ ! -L "$secret_file" ] ||
+        if [ ! -f "$secret_file" ] || [ -L "$secret_file" ]; then
             fail "$description must be a regular non-symlink file: $secret_file"
+        fi
         [ -s "$secret_file" ] || fail "$description is empty: $secret_file"
         chown root:"$app_gid" "$secret_file"
         chmod 0440 "$secret_file"
@@ -1307,8 +1313,9 @@ capture_service_state() {
 
 validate_service_state() {
     validate_file=$1
-    [ -f "$validate_file" ] && [ ! -L "$validate_file" ] ||
+    if [ ! -f "$validate_file" ] || [ -L "$validate_file" ]; then
         fail "installer service state must be a regular file: $validate_file"
+    fi
     [ "$(stat -c %u "$validate_file")" = 0 ] ||
         fail "installer service state must be owned by root: $validate_file"
     [ "$(stat -c %g "$validate_file")" = 0 ] ||

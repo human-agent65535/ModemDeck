@@ -5,6 +5,7 @@ ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.9-neteq-df21b0a
 ROOT_TOOLCHAIN_TARGET ?= go-toolchain
 NODE_IMAGE ?= node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+SHELLCHECK_IMAGE ?= koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
 AGENT_NAME ?= modemdeck-agent
 IMAGE ?= modemdeck
 WEB_IMAGE ?= modemdeck-web
@@ -73,7 +74,7 @@ WEB_NODE_RW = docker run --rm \
 	$(NODE_IMAGE)
 
 .PHONY: all build app-build agent-build image app-image web-image hardware-image updater-image check \
-	hardware-check deployment-check root-toolchain root-test \
+	hardware-check deployment-check deployment-shellcheck root-toolchain root-test \
 	agent-test root-vet agent-vet web-install web-test web-typecheck web-lint \
 	web-check web-build compose-config dockerfile-check compose-up compose-down \
 	compose-logs prepare-data install-check repository-check secret-scan clean
@@ -178,8 +179,18 @@ agent-vet:
 hardware-check:
 	./hardware/tests/run.sh
 
-deployment-check:
+deployment-check: deployment-shellcheck
 	./deploy/tests/run.sh
+
+deployment-shellcheck:
+	docker run --rm \
+		--mount type=bind,source="$(CURDIR)",target=/workspace,readonly \
+		-w /workspace \
+		$(SHELLCHECK_IMAGE) \
+		install.sh deploy/tests/run.sh deploy/tests/static-test.sh \
+		deploy/tests/release-workflow-test.sh deploy/tests/release-image-plan-test.sh \
+		deploy/release-image-plan.sh deploy/tests/install-check-test.sh \
+		deploy/tests/install-behavior-test.sh
 
 web-install:
 	# Docker needs the nested volume mountpoint before the source becomes read-only.

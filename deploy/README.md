@@ -156,11 +156,16 @@ requires the existing tag to be annotated, and builds only that historical
 source. Never move or recreate a published release tag.
 
 `VERSION` is the only ModemDeck release version. The release workflow compares
-each container's runtime inputs with the previous stable tag. Changed containers
-are rebuilt; unchanged multi-architecture manifests are copied to the new tag
+each container's runtime inputs with the previous published stable release.
+Draft releases and tags without a published release cannot supply retained images.
+Changed containers are rebuilt; unchanged multi-architecture manifests are copied to the new tag
 without rebuilding. The updater resolves that shared tag for every container
 and compares immutable digests, so only containers whose image actually changed
 are replaced.
+
+Run `make deployment-check` for deployment verification. It runs a pinned
+ShellCheck container as well as the deployment tests, so the checks do not
+depend on whether the host has ShellCheck installed.
 
 Verify package visibility after its first publication. Public packages support
 anonymous device pulls; if a package is private, either change it to public in

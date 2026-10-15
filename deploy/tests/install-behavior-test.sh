@@ -412,6 +412,22 @@ common_env() {
         "$@"
 }
 
+# Reject invalid and overflowing ports before changing services or containers.
+for invalid_port in 0 65536 184467440737095516160; do
+    : >"${test_root}/commands.log"
+    if common_env "${fixture}/install.sh" --git --port "$invalid_port" \
+        >"${test_root}/invalid-port-output.log" 2>&1; then
+        fail "installer accepted invalid port: $invalid_port"
+    fi
+    grep -Fq -- '--port must be between 1 and 65535' \
+        "${test_root}/invalid-port-output.log" ||
+        fail "installer did not reject the port range before continuing"
+    if grep -Ev '^docker\|(info|compose version)$' "${test_root}/commands.log"; then
+        fail "invalid port changed deployment"
+    fi
+    [ ! -e "${test_root}/data" ] || fail "invalid port created application data"
+done
+
 mkdir -p \
     "${test_root}/data/recordings/call_existing" \
     "${test_root}/data/tls" \

@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# These checks intentionally match literal Nginx and shell variable references.
+# shellcheck disable=SC2016
+
 set -eu
 
 tests_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
