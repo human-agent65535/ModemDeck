@@ -716,10 +716,11 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     init(api: ModemDeckAPIClient) {
         self.api = api
         super.init()
-        ModemDeckPushCoordinator.shared.observeCallState(self)
         #if DEBUG
-        installUATCallStateFromEnvironment()
+        // The coordinator's deferred initial idle payload would otherwise replace a static fixture.
+        if installUATCallStateFromEnvironment() { return }
         #endif
+        ModemDeckPushCoordinator.shared.observeCallState(self)
     }
 
     nonisolated func callStateDidChange(_ state: [String: Any]) {
@@ -1201,16 +1202,17 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     }
 
     #if DEBUG
-    private func installUATCallStateFromEnvironment() {
+    private func installUATCallStateFromEnvironment() -> Bool {
         let environment = ProcessInfo.processInfo.environment
         guard environment["MODEMDECK_UAT_MODE"] == "1",
               let state = environment["MODEMDECK_UAT_CALL_STATE"],
               ["ringing", "ringing-out", "connecting", "active"].contains(state) else {
-            return
+            return false
         }
         let dynamic = environment["MODEMDECK_UAT_TEST_AUDIO_DYNAMIC"] == "1"
         publishUATCallState(state: state, audioTest: environment["MODEMDECK_UAT_TEST_AUDIO"] == "1",
                             dynamic: dynamic, startedAt: ProcessInfo.processInfo.systemUptime)
+        return true
     }
 
     /// Visual fixture only. No audio engine, microphone, CallKit, or WSS is started.
