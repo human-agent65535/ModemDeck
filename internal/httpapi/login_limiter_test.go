@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -131,5 +132,17 @@ func TestLoginFailureLimiterIsSafeForConcurrentRequests(t *testing.T) {
 			len(limiter.accounts),
 			loginFailureMaximumAccountKeys,
 		)
+	}
+}
+
+func TestDefaultLoginPolicyDoesNotLetOneClientBlockEveryAccount(t *testing.T) {
+	limiter := newLoginFailureLimiter(defaultLoginFailurePolicy)
+	// One client limited by nginx to ~10 attempts/minute reaches about 60 in
+	// the API's five-minute window; that must not block other accounts.
+	for index := range 60 {
+		limiter.recordFailure(fmt.Sprintf("guess-%d", index))
+	}
+	if retryAfter := limiter.retryAfter("admin"); retryAfter != 0 {
+		t.Fatalf("unrelated account retry after = %s", retryAfter)
 	}
 }

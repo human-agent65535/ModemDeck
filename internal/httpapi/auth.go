@@ -160,6 +160,20 @@ func (api *API) setup(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	// Setup shares the login slots. Reject a configured install with a read
+	// first, so unauthenticated setup requests cannot hold slots that login
+	// needs. Setup below still rejects the race between two first setups.
+	status, err := api.authenticator.Status(request.Context())
+	if err != nil {
+		api.logger.Error("read administrator status before setup", "error", err)
+		writeError(response, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication is unavailable", "")
+		return
+	}
+	if status.Configured {
+		writeError(response, http.StatusConflict, "setup_complete", "Administrator setup is already complete", "")
+		return
+	}
+
 	select {
 	case api.loginSlots <- struct{}{}:
 		defer func() { <-api.loginSlots }()

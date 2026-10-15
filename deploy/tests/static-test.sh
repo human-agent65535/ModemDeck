@@ -297,6 +297,21 @@ connection_header_count=$(grep -Fc 'proxy_set_header Connection $websocket_conne
 upgrade_header_count=$(grep -Fc 'proxy_set_header Upgrade $websocket_upgrade;' "${repo_dir}/web/nginx.conf" || true)
 [ "$upgrade_header_count" -eq 3 ] ||
     fail "Nginx API proxies do not consistently forward WebSocket upgrades"
+# Every listener rate-limits login per client and answers in the API's JSON
+# error shape without dropping the server security headers.
+login_limit_count=$(grep -Fc 'error_page 429 = @login_rate_limited;' "${repo_dir}/web/nginx.conf" || true)
+[ "$login_limit_count" -eq 3 ] ||
+    fail "every nginx listener must rate-limit login attempts"
+login_location_count=$(grep -Fc 'location @login_rate_limited {' "${repo_dir}/web/nginx.conf" || true)
+[ "$login_location_count" -eq 3 ] ||
+    fail "every nginx listener must define the login rate-limit response"
+grep -Fq 'limit_req zone=modemdeck_login_direct burst=10 nodelay;' "${repo_dir}/web/nginx.conf" ||
+    fail "direct listener does not rate-limit login by peer address"
+grep -Fc 'limit_req zone=modemdeck_login_cloudflare burst=10 nodelay;' "${repo_dir}/web/nginx.conf" | grep -qx 2 ||
+    fail "Cloudflare origin listeners do not rate-limit login by client address"
+if awk '/location @login_rate_limited/,/^[[:space:]]*}[[:space:]]*$/' "${repo_dir}/web/nginx.conf" | grep -Fq 'add_header'; then
+    fail "login rate-limit response must inherit the server security headers"
+fi
 grep -Fq 'map $http_upgrade $websocket_upgrade {' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not restrict forwarded Upgrade values"
 grep -Fq '~*^websocket$ websocket;' "${repo_dir}/web/nginx.conf" ||

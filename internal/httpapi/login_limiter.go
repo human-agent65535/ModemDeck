@@ -8,9 +8,12 @@ import (
 )
 
 const (
-	loginFailureWindow             = 5 * time.Minute
-	loginAccountFailureThreshold   = 5
-	loginGlobalFailureThreshold    = 20
+	loginFailureWindow           = 5 * time.Minute
+	loginAccountFailureThreshold = 5
+	// The global limit blocks every account, so it is only a backstop against
+	// large spraying. Per-client limits live in web/nginx.conf; a low value here
+	// would let one unauthenticated client lock out the administrator.
+	loginGlobalFailureThreshold    = 200
 	loginFailureInitialBackoff     = time.Second
 	loginFailureMaximumBackoff     = time.Minute
 	loginFailureMaximumAccountKeys = 1024
@@ -43,7 +46,7 @@ type loginFailureState struct {
 
 // loginFailureLimiter deliberately does not use client IP addresses. The API
 // cannot safely trust forwarding headers unless its direct peer is verified as
-// a trusted proxy; edge IP limiting remains the deployment layer's job.
+// a trusted proxy; per-client limiting is done by nginx (web/nginx.conf).
 type loginFailureLimiter struct {
 	mu       sync.Mutex
 	policy   loginFailurePolicy

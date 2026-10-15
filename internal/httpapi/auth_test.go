@@ -1069,3 +1069,30 @@ func assertAPIError(t *testing.T, response *httptest.ResponseRecorder, status in
 		t.Fatalf("code = %q, want %q", body.Code, code)
 	}
 }
+
+func TestSetupAfterConfigurationDoesNotTakeLoginSlots(t *testing.T) {
+	authenticator, _, _ := newAPIAuthenticator(t)
+	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	// Occupy every login slot, as a flood of concurrent requests would.
+	for range cap(api.loginSlots) {
+		api.loginSlots <- struct{}{}
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/setup",
+		bytes.NewBufferString(`{"username":"intruder","password":"another secure password"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	assertAPIError(t, response, http.StatusConflict, "setup_complete")
+	if authenticator.setupCalls != 0 {
+		t.Fatalf("setup calls = %d, want 0", authenticator.setupCalls)
+	}
+	if len(api.loginSlots) != cap(api.loginSlots) {
+		t.Fatalf("setup changed login slots: %d of %d held", len(api.loginSlots), cap(api.loginSlots))
+	}
+}

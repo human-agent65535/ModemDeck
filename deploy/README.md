@@ -63,6 +63,12 @@ The release stack has four services:
   the host. It accepts HTTP/1.1 and HTTP/2 over TCP plus HTTP/3 over UDP, and
   advertises the host port selected by `--port`. Plain HTTP sent over TCP to
   `7577` is redirected to HTTPS on the same address.
+  Nginx limits sign-in attempts (`POST /api/v1/session`) to 10 per minute per
+  client, with a burst of 10, and answers excess attempts with JSON
+  `429 login_rate_limited`. The Cloudflare listeners count each visitor by the
+  address Cloudflare reports. `7577` counts the TCP peer, so a reverse proxy you
+  add in front of `7577` makes every visitor share that proxy's limit; use the
+  built-in Cloudflare Tunnel for remote access instead.
 - `api` runs the Go HTTP API on `8080` inside the Compose network. It has
   no published host port.
 - `hardware` owns the modem and host data plane.
