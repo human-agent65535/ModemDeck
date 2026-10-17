@@ -147,6 +147,8 @@ const selectedRecipientPreferredLineID = ref('')
 const composeContextLineKey = ref(props.contextLineKey)
 const lineFilterKey = ref('all')
 const draft = ref('')
+// Unsent text per conversation, kept for this page session while switching threads.
+const threadDrafts = new Map<string, string>()
 const sending = ref(false)
 const sendError = ref('')
 const threadDeleteError = ref('')
@@ -202,6 +204,13 @@ const messageDayBreaks = computed(() => {
     previousDay = day
   }
   return breaks
+})
+watch(selectedKey, (next, previous) => {
+  if (previous && !composingNew.value) {
+    if (draft.value.trim()) threadDrafts.set(previous, draft.value)
+    else threadDrafts.delete(previous)
+  }
+  if (!composingNew.value) draft.value = next ? threadDrafts.get(next) || '' : ''
 })
 const currentMessagePagination = computed(() =>
   selectedThread.value ? messagePaginationFor(selectedThread.value.key) : null
@@ -632,7 +641,6 @@ function chooseThread(key: string): void {
   manuallyUnreadThreadKeys.value.delete(key)
   composingNew.value = false
   composeReturnThreadKey = ''
-  draft.value = ''
   sendError.value = ''
   void router.push(messageThreadRoute(key, messageFilterQuery()))
 }

@@ -57,6 +57,9 @@ export default {
     "testOnly": "Testanruf · Keine SIM verwendet"
   },
   "common": {
+    "discardChangesTitle": "Änderungen verwerfen?",
+    "discardChangesMessage": "Nicht gespeicherte Änderungen gehen verloren.",
+    "discard": "Verwerfen",
     "cancel": "Abbrechen",
     "close": "Schließen",
     "save": "Speichern",
@@ -185,6 +188,10 @@ export default {
     "reload": "Neu laden"
   },
   "audio": {
+    "microphoneBlockedTitle": "Mikrofon ist blockiert",
+    "microphoneBlockedDetail": "Anrufe können Ihre Stimme nicht übertragen. Erlauben Sie den Mikrofonzugriff für diese Website in den Website-Einstellungen des Browsers und laden Sie neu.",
+    "microphoneInsecureTitle": "Mikrofon benötigt HTTPS",
+    "microphoneInsecureDetail": "Öffnen Sie ModemDeck über https://, um im Browser zu telefonieren.",
     "devices": "Audiogeräte",
     "devicesDescription": "Für diesen Browser gespeichert",
     "loadingDevices": "Ladegeräte",

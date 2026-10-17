@@ -28,6 +28,16 @@ const props = withDefaults(
 
 const { t } = useI18n()
 const missingInput = computed(() => inputDeviceMissing())
+// Everyone who can take a call needs to see a blocked microphone, not only Diagnostics.
+const microphoneNotice = computed(() => {
+  if (audioState.microphoneAccessStatus === 'denied') {
+    return { title: t('audio.microphoneBlockedTitle'), detail: t('audio.microphoneBlockedDetail') }
+  }
+  if (audioState.microphoneAccessStatus === 'insecure-context') {
+    return { title: t('audio.microphoneInsecureTitle'), detail: t('audio.microphoneInsecureDetail') }
+  }
+  return null
+})
 const missingOutput = computed(() => outputDeviceMissing())
 const microphoneTestRunning = computed(
   () =>
@@ -98,6 +108,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="audio-device-controls" :class="{ 'is-compact': compact }">
+    <div v-if="microphoneNotice" class="audio-device-controls__notice" role="alert">
+      <AlertCircle :size="16" aria-hidden="true" />
+      <span>
+        <strong>{{ microphoneNotice.title }}</strong>
+        <small>{{ microphoneNotice.detail }}</small>
+      </span>
+    </div>
     <div class="audio-device-controls__fields">
       <div class="field">
         <span><Mic :size="14" />{{ t('audio.microphone') }}</span>
@@ -297,5 +314,31 @@ onBeforeUnmount(() => {
   .audio-device-controls__fields {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.audio-device-controls__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  color: var(--danger-strong);
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+}
+
+.audio-device-controls__notice span {
+  display: grid;
+  gap: 2px;
+}
+
+.audio-device-controls__notice strong {
+  font-size: var(--text-sm);
+}
+
+.audio-device-controls__notice small {
+  color: var(--text);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
 }
 </style>

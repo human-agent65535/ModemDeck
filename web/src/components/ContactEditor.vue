@@ -48,6 +48,9 @@ const draft = reactive<{
   phones: []
 })
 const avatarBusy = ref(false)
+// Snapshot of the opened draft; Escape/backdrop asks before discarding edits.
+const initialDraft = ref('')
+const dirty = computed(() => props.open && JSON.stringify(draft) !== initialDraft.value)
 const preferredPhoneRegions = computed(() => {
   const regions = new Set<string>()
   for (const line of props.lines || []) {
@@ -102,6 +105,7 @@ watch(
           region: initialNumber.startsWith('+') ? '' : defaultPhoneRegion.value,
           primary: true
         }]
+    initialDraft.value = JSON.stringify(draft)
   },
   { immediate: true }
 )
@@ -154,6 +158,7 @@ function submit(): void {
     surface-class="editor-dialog"
     :label="contact ? t('contacts.edit') : t('contacts.new')"
     initial-focus='input[autocomplete="name"]'
+    :guard-close="dirty"
     @close="emit('close')"
   >
     <header class="tool-header">

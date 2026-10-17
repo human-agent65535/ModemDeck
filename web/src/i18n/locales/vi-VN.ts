@@ -57,6 +57,9 @@ export default {
     "testOnly": "Cuộc gọi thử · Không dùng SIM"
   },
   "common": {
+    "discardChangesTitle": "Bỏ các thay đổi?",
+    "discardChangesMessage": "Những thay đổi chưa lưu sẽ bị mất.",
+    "discard": "Bỏ",
     "cancel": "Hủy bỏ",
     "close": "Đóng",
     "save": "Lưu",
@@ -185,6 +188,10 @@ export default {
     "reload": "Tải lại"
   },
   "audio": {
+    "microphoneBlockedTitle": "Micrô đang bị chặn",
+    "microphoneBlockedDetail": "Cuộc gọi không thể gửi giọng nói của bạn. Hãy cho phép micrô cho trang này trong cài đặt trang web của trình duyệt rồi tải lại.",
+    "microphoneInsecureTitle": "Micrô cần HTTPS",
+    "microphoneInsecureDetail": "Hãy mở ModemDeck qua https:// để gọi và nghe máy trên trình duyệt.",
     "devices": "Thiết bị âm thanh",
     "devicesDescription": "Đã lưu cho trình duyệt này",
     "loadingDevices": "Đang tải thiết bị",

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { translate } from '../i18n'
+import { requestConfirmation } from '../state/confirmation'
 import { nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
 import {
   overlayIsTopmost,
@@ -18,6 +20,8 @@ const props = withDefaults(
     initialFocus?: string
     closeOnBackdrop?: boolean
     closeOnEscape?: boolean
+    /** Ask before an Escape or backdrop dismissal throws away unsaved input. */
+    guardClose?: boolean
     surfaceClass?: string
   }>(),
   {
@@ -30,6 +34,7 @@ const props = withDefaults(
     initialFocus: '',
     closeOnBackdrop: true,
     closeOnEscape: true,
+    guardClose: false,
     surfaceClass: ''
   }
 )
@@ -74,6 +79,19 @@ function focusInitialControl(): void {
 
 function requestClose(): void {
   if (!overlayIsTopmost(overlayID)) return
+  void closeUnlessGuarded()
+}
+
+async function closeUnlessGuarded(): Promise<void> {
+  if (props.guardClose) {
+    const confirmed = await requestConfirmation({
+      title: translate('common.discardChangesTitle'),
+      message: translate('common.discardChangesMessage'),
+      confirmLabel: translate('common.discard'),
+      tone: 'danger'
+    })
+    if (!confirmed) return
+  }
   emit('close')
 }
 
@@ -82,7 +100,7 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && props.closeOnEscape && !event.defaultPrevented) {
     event.preventDefault()
     event.stopPropagation()
-    emit('close')
+    void closeUnlessGuarded()
     return
   }
   if (event.key !== 'Tab') return

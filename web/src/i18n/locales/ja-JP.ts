@@ -57,6 +57,9 @@ export default {
     "testOnly": "テスト通話 · SIM 不使用"
   },
   "common": {
+    "discardChangesTitle": "変更を破棄しますか？",
+    "discardChangesMessage": "保存していない変更は失われます。",
+    "discard": "破棄",
     "cancel": "キャンセル",
     "close": "閉じる",
     "save": "保存",
@@ -185,6 +188,10 @@ export default {
     "reload": "リロード"
   },
   "audio": {
+    "microphoneBlockedTitle": "マイクがブロックされています",
+    "microphoneBlockedDetail": "通話で音声を送信できません。ブラウザーのサイト設定でこのサイトのマイクを許可してから再読み込みしてください。",
+    "microphoneInsecureTitle": "マイクには HTTPS が必要です",
+    "microphoneInsecureDetail": "ブラウザーで通話するには https:// で ModemDeck を開いてください。",
     "devices": "オーディオデバイス",
     "devicesDescription": "このブラウザ用に保存されました",
     "loadingDevices": "デバイスの読み込み",

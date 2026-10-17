@@ -57,6 +57,9 @@ export default {
     "testOnly": "測試通話 · 不使用 SIM"
   },
   common: {
+    discardChangesTitle: '放棄變更？',
+    discardChangesMessage: '尚未儲存的變更將會遺失。',
+    discard: '放棄',
     cancel: '取消',
     close: '關閉',
     save: '儲存',
@@ -185,6 +188,10 @@ export default {
     reload: '重新讀取'
   },
   audio: {
+    microphoneBlockedTitle: '麥克風已被封鎖',
+    microphoneBlockedDetail: '通話將無法傳送你的聲音。請在瀏覽器的網站設定中允許此網站使用麥克風，然後重新整理頁面。',
+    microphoneInsecureTitle: '麥克風需要 HTTPS',
+    microphoneInsecureDetail: '請透過 https:// 開啟 ModemDeck，才能在瀏覽器中撥打和接聽電話。',
     devices: '音訊裝置',
     devicesDescription: '儲存在當前瀏覽器',
     loadingDevices: '正在讀取裝置',

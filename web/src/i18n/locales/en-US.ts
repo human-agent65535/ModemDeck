@@ -57,6 +57,9 @@ export default {
     "testOnly": "Test call · No SIM used"
   },
   common: {
+    discardChangesTitle: 'Discard changes?',
+    discardChangesMessage: 'Your unsaved changes will be lost.',
+    discard: 'Discard',
     cancel: 'Cancel',
     close: 'Close',
     save: 'Save',
@@ -185,6 +188,10 @@ export default {
     reload: 'Reload'
   },
   audio: {
+    microphoneBlockedTitle: 'Microphone is blocked',
+    microphoneBlockedDetail: 'Calls can\'t send your voice. Allow microphone access for this site in your browser\'s site settings, then reload.',
+    microphoneInsecureTitle: 'Microphone access needs HTTPS',
+    microphoneInsecureDetail: 'Open ModemDeck over https:// to make and answer calls in the browser.',
     devices: 'Audio devices',
     devicesDescription: 'Saved for this browser',
     loadingDevices: 'Loading devices',

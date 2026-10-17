@@ -57,6 +57,9 @@ export default {
     "testOnly": "测试通话 · 不使用 SIM"
   },
   common: {
+    discardChangesTitle: '放弃更改？',
+    discardChangesMessage: '尚未保存的更改将会丢失。',
+    discard: '放弃',
     cancel: '取消',
     close: '关闭',
     save: '保存',
@@ -185,6 +188,10 @@ export default {
     reload: '重新读取'
   },
   audio: {
+    microphoneBlockedTitle: '麦克风已被阻止',
+    microphoneBlockedDetail: '通话将无法发送你的声音。请在浏览器的网站设置中允许此网站使用麦克风，然后刷新页面。',
+    microphoneInsecureTitle: '麦克风需要 HTTPS',
+    microphoneInsecureDetail: '请通过 https:// 打开 ModemDeck，才能在浏览器中拨打和接听电话。',
     devices: '音频设备',
     devicesDescription: '保存在当前浏览器',
     loadingDevices: '正在读取设备',

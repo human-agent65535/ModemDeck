@@ -57,6 +57,9 @@ export default {
     "testOnly": "Appel de test · Sans SIM"
   },
   "common": {
+    "discardChangesTitle": "Abandonner les modifications ?",
+    "discardChangesMessage": "Les modifications non enregistrées seront perdues.",
+    "discard": "Abandonner",
     "cancel": "Annuler",
     "close": "Fermer",
     "save": "Enregistrer",
@@ -185,6 +188,10 @@ export default {
     "reload": "Recharger"
   },
   "audio": {
+    "microphoneBlockedTitle": "Le micro est bloqué",
+    "microphoneBlockedDetail": "Les appels ne peuvent pas transmettre votre voix. Autorisez le micro pour ce site dans les paramètres du navigateur, puis rechargez.",
+    "microphoneInsecureTitle": "Le micro nécessite HTTPS",
+    "microphoneInsecureDetail": "Ouvrez ModemDeck en https:// pour passer et recevoir des appels dans le navigateur.",
     "devices": "Appareils audio",
     "devicesDescription": "Enregistré pour ce navigateur",
     "loadingDevices": "Appareils de chargement",
