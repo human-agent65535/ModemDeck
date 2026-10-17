@@ -206,12 +206,31 @@ const messageDayBreaks = computed(() => {
   }
   return breaks
 })
-watch(selectedKey, (next, previous) => {
+// Restoring or resetting text is not an edit; only typing advances a thread's revision.
+let restoringDraft = false
+function setComposerDraft(value: string): void {
+  restoringDraft = true
+  try {
+    draft.value = value
+  } finally {
+    restoringDraft = false
+  }
+}
+
+function switchThreadDraft(next: string | undefined, previous: string | undefined): void {
   // Entering the new-message composer parks the thread draft in startMessage().
   if (composingNew.value) return
   if (previous) threadDrafts.park(previous, draft.value)
-  draft.value = next ? threadDrafts.take(next) : ''
-})
+  setComposerDraft(next ? threadDrafts.take(next) : '')
+}
+
+function noteDraftEdit(): void {
+  if (restoringDraft || composingNew.value || !selectedKey.value) return
+  threadDrafts.edited(selectedKey.value)
+}
+
+watch(selectedKey, switchThreadDraft)
+watch(draft, noteDraftEdit, { flush: 'sync' })
 const currentMessagePagination = computed(() =>
   selectedThread.value ? messagePaginationFor(selectedThread.value.key) : null
 )
@@ -833,6 +852,7 @@ async function submit(): Promise<void> {
   const sentText = draft.value
   // The conversation whose composer held this text (none while composing new).
   const draftThreadKey = composingNew.value ? '' : selectedKey.value || ''
+  const sentRevision = threadDrafts.revision(draftThreadKey)
   try {
     const replyKey = replyThreadKey.value
     const result = await sendMessage({
@@ -841,9 +861,16 @@ async function submit(): Promise<void> {
       to: activeRecipient.value,
       content: sentText.trim()
     })
-    // Settle before the generation check: the user may have left this thread
-    // (parking the sent text) or typed something new while it was sending.
-    threadDrafts.settleSent(draftThreadKey, sentText)
+    // Settle before the generation check, which also trips on navigation: if the
+    // thread still holds the sent version (parked, or back in the composer after
+    // visiting another thread) it is cleared; a later edit is kept.
+    if (
+      threadDrafts.settleSent(draftThreadKey, sentRevision) &&
+      !composingNew.value &&
+      selectedKey.value === draftThreadKey
+    ) {
+      setComposerDraft('')
+    }
     if (generation !== composerGeneration) return
     draft.value = ''
     const sentThread = result.thread

@@ -1,14 +1,15 @@
 /**
- * Unsent message text for conversations that are not on screen.
+ * Unsent message text per conversation.
  *
- * The visible composer owns its text; a thread's draft is parked here only
- * while the user is elsewhere (another thread or the new-message composer)
- * and handed back when they return. A successful send settles the thread so
- * the sent text can never be restored, while text typed after the send began
- * is kept.
+ * The visible composer owns its text; a thread's draft is parked here while
+ * the user is elsewhere and taken back on return. Each thread also has an
+ * edit revision that only typing advances (navigation never does), so a
+ * completed send can tell whether the thread still holds the version that
+ * was sent, wherever that text currently lives.
  */
 export class ThreadDraftStore {
   readonly #drafts = new Map<string, string>()
+  readonly #revisions = new Map<string, number>()
 
   /** Park the composer text of a thread the user is leaving. */
   park(threadKey: string, text: string): void {
@@ -25,13 +26,24 @@ export class ThreadDraftStore {
     return text
   }
 
+  /** The user edited this thread's draft. */
+  edited(threadKey: string): void {
+    if (threadKey) this.#revisions.set(threadKey, this.revision(threadKey) + 1)
+  }
+
+  revision(threadKey: string): number {
+    return this.#revisions.get(threadKey) || 0
+  }
+
   /**
-   * `sentText` from `threadKey` was accepted. Forget a parked copy of exactly
-   * that text (the user left the thread while it was sending); a parked
-   * draft that differs was written later and is kept.
+   * A send captured at `sentRevision` succeeded. Returns true when the thread
+   * still holds that version, and forgets it if parked; the caller clears it
+   * when it is the visible composer. A later edit keeps the newer draft.
    */
-  settleSent(threadKey: string, sentText: string): void {
-    if (threadKey && this.#drafts.get(threadKey) === sentText) this.#drafts.delete(threadKey)
+  settleSent(threadKey: string, sentRevision: number): boolean {
+    if (!threadKey || this.revision(threadKey) !== sentRevision) return false
+    this.#drafts.delete(threadKey)
+    return true
   }
 
   peek(threadKey: string): string {

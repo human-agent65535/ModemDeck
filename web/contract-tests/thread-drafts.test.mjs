@@ -3,100 +3,48 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { ThreadDraftStore } from '../src/state/threadDrafts.ts'
 
-const view = () => readFile(new URL('../src/views/MessagesView.vue', import.meta.url), 'utf8')
-
-// A minimal model of the MessagesView composer wiring, driving the real store.
-function composer() {
+test('parking, taking and revisions are per thread; navigation is not an edit', () => {
   const drafts = new ThreadDraftStore()
-  const state = { selected: '', composingNew: false, draft: '' }
-  return {
-    drafts,
-    state,
-    open(key) {
-      if (!state.composingNew && state.selected) drafts.park(state.selected, state.draft)
-      state.selected = key
-      state.draft = drafts.take(key)
-    },
-    startNew() {
-      if (!state.composingNew) drafts.park(state.selected, state.draft)
-      state.composingNew = true
-      state.selected = ''
-      state.draft = ''
-    },
-    cancelNew(returnKey) {
-      state.composingNew = false
-      state.selected = returnKey
-      state.draft = drafts.take(returnKey)
-    },
-    beginSend() {
-      return { key: state.composingNew ? '' : state.selected, text: state.draft }
-    },
-    sendSucceeded(sent, { stillUnchanged = true } = {}) {
-      drafts.settleSent(sent.key, sent.text)
-      if (stillUnchanged) state.draft = ''
-    }
-  }
-}
-
-test('a sent message is not restored after new-message compose is cancelled', () => {
-  const c = composer()
-  c.open('A')
-  c.state.draft = 'hello from A'
-  c.open('B')
-  c.open('A')
-  assert.equal(c.state.draft, 'hello from A')
-  const sent = c.beginSend()
-  c.sendSucceeded(sent)
-  assert.equal(c.state.draft, '')
-  c.startNew()
-  c.cancelNew('A')
-  assert.equal(c.state.draft, '', 'sent text must not come back')
+  drafts.edited('A')
+  drafts.park('A', 'hello')
+  assert.equal(drafts.peek('A'), 'hello')
+  assert.equal(drafts.take('A'), 'hello')
+  assert.equal(drafts.peek('A'), '', 'the composer owns a taken draft')
+  assert.equal(drafts.revision('A'), 1)
+  assert.equal(drafts.revision('B'), 0)
+  drafts.park('A', '   ')
+  assert.equal(drafts.peek('A'), '', 'blank drafts are not parked')
 })
 
-test('leaving a thread while it sends forgets the sent text but keeps later drafts', () => {
-  const c = composer()
-  c.open('A')
-  c.state.draft = 'first'
-  const sent = c.beginSend()
-  c.open('B') // user leaves before the send completes; "first" is parked
-  c.sendSucceeded(sent, { stillUnchanged: false })
-  assert.equal(c.drafts.peek('A'), '')
+test('settleSent forgets the sent version only while it is unedited', () => {
+  const drafts = new ThreadDraftStore()
+  drafts.edited('A')
+  const sent = drafts.revision('A')
+  drafts.park('A', 'sent text')
+  assert.equal(drafts.settleSent('A', sent), true)
+  assert.equal(drafts.peek('A'), '')
 
-  c.open('A')
-  c.state.draft = 'second'
-  const another = c.beginSend()
-  c.state.draft = 'third, typed while sending'
-  c.open('B')
-  c.sendSucceeded(another, { stillUnchanged: false })
-  assert.equal(c.drafts.peek('A'), 'third, typed while sending')
+  drafts.edited('A')
+  const second = drafts.revision('A')
+  drafts.edited('A')
+  drafts.park('A', 'typed after sending')
+  assert.equal(drafts.settleSent('A', second), false)
+  assert.equal(drafts.peek('A'), 'typed after sending')
+  assert.equal(drafts.settleSent('', 0), false)
 })
 
-test('an edited draft is parked over an older one when composing new', () => {
-  const c = composer()
-  c.open('A')
-  c.state.draft = 'old'
-  c.open('B')
-  c.open('A')
-  c.state.draft = 'edited'
-  c.startNew()
-  c.cancelNew('A')
-  assert.equal(c.state.draft, 'edited')
-})
-
-test('MessagesView parks, takes and settles drafts through ThreadDraftStore', async () => {
-  const source = await view()
+test('MessagesView parks, takes, records edits and settles through ThreadDraftStore', async () => {
+  const source = await readFile(new URL('../src/views/MessagesView.vue', import.meta.url), 'utf8')
   assert.match(source, /const threadDrafts = new ThreadDraftStore\(\)/)
-  assert.match(
-    source,
-    /watch\(selectedKey, \(next, previous\) => \{[\s\S]*?if \(composingNew\.value\) return[\s\S]*?threadDrafts\.park\(previous, draft\.value\)[\s\S]*?threadDrafts\.take\(next\)/
-  )
+  assert.match(source, /watch\(selectedKey, switchThreadDraft\)/)
+  assert.match(source, /watch\(draft, noteDraftEdit, \{ flush: 'sync' \}\)/)
   assert.match(
     source,
     /function startMessage\(\): void \{[\s\S]*?threadDrafts\.park\(composeReturnThreadKey, draft\.value\)[\s\S]*?composingNew\.value = true/
   )
-  // Settling must happen before the "user typed meanwhile" early return.
+  // Settling (live or parked) happens before the generation guard, which stays.
   assert.match(
     source,
-    /threadDrafts\.settleSent\(draftThreadKey, sentText\)\s*\n\s*if \(generation !== composerGeneration\) return/
+    /threadDrafts\.settleSent\(draftThreadKey, sentRevision\)[\s\S]*?setComposerDraft\(''\)[\s\S]*?if \(generation !== composerGeneration\) return/
   )
 })

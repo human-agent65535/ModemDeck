@@ -52,22 +52,23 @@ test('send completion keeps a newer draft and does not redirect its composer', a
   const threadDrafts = new ThreadDraftStore()
   const context = evaluate(functions('views/MessagesView.vue', ['submit']), {
     draft, composerGeneration: 0, sending: ref(false), sendError: ref(''), sendDisabledReason: ref(''),
-    selectedKey: ref('thread-a'), threadDrafts,
+    selectedKey: ref('thread-a'), threadDrafts, composingNew: ref(false),
+    restoringDraft: false,
+    setComposerDraft(value) { draft.value = value },
     replyThreadKey: ref('thread-a'), activeLineID: ref('line-a'), activeRecipient: ref('+12025550101'),
     sendMessage: input => { assert.equal(input.content, 'message A'); return new Promise(resolve => { complete = resolve }) },
     props: { embeddedCompose: true }, emit() { assert.fail('must not close the edited composer') },
     composingNew: ref(false), scrollToEnd() { assert.fail('must not move a newer conversation') }, t: key => key
   })
   const pending = context.submit()
+  // Typing records an edit for the thread (MessagesView's noteDraftEdit watcher).
   draft.value = 'message B'
+  threadDrafts.edited('thread-a')
   context.composerGeneration += 1
-  // The user also left and re-parked the sent text under another thread switch.
-  threadDrafts.park('thread-a', 'message A')
   complete({ thread: { key: 'thread-a' } })
   await pending
   assert.equal(draft.value, 'message B')
   assert.equal(context.sending.value, false)
-  assert.equal(threadDrafts.peek('thread-a'), '', 'the sent text is never restored')
 })
 
 test('contact transfers fetch every page without resetting the visible contact list', async () => {
