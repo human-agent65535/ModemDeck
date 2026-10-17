@@ -90,6 +90,7 @@ import {
   threadsResource
 } from '../state/workspace'
 import { formatMessageDay, formatMessageTime } from '../utils/format'
+import { ThreadDraftStore } from '../state/threadDrafts'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 import {
   findRecipientThread,
@@ -147,8 +148,8 @@ const selectedRecipientPreferredLineID = ref('')
 const composeContextLineKey = ref(props.contextLineKey)
 const lineFilterKey = ref('all')
 const draft = ref('')
-// Unsent text per conversation, kept for this page session while switching threads.
-const threadDrafts = new Map<string, string>()
+// Unsent text per conversation, kept for this page session while the user is elsewhere.
+const threadDrafts = new ThreadDraftStore()
 const sending = ref(false)
 const sendError = ref('')
 const threadDeleteError = ref('')
@@ -206,11 +207,10 @@ const messageDayBreaks = computed(() => {
   return breaks
 })
 watch(selectedKey, (next, previous) => {
-  if (previous && !composingNew.value) {
-    if (draft.value.trim()) threadDrafts.set(previous, draft.value)
-    else threadDrafts.delete(previous)
-  }
-  if (!composingNew.value) draft.value = next ? threadDrafts.get(next) || '' : ''
+  // Entering the new-message composer parks the thread draft in startMessage().
+  if (composingNew.value) return
+  if (previous) threadDrafts.park(previous, draft.value)
+  draft.value = next ? threadDrafts.take(next) : ''
 })
 const currentMessagePagination = computed(() =>
   selectedThread.value ? messagePaginationFor(selectedThread.value.key) : null
@@ -768,6 +768,7 @@ function onSelectionKeydown(event: KeyboardEvent): void {
 function startMessage(): void {
   if (messageWriteUnavailable.value) return
   composeReturnThreadKey = selectedThread.value?.key || ''
+  if (!composingNew.value) threadDrafts.park(composeReturnThreadKey, draft.value)
   composingNew.value = true
   newRecipient.value = ''
   newRecipientName.value = ''
@@ -829,14 +830,20 @@ async function submit(): Promise<void> {
   sending.value = true
   sendError.value = ''
   const generation = composerGeneration
+  const sentText = draft.value
+  // The conversation whose composer held this text (none while composing new).
+  const draftThreadKey = composingNew.value ? '' : selectedKey.value || ''
   try {
     const replyKey = replyThreadKey.value
     const result = await sendMessage({
       thread_key: replyKey,
       line_id: activeLineID.value,
       to: activeRecipient.value,
-      content: draft.value.trim()
+      content: sentText.trim()
     })
+    // Settle before the generation check: the user may have left this thread
+    // (parking the sent text) or typed something new while it was sending.
+    threadDrafts.settleSent(draftThreadKey, sentText)
     if (generation !== composerGeneration) return
     draft.value = ''
     const sentThread = result.thread

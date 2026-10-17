@@ -1540,16 +1540,27 @@ struct ModemDeckDirectMessageView: View {
         let message = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
         let attempt = sendAttempt
+        let original = content
         sending = true
         Task {
             do {
                 let sent = try await controller.api.sendMessage(lineID: line.id, to: number, content: message, attempt: attempt)
                 sentMessages.append(sent)
-                content = ""
+                // Clear only what was sent; text edited during the send stays.
+                if content == original { content = "" }
                 errorMessage = ""
                 await messagesStore.load()
-                thread = messagesStore.threads.modemDeckThread(lineID: sent.lineId, number: sent.peer) ??
+                let target = messagesStore.threads.modemDeckThread(lineID: sent.lineId, number: sent.peer) ??
                     messagesStore.threads.modemDeckThread(lineID: line.id, number: number)
+                if let target {
+                    // The editor is replaced by the conversation: carry over anything typed
+                    // while the list refreshed so it is not lost.
+                    let draft = messagesStore.draft(for: target.id)
+                    let handedOff = modemDeckHandOffDirectDraft(typed: content, conversationDraft: draft.text)
+                    if handedOff != draft.text { draft.text = handedOff }
+                    content = ""
+                    thread = target
+                }
             } catch {
                 ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription

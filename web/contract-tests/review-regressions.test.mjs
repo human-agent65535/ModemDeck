@@ -6,6 +6,7 @@ import ts from 'typescript'
 import { gateway } from '../src/api/client.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
 import { contactsResource, fetchAllContacts } from '../src/state/workspace.ts'
+import { ThreadDraftStore } from '../src/state/threadDrafts.ts'
 
 function functions(file, names) {
   const source = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8')
@@ -48,8 +49,10 @@ test('microphone replacement stays silent until installed and preserves the late
 test('send completion keeps a newer draft and does not redirect its composer', async () => {
   let complete
   const draft = ref('message A')
+  const threadDrafts = new ThreadDraftStore()
   const context = evaluate(functions('views/MessagesView.vue', ['submit']), {
     draft, composerGeneration: 0, sending: ref(false), sendError: ref(''), sendDisabledReason: ref(''),
+    selectedKey: ref('thread-a'), threadDrafts,
     replyThreadKey: ref('thread-a'), activeLineID: ref('line-a'), activeRecipient: ref('+12025550101'),
     sendMessage: input => { assert.equal(input.content, 'message A'); return new Promise(resolve => { complete = resolve }) },
     props: { embeddedCompose: true }, emit() { assert.fail('must not close the edited composer') },
@@ -58,10 +61,13 @@ test('send completion keeps a newer draft and does not redirect its composer', a
   const pending = context.submit()
   draft.value = 'message B'
   context.composerGeneration += 1
+  // The user also left and re-parked the sent text under another thread switch.
+  threadDrafts.park('thread-a', 'message A')
   complete({ thread: { key: 'thread-a' } })
   await pending
   assert.equal(draft.value, 'message B')
   assert.equal(context.sending.value, false)
+  assert.equal(threadDrafts.peek('thread-a'), '', 'the sent text is never restored')
 })
 
 test('contact transfers fetch every page without resetting the visible contact list', async () => {

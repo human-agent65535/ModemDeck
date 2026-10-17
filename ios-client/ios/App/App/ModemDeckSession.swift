@@ -110,6 +110,7 @@ final class ModemDeckSessionController: ObservableObject {
     private var messageReconnectAttempts = 0
     private var messageReconnectWorkItem: DispatchWorkItem?
     private var messageRefreshTask: Task<Void, Never>?
+    private var messageStreamResync = ModemDeckMessageStreamResync()
     private var runtimeEventGeneration = 0
     private var runtimeReconnectWorkItem: DispatchWorkItem?
     private var runtimeReconnectAttempts = 0
@@ -328,12 +329,18 @@ final class ModemDeckSessionController: ObservableObject {
                 self.messageReconnectAttempts = 0
                 if event == "sms" { self.requestLiveMessageRefresh() }
             },
+            onOpen: { [weak self] in
+                guard let self, generation == self.messageEventGeneration else { return }
+                // The server does not replay SMS that arrived while the stream was down.
+                if self.messageStreamResync.streamEstablished() { self.requestLiveMessageRefresh() }
+            },
             onCompletion: { [weak self] status, _ in
                 guard let self, generation == self.messageEventGeneration else { return }
                 self.messageEventStream = nil
                 // Authentication failures are handled by the runtime stream; a forbidden
                 // stream does not authorize polling instead.
                 guard status != 401, status != 403 else { return }
+                self.messageStreamResync.streamDropped()
                 self.scheduleMessageEventsReconnect()
             }
         )
@@ -364,6 +371,8 @@ final class ModemDeckSessionController: ObservableObject {
         messageReconnectAttempts = 0
         messageRefreshTask?.cancel()
         messageRefreshTask = nil
+        // Stopping is deliberate (background, sign-out); resume runs a full refresh.
+        messageStreamResync.reset()
     }
 
     /// Coalesces bursts of incoming SMS into one list reload; an open conversation reloads
@@ -1434,6 +1443,34 @@ final class ModemDeckContactsStore: ObservableObject {
 }
 
 @MainActor
+/// The incoming-SMS stream only forwards live events, so a stream that dropped and
+/// reconnected must catch up once; a healthy stream's heartbeats never refresh.
+struct ModemDeckMessageStreamResync {
+    private(set) var pending = false
+
+    /// The stream ended unexpectedly and will reconnect.
+    mutating func streamDropped() { pending = true }
+
+    /// A stream was accepted; true exactly once after a drop.
+    mutating func streamEstablished() -> Bool {
+        defer { pending = false }
+        return pending
+    }
+
+    mutating func reset() { pending = false }
+}
+
+/// After a direct send succeeds and the conversation is found, text typed while the
+/// list refreshed moves to that conversation's draft instead of being dropped.
+func modemDeckHandOffDirectDraft(typed: String, conversationDraft: String) -> String {
+    let pending = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !pending.isEmpty else { return conversationDraft }
+    let existing = conversationDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    if existing.isEmpty { return typed }
+    if existing == pending { return conversationDraft }
+    return conversationDraft + "\n" + typed
+}
+
 final class ModemDeckMessageDraft: ObservableObject {
     @Published var text = "" {
         didSet {

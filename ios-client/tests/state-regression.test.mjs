@@ -391,3 +391,35 @@ test('shared native source rings for remote ringing only and audible early media
   const output = await verify('ringback-stubs.swift', [declaration(source, 'private final class ModemDeckRingbackRenderer')])
   assert.match(output, /ringback-ok/)
 })
+
+test('message stream reconnects catch up once and direct-message input survives the conversation handoff', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckSession.swift', import.meta.url), 'utf8')
+  const output = await verify('message-sync-stubs.swift', [
+    'struct ModemDeckMessageStreamResync', 'func modemDeckHandOffDirectDraft('
+  ].map(marker => declaration(source, marker)))
+  assert.equal(output.trim(), 'ok')
+})
+
+test('session and direct-message view wire the resync and draft handoff', async () => {
+  const [session, communication, native] = await Promise.all([
+    readFile(new URL('../ios/App/App/ModemDeckSession.swift', import.meta.url), 'utf8'),
+    readFile(new URL('../ios/App/App/ModemDeckCommunicationViews.swift', import.meta.url), 'utf8'),
+    readFile(new URL('../ios/App/App/ModemDeckNative.swift', import.meta.url), 'utf8')
+  ])
+  const start = declaration(session, 'private func startMessageEvents()')
+  assert.match(start, /onOpen: \{[\s\S]*?messageStreamResync\.streamEstablished\(\)[\s\S]*?requestLiveMessageRefresh\(\)/)
+  assert.match(start, /guard status != 401, status != 403 else \{ return \}\s*\n\s*self\.messageStreamResync\.streamDropped\(\)/)
+  assert.match(start, /if event == "sms" \{ self\.requestLiveMessageRefresh\(\) \}/)
+  assert.doesNotMatch(start, /event == "heartbeat"/)
+  assert.match(declaration(session, 'private func stopMessageEvents()'), /messageStreamResync\.reset\(\)/)
+  assert.match(native, /if accepted \{\s*onOpen\?\(\)/)
+
+  const direct = declaration(communication, 'struct ModemDeckDirectMessageView')
+  const send = declaration(direct, 'private func send()')
+  assert.match(send, /let original = content/)
+  assert.match(send, /if content == original \{ content = "" \}/)
+  assert.ok(
+    send.indexOf('modemDeckHandOffDirectDraft(typed: content') < send.indexOf('thread = target'),
+    'typed text moves to the conversation draft before the editor is replaced'
+  )
+})

@@ -346,6 +346,7 @@ final class ModemDeckRuntimeCallStream: NSObject, URLSessionDataDelegate {
     private let request: URLRequest
     private let onState: StateHandler
     private let onEvent: ((String, Data) -> Void)?
+    private let onOpen: (() -> Void)?
     private let onCompletion: CompletionHandler
     private var session: URLSession?
     private var task: URLSessionDataTask?
@@ -361,11 +362,13 @@ final class ModemDeckRuntimeCallStream: NSObject, URLSessionDataDelegate {
         request: URLRequest,
         onState: @escaping StateHandler = { _ in },
         onEvent: ((String, Data) -> Void)? = nil,
+        onOpen: (() -> Void)? = nil,
         onCompletion: @escaping CompletionHandler
     ) {
         self.request = request
         self.onState = onState
         self.onEvent = onEvent
+        self.onOpen = onOpen
         self.onCompletion = onCompletion
         super.init()
     }
@@ -412,7 +415,9 @@ final class ModemDeckRuntimeCallStream: NSObject, URLSessionDataDelegate {
             .lowercased() ?? ""
         accepted = response.statusCode == 200 && contentType.contains("text/event-stream")
         completionHandler(accepted ? .allow : .cancel)
-        if !accepted {
+        if accepted {
+            onOpen?()
+        } else {
             finish(status: response.statusCode, error: nil)
         }
     }
