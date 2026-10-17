@@ -43,10 +43,15 @@ import { useDurablePageRefresh } from '../composables/useDurablePageRefresh'
 import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import {
+  useMessageComposer,
+  type MessageComposerPresentation
+} from '../composables/useMessageComposer'
+import {
   messageComposeContextFromReference,
   messageComposeRoute,
   messageThreadKeyFromReference,
-  messageThreadRoute
+  messageThreadRoute,
+  type MessageComposeContext
 } from '../router/messageRoute'
 import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
@@ -90,7 +95,6 @@ import {
   threadsResource
 } from '../state/workspace'
 import { formatMessageDay, formatMessageTime } from '../utils/format'
-import { ThreadDraftStore } from '../state/threadDrafts'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 import {
   findRecipientThread,
@@ -140,18 +144,17 @@ const favoriteOnly = ref(
   !props.embeddedCompose &&
   route.query.favorite === '1'
 )
-const composingNew = ref(props.embeddedCompose)
-const newRecipient = ref(props.initialRecipient)
+const composer = useMessageComposer()
+const composingNew = composer.composingNew
+const newRecipient = composer.recipient
 const newRecipientName = ref(props.initialRecipientName)
-const selectedLineKey = ref('')
+const selectedLineKey = composer.lineID
 const selectedRecipientPreferredLineID = ref('')
 const composeContextLineKey = ref(props.contextLineKey)
 const lineFilterKey = ref('all')
-const draft = ref('')
-// Unsent text per conversation, kept for this page session while the user is elsewhere.
-const threadDrafts = new ThreadDraftStore()
-const sending = ref(false)
-const sendError = ref('')
+const draft = composer.text
+const sending = composer.sending
+const sendError = composer.error
 const threadDeleteError = ref('')
 const deletingThreadKey = ref('')
 const messagesViewport = ref<HTMLElement | null>(null)
@@ -185,10 +188,7 @@ const threadArrivals = useListArrivals(
 const embedded = computed(
   () => props.embeddedCompose || Boolean(props.embeddedThreadKey)
 )
-const selectedKey = computed(() =>
-  props.embeddedThreadKey ||
-  messageThreadKeyFromReference(route.params.threadRef)
-)
+const selectedKey = composer.threadKey
 const selectedThread = computed(() =>
   threadsResource.data.find(thread => thread.key === selectedKey.value)
 )
@@ -206,31 +206,6 @@ const messageDayBreaks = computed(() => {
   }
   return breaks
 })
-// Restoring or resetting text is not an edit; only typing advances a thread's revision.
-let restoringDraft = false
-function setComposerDraft(value: string): void {
-  restoringDraft = true
-  try {
-    draft.value = value
-  } finally {
-    restoringDraft = false
-  }
-}
-
-function switchThreadDraft(next: string | undefined, previous: string | undefined): void {
-  // Entering the new-message composer parks the thread draft in startMessage().
-  if (composingNew.value) return
-  if (previous) threadDrafts.park(previous, draft.value)
-  setComposerDraft(next ? threadDrafts.take(next) : '')
-}
-
-function noteDraftEdit(): void {
-  if (restoringDraft || composingNew.value || !selectedKey.value) return
-  threadDrafts.edited(selectedKey.value)
-}
-
-watch(selectedKey, switchThreadDraft)
-watch(draft, noteDraftEdit, { flush: 'sync' })
 const currentMessagePagination = computed(() =>
   selectedThread.value ? messagePaginationFor(selectedThread.value.key) : null
 )
@@ -433,33 +408,50 @@ watch(
   () => syncComposeLine()
 )
 
+function openCompose(contextKey: string, context: MessageComposeContext, restart = false): void {
+  if (!composer.openCompose(contextKey, context.recipient, restart)) return
+  newRecipientName.value = context.name
+  selectedRecipientPreferredLineID.value = ''
+  composeContextLineKey.value = context.lineKey
+  lineSelectionOverridden = false
+  syncComposeLine(true)
+}
+
 watch(
-  () => [route.params.threadRef, route.query.compose] as const,
-  ([, compose]) => {
-    if (embedded.value) return
+  [
+    () => route.params.threadRef, () => route.query.compose,
+    () => props.embeddedCompose, () => props.embeddedThreadKey,
+    () => props.initialRecipient, () => props.initialRecipientName,
+    () => props.contextLineKey
+  ],
+  () => {
+    if (props.embeddedCompose) {
+      const context = {
+        recipient: props.initialRecipient,
+        name: props.initialRecipientName,
+        lineKey: props.contextLineKey
+      }
+      openCompose(`embedded:${JSON.stringify([context.recipient, context.lineKey])}`, context)
+      return
+    }
+    if (props.embeddedThreadKey) {
+      composer.openThread(props.embeddedThreadKey)
+      return
+    }
     const hasCompose = Object.prototype.hasOwnProperty.call(
       route.query,
       'compose'
     )
     const context = hasCompose
-      ? messageComposeContextFromReference(compose)
+      ? messageComposeContextFromReference(route.query.compose)
       : undefined
     if (context) {
-      composingNew.value = true
-      newRecipient.value = context.recipient
-      newRecipientName.value = context.name
-      selectedRecipientPreferredLineID.value = ''
-      composeContextLineKey.value = context.lineKey
-      lineSelectionOverridden = false
-      syncComposeLine(true)
-      sendError.value = ''
+      openCompose(`route:${String(route.query.compose || '')}`, context)
       return
     }
-    composingNew.value = false
-    selectedRecipientPreferredLineID.value = ''
-    composeContextLineKey.value = ''
+    composer.openThread(messageThreadKeyFromReference(route.params.threadRef))
   },
-  { immediate: true }
+  { immediate: true, flush: 'sync' }
 )
 
 watch(
@@ -486,12 +478,7 @@ watch([search, lineFilterKey], () => selection.clear())
 watch(filteredThreads, threads => selection.reconcile(threads))
 
 watch(
-  () =>
-    [
-      selectedKey.value,
-      selectedThread.value?.key || '',
-      composingNew.value
-    ] as const,
+  [selectedKey, () => selectedThread.value?.key || '', composingNew],
   () => {
     if (composingNew.value || !selectedKey.value) return
     const thread = selectedThread.value
@@ -529,8 +516,9 @@ watch(
   }
 )
 
-function scrollToEnd(): void {
+function scrollToEnd(presentation: MessageComposerPresentation): void {
   void nextTick(() => {
+    if (!composer.isCurrent(presentation)) return
     scrollMessageViewportToEnd()
     updateMessageViewportPosition()
   })
@@ -557,7 +545,9 @@ function messageDocumentIsReadable(): boolean {
 }
 
 async function reconcileRenderedMessages(followLatest: boolean): Promise<void> {
+  const presentation = composer.presentation()
   await nextTick()
+  if (!composer.isCurrent(presentation)) return
   if (followLatest && messageDocumentIsReadable()) {
     scrollMessageViewportToEnd()
   }
@@ -569,10 +559,13 @@ async function openThread(thread: MessageThread): Promise<void> {
   // A cached conversation is only a rendering optimization. Reopening a
   // thread always reads the database so hidden caches never need invalidation
   // state of their own.
+  const presentation = composer.presentation()
   const messages = await loadMessages(thread, true)
-  if (!messages || composingNew.value || selectedKey.value !== thread.key) return
+  if (!messages || composingNew.value || selectedKey.value !== thread.key ||
+    !composer.isCurrent(presentation)) return
 
   await nextTick()
+  if (!composer.isCurrent(presentation)) return
   scrollMessageViewportToEnd()
   updateMessageViewportPosition()
   await acknowledgeSelectedThreadRead(true)
@@ -608,9 +601,11 @@ async function loadOlderMessages(): Promise<void> {
   if (!thread || !viewport) return
   const previousHeight = viewport.scrollHeight
   const previousTop = viewport.scrollTop
+  const presentation = composer.presentation()
   await loadMoreMessages(thread)
-  if (selectedThread.value?.key !== thread.key) return
+  if (!composer.isCurrent(presentation)) return
   await nextTick()
+  if (!composer.isCurrent(presentation)) return
   const currentViewport = messagesViewport.value
   if (!currentViewport) return
   currentViewport.scrollTop =
@@ -658,9 +653,8 @@ function retryThreadRead(): void {
 
 function chooseThread(key: string): void {
   manuallyUnreadThreadKeys.value.delete(key)
-  composingNew.value = false
+  composer.openThread(key)
   composeReturnThreadKey = ''
-  sendError.value = ''
   void router.push(messageThreadRoute(key, messageFilterQuery()))
 }
 
@@ -682,6 +676,7 @@ async function removeThread(thread: MessageThread): Promise<void> {
       if (embedded.value) emit('close')
       else await router.replace({ name: 'messages', query: messageFilterQuery() })
     }
+    composer.forgetThread(thread.key)
   } catch (error) {
     threadDeleteError.value =
       userErrorMessage(error, t('messages.deleteFailed'))
@@ -767,6 +762,7 @@ async function batchDelete(): Promise<void> {
     if (deletedKeys.has(selectedKey.value)) {
       await router.replace({ name: 'messages', query: messageFilterQuery() })
     }
+    for (const key of deletedKeys) composer.forgetThread(key)
     selection.exit()
   } catch (error) {
     threadDeleteError.value =
@@ -787,16 +783,7 @@ function onSelectionKeydown(event: KeyboardEvent): void {
 function startMessage(): void {
   if (messageWriteUnavailable.value) return
   composeReturnThreadKey = selectedThread.value?.key || ''
-  if (!composingNew.value) threadDrafts.park(composeReturnThreadKey, draft.value)
-  composingNew.value = true
-  newRecipient.value = ''
-  newRecipientName.value = ''
-  selectedRecipientPreferredLineID.value = ''
-  composeContextLineKey.value = ''
-  lineSelectionOverridden = false
-  syncComposeLine(true)
-  draft.value = ''
-  sendError.value = ''
+  openCompose('route:', { recipient: '', name: '', lineKey: '' }, true)
   void router.push(
     messageComposeRoute(
       { recipient: '', name: '', lineKey: '' },
@@ -823,13 +810,12 @@ function editRecipient(value: string): void {
 
 function backToList(): void {
   if (embedded.value) {
-    draft.value = ''
-    sendError.value = ''
+    composer.close()
     emit('close')
     return
   }
-  composingNew.value = false
   const destination = messageReturnRoute(composeReturnThreadKey)
+  composer.openThread(composeReturnThreadKey)
   composeReturnThreadKey = ''
   void router.push({ ...destination, query: messageFilterQuery() })
 }
@@ -841,56 +827,40 @@ function viewExistingRecipientThread(): void {
 
 function changeSendingLine(): void {
   if (composingNew.value) lineSelectionOverridden = true
-  sendError.value = ''
 }
 
 async function submit(): Promise<void> {
   if (sendDisabledReason.value || sending.value) return
-  sending.value = true
-  sendError.value = ''
-  const generation = composerGeneration
-  const sentText = draft.value
-  // The conversation whose composer held this text (none while composing new).
-  const draftThreadKey = composingNew.value ? '' : selectedKey.value || ''
-  const sentRevision = threadDrafts.revision(draftThreadKey)
+  const replyKey = replyThreadKey.value
+  const send = composer.beginSend({
+    thread_key: replyKey,
+    line_id: activeLineID.value,
+    to: activeRecipient.value
+  })
+  if (!send) return
+  let result: Awaited<ReturnType<typeof sendMessage>>
   try {
-    const replyKey = replyThreadKey.value
-    const result = await sendMessage({
-      thread_key: replyKey,
-      line_id: activeLineID.value,
-      to: activeRecipient.value,
-      content: sentText.trim()
-    })
-    // Settle before the generation check, which also trips on navigation: if the
-    // thread still holds the sent version (parked, or back in the composer after
-    // visiting another thread) it is cleared; a later edit is kept.
-    if (
-      threadDrafts.settleSent(draftThreadKey, sentRevision) &&
-      !composingNew.value &&
-      selectedKey.value === draftThreadKey
-    ) {
-      setComposerDraft('')
-    }
-    if (generation !== composerGeneration) return
-    draft.value = ''
-    const sentThread = result.thread
-    if (props.embeddedCompose) {
-      emit('sent', sentThread?.key)
-      return
-    }
-    if (sentThread && (composingNew.value || sentThread.key !== replyKey)) {
-      composingNew.value = false
-      await router.replace(
-        messageThreadRoute(sentThread.key, messageFilterQuery())
-      )
-      await loadMessages(sentThread)
-    }
-    scrollToEnd()
+    result = await sendMessage(send.input)
   } catch (error) {
-    sendError.value = userErrorMessage(error, t('messages.sendFailed'))
-  } finally {
-    sending.value = false
+    composer.fail(send, userErrorMessage(error, t('messages.sendFailed')))
+    return
   }
+  if (!composer.succeed(send)) return
+  const sentThread = result.thread
+  if (props.embeddedCompose) {
+    emit('sent', sentThread?.key)
+    return
+  }
+  if (sentThread && (composingNew.value || sentThread.key !== replyKey)) {
+    // Activate the destination before navigation can suspend: any next input
+    // already belongs to that conversation. The route reuses this same draft.
+    composer.openThread(sentThread.key)
+    await router.replace(
+      messageThreadRoute(sentThread.key, messageFilterQuery())
+    )
+    return
+  }
+  scrollToEnd(send)
 }
 
 function resizeComposer(): void {
@@ -957,16 +927,12 @@ onMounted(() => {
   void nextTick(resizeComposer)
 })
 
-let composerGeneration = 0
-watch([draft, activeRecipient, activeLineID], () => {
-  composerGeneration += 1
-}, { flush: 'sync' })
-
 watch(draft, () => {
   void nextTick(resizeComposer)
 })
 
 onBeforeUnmount(() => {
+  composer.dispose()
   window.removeEventListener('keydown', onSelectionKeydown)
   window.removeEventListener('focus', onMessageWindowFocus)
   document.removeEventListener(
