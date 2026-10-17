@@ -142,7 +142,7 @@ function onLineChange(id: string, event: Event): void {
 .settings-line-scope-option:has(input:focus-visible) {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgb(17 120 100 / 12%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .settings-line-scope-option__check {

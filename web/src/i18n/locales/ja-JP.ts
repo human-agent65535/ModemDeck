@@ -935,6 +935,9 @@ export default {
     "activityMissingDetail": "リストに戻って別のアクティビティを選択します"
   },
   "traffic": {
+    "shareTitle": "今月の回線別通信量",
+    "downloadShort": "↓ {value}",
+    "uploadShort": "↑ {value}",
     "lineFallback": "行 {suffix}",
     "unknownLine": "不明な回線",
     "runtimeStale": "ランタイムステータスがまだ更新されていません",

@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
   padding: var(--space-5);
   overflow: hidden;
   place-items: center;
-  background: rgb(16 24 40 / 46%);
+  background: rgb(var(--shadow-color) / 46%);
   backdrop-filter: blur(1.5px);
 }
 

@@ -935,6 +935,9 @@ export default {
     "activityMissingDetail": "Volver a la lista y seleccionar otra actividad"
   },
   "traffic": {
+    "shareTitle": "Este mes por línea",
+    "downloadShort": "↓ {value}",
+    "uploadShort": "↑ {value}",
     "lineFallback": "Línea {suffix}",
     "unknownLine": "linea desconocida",
     "runtimeStale": "El estado del tiempo de ejecución aún no se ha actualizado",

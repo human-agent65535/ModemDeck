@@ -37,7 +37,7 @@ withDefaults(
   flex-basis: 10px;
   border: 2px solid var(--surface);
   box-shadow:
-    0 0 0 1px rgb(12 98 79 / 52%),
-    0 1px 2px rgb(16 24 40 / 18%);
+    0 0 0 1px color-mix(in srgb, var(--accent) 52%, transparent),
+    0 1px 2px rgb(var(--shadow-color) / 18%);
 }
 </style>

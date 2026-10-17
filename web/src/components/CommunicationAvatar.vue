@@ -94,7 +94,7 @@ const badgeIconSize = computed(() => {
   background: var(--accent-soft);
   border: 2px solid var(--surface);
   border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 14%);
+  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 14%);
 }
 
 .communication-avatar--call .communication-avatar__badge {

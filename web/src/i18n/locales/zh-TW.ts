@@ -951,6 +951,9 @@ export default {
     activityMissingDetail: '返回列表選擇其他通訊活動'
   },
   traffic: {
+    shareTitle: '本月各線路流量',
+    downloadShort: '↓ {value}',
+    uploadShort: '↑ {value}',
     lineFallback: '線路 {suffix}',
     unknownLine: '未知線路',
     runtimeStale: '執行狀態暫未更新',

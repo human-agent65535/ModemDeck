@@ -18,7 +18,7 @@
   background: linear-gradient(
     90deg,
     transparent,
-    rgb(255 255 255 / 68%),
+    color-mix(in srgb, var(--surface) 68%, transparent),
     transparent
   );
   animation: skeleton-block-shimmer 1.25s ease-in-out infinite;

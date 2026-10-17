@@ -70,9 +70,9 @@ const emit = defineEmits<{
   gap: 4px;
   padding: 7px 10px;
   overflow: hidden;
-  background: rgb(255 255 255 / 97%);
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
   border-top: 1px solid var(--border);
-  box-shadow: 0 -6px 18px rgb(16 24 40 / 7%);
+  box-shadow: 0 -6px 18px rgb(var(--shadow-color) / 7%);
 }
 
 .batch-action-bar > strong {

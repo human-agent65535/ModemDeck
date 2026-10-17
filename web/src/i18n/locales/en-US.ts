@@ -977,6 +977,9 @@ export default {
     activityMissingDetail: 'Return to the list and select another activity'
   },
   traffic: {
+    shareTitle: 'This month by line',
+    downloadShort: '↓ {value}',
+    uploadShort: '↑ {value}',
     lineFallback: 'Line {suffix}',
     unknownLine: 'Unknown line',
     runtimeStale: 'Runtime status has not updated yet',

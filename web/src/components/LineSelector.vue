@@ -469,7 +469,7 @@ onBeforeUnmount(() => {
 .line-selector.is-open .line-selector__control {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgb(17 120 100 / 12%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .line-selector__option-copy small > em {
@@ -502,7 +502,7 @@ onBeforeUnmount(() => {
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  box-shadow: 0 14px 32px rgb(24 39 55 / 18%);
+  box-shadow: 0 14px 32px rgb(var(--shadow-color) / 18%);
 }
 
 .line-selector__options.is-up {

@@ -1092,7 +1092,7 @@ onBeforeUnmount(() => {
 .call-button--answer:disabled {
   color: var(--accent);
   background: var(--accent-soft);
-  border: 1px solid rgb(17 120 100 / 24%);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
   opacity: 1;
 }
 

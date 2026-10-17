@@ -935,6 +935,9 @@ export default {
     "activityMissingDetail": "Quay lại danh sách và chọn hoạt động khác"
   },
   "traffic": {
+    "shareTitle": "Tháng này theo đường dây",
+    "downloadShort": "↓ {value}",
+    "uploadShort": "↑ {value}",
     "lineFallback": "Đường dây {suffix}",
     "unknownLine": "Đường dây không xác định",
     "runtimeStale": "Trạng thái thời gian chạy chưa được cập nhật",

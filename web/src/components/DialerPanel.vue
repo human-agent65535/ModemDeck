@@ -892,7 +892,7 @@ onBeforeUnmount(() => {
 
 .dialer-number-entry :deep(.suggest-input__field:focus-within) {
   color: var(--accent);
-  background: rgb(17 120 100 / 4%);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 
 .dialer-number-entry :deep(.suggest-input__field > svg) {
@@ -928,7 +928,7 @@ onBeforeUnmount(() => {
 .dialer-number-control.is-invalid :deep(.suggest-input__field),
 .dialer-number-control.is-invalid :deep(.suggest-input__field:focus-within) {
   border-color: var(--danger);
-  box-shadow: 0 0 0 3px rgb(196 53 74 / 11%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 11%, transparent);
 }
 
 .dialer-number-entry :deep(.suggest-menu) {
@@ -975,7 +975,7 @@ onBeforeUnmount(() => {
   margin: 9px auto 0;
   padding: 5px 11px 5px 6px;
   background: var(--accent-soft);
-  border: 1px solid rgb(17 120 100 / 12%);
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, transparent);
   border-radius: 999px;
 }
 

@@ -13,6 +13,7 @@ import ProxyCard from '../components/ProxyCard.vue'
 import ProxyEditorModal from '../components/ProxyEditorModal.vue'
 import StatePanel from '../components/StatePanel.vue'
 import TrafficLineCard from '../components/TrafficLineCard.vue'
+import TrafficShareChart, { type TrafficShareSegment } from '../components/TrafficShareChart.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
 import LoadingSkeletonBoundary from '../components/skeletons/LoadingSkeletonBoundary.vue'
 import TrafficSkeleton from '../components/skeletons/TrafficSkeleton.vue'
@@ -28,6 +29,7 @@ import {
   type ProxyDraft
 } from '../state/network'
 import { bootstrapResource, lineLabel, loadBootstrap } from '../state/workspace'
+import { lineTone } from '../utils/lineTone'
 
 const { t } = useI18n()
 const selectedLineID = ref('all')
@@ -113,6 +115,19 @@ function periodTotal(period: 'today' | 'month'): number {
     .filter(item => item.scope_kind === 'line' && visibleLineIDs.value.has(item.scope_id))
     .reduce((total, item) => total + item.rx_bytes + item.tx_bytes, 0)
 }
+
+const monthShare = computed<TrafficShareSegment[]>(() =>
+  visibleLines.value.map(line => {
+    const usage = usageFor('month', 'line', stableLineID(line))
+    return {
+      id: stableLineID(line),
+      label: lineLabel(line),
+      color: lineTone(line).dot,
+      rx: usage?.rx_bytes || 0,
+      tx: usage?.tx_bytes || 0
+    }
+  })
+)
 
 const todayTotal = computed(() => periodTotal('today'))
 const monthTotal = computed(() => periodTotal('month'))
@@ -284,6 +299,8 @@ onMounted(() => {
           :running-proxies="runningProxyCount"
           :total-proxies="visibleProxies.length"
         />
+
+        <TrafficShareChart v-if="selectedLineID === 'all' && visibleLines.length > 1" :segments="monthShare" />
 
         <nav class="traffic-line-filter" :aria-label="t('traffic.filterLines')">
           <button

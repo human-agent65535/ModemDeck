@@ -168,7 +168,7 @@ function handleDrop(event: DragEvent): void {
 .file-drop-control__surface:focus-visible {
   border-color: var(--accent);
   outline: 0;
-  box-shadow: 0 0 0 3px rgb(17 120 100 / 20%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .file-drop-control.has-file .file-drop-control__surface {

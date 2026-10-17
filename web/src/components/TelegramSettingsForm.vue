@@ -1046,7 +1046,7 @@ onMounted(() => {
 }
 
 .telegram-access-options label:has(input:focus-visible) {
-  outline: 3px solid rgb(17 120 100 / 14%);
+  outline: 3px solid color-mix(in srgb, var(--accent) 14%, transparent);
   outline-offset: 1px;
 }
 
@@ -1126,7 +1126,7 @@ onMounted(() => {
 }
 
 .telegram-event-options label:has(input:focus-visible) {
-  outline: 3px solid rgb(17 120 100 / 14%);
+  outline: 3px solid color-mix(in srgb, var(--accent) 14%, transparent);
   outline-offset: 1px;
 }
 

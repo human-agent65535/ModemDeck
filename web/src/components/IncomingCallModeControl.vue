@@ -270,7 +270,7 @@ onBeforeUnmount(() => {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
-  box-shadow: 0 12px 32px rgb(16 24 40 / 16%);
+  box-shadow: 0 12px 32px rgb(var(--shadow-color) / 16%);
 }
 
 .incoming-call-mode__menu > header {

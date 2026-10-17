@@ -135,5 +135,5 @@ test('unread missed calls have a visible and accessible unread mark', () => {
     /<ListItemAvatarStatus[\s\S]*?:unread-label="[\s\S]*?thread\.unread_count > 0[\s\S]*?t\('messages\.unreadCount'/
   )
   assert.match(unreadDot, /background: var\(--accent\)/)
-  assert.match(unreadDot, /0 0 0 1px rgb\(12 98 79 \/ 52%\)/)
+  assert.match(unreadDot, /0 0 0 1px color-mix\(in srgb, var\(--accent\) 52%, transparent\)/)
 })

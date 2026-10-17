@@ -3261,7 +3261,7 @@ onMounted(() => {
 .ip-mode-options input:checked + span {
   color: var(--text);
   background: var(--surface);
-  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
+  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 12%);
 }
 
 .ip-mode-options input:focus-visible + span {
@@ -3415,7 +3415,7 @@ onMounted(() => {
   pointer-events: none;
   background: var(--surface);
   border-radius: 4px;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
+  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 12%);
   transition: transform var(--motion-base) var(--ease-standard);
 }
 
@@ -3816,7 +3816,7 @@ onMounted(() => {
   pointer-events: none;
   background: var(--surface);
   border-radius: 4px;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
+  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 12%);
   transform: translateX(0);
   transition: transform var(--motion-base) var(--ease-standard);
 }

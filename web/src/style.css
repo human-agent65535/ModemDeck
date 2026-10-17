@@ -159,7 +159,7 @@
   --mobile-nav-height: calc(
     var(--mobile-nav-content-height) + env(safe-area-inset-bottom)
   );
-  color-scheme: light;
+  color-scheme: light dark;
   font-family:
     system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -357,7 +357,7 @@ strong {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgb(16 24 40 / 8%);
+  box-shadow: 0 8px 24px rgb(var(--shadow-color) / 8%);
 }
 
 .login-panel > header {
@@ -1064,7 +1064,7 @@ strong {
   gap: 9px;
   padding: 0 11px;
   color: var(--muted);
-  background: #f0f2f5;
+  background: var(--control-muted);
   border: 1px solid transparent;
   border-radius: 8px;
 }
@@ -1319,6 +1319,98 @@ textarea::placeholder {
 .avatar--palette-5 { background: #f7e8eb; }
 .avatar--palette-6 { background: #edf0df; }
 .avatar--palette-7 { background: #eee9df; }
+
+/*
+ * Dark theme follows the system setting. Values come from the native iOS dark
+ * palette so both clients share one look; components only read tokens.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #101512;
+    --surface: #1c2420;
+    --surface-subtle: #171e1a;
+    --surface-hover: #29332d;
+    --surface-selected: #244238;
+    --text: #ebf0ed;
+    --muted: #afbdb4;
+    --muted-strong: #c8d3cc;
+    --faint: #9baaa1;
+    --border: #2c3631;
+    --border-strong: #3d4a43;
+    --accent: #85d4b8;
+    --accent-strong: #a5e3cc;
+    --accent-soft: #1f3a31;
+    --accent-border: #2e5a4b;
+    --accent-border-strong: #3b6f5d;
+    --success: #7fd6a8;
+    --success-soft: #1b3326;
+    --success-border: #2b5039;
+    --success-border-strong: #376547;
+    --blue: #8cb8ec;
+    --blue-soft: #1d2a3a;
+    --warning: #f2c46b;
+    --warning-strong: #f7d58f;
+    --warning-soft: #3a2e14;
+    --warning-border: #5c4820;
+    --favorite: #f5b94a;
+    --favorite-border: #8a6a2a;
+    --danger: #ff9b9e;
+    --danger-strong: #ffb8ba;
+    --danger-soft: #3a1f23;
+    --danger-border: #5a2e33;
+    --danger-border-strong: #6b363c;
+    --on-accent: #103328;
+    --call-end: #d03a47;
+    --call-end-strong: #b23240;
+    --call-answer: #1c874b;
+    --call-answer-strong: #18733f;
+    --control-muted: #29332d;
+    --skeleton: #242d28;
+    --surface-sunken: #151b18;
+    --shadow-color: 0 0 0;
+    --line-teal-fg: #7fd3c6;
+    --line-teal-bg: #173430;
+    --line-teal-border: #2d6159;
+    --line-teal-dot: #4fb5a5;
+    --line-blue-fg: #9cc3f0;
+    --line-blue-bg: #18283a;
+    --line-blue-border: #33507a;
+    --line-blue-dot: #6e9fdc;
+    --line-indigo-fg: #aab1f0;
+    --line-indigo-bg: #1e2240;
+    --line-indigo-border: #3c4486;
+    --line-indigo-dot: #7e87e0;
+    --line-violet-fg: #d4a8ea;
+    --line-violet-bg: #2c1d36;
+    --line-violet-border: #5e3a74;
+    --line-violet-dot: #b27fd0;
+    --line-green-fg: #a8d68f;
+    --line-green-bg: #1d2c17;
+    --line-green-border: #3e6330;
+    --line-green-dot: #7fb862;
+    --line-amber-fg: #f2cc6b;
+    --line-amber-bg: #33290f;
+    --line-amber-border: #6b5520;
+    --line-amber-dot: #d9a92e;
+    --line-orange-fg: #f5b07f;
+    --line-orange-bg: #3a2414;
+    --line-orange-border: #7a4626;
+    --line-orange-dot: #e08648;
+    --line-red-fg: #f5a397;
+    --line-red-bg: #3a1d19;
+    --line-red-border: #7a362d;
+    --line-red-dot: #e06f5f;
+  }
+
+  .avatar--palette-0 { background: #22324a; }
+  .avatar--palette-1 { background: #1f3a2c; }
+  .avatar--palette-2 { background: #45301f; }
+  .avatar--palette-3 { background: #36263f; }
+  .avatar--palette-4 { background: #1d3a3d; }
+  .avatar--palette-5 { background: #43262c; }
+  .avatar--palette-6 { background: #353a20; }
+  .avatar--palette-7 { background: #3a3224; }
+}
 
 .avatar--small {
   width: 34px;
@@ -1867,7 +1959,7 @@ dd {
 }
 
 .message-row--outgoing .message-bubble span {
-  color: rgb(255 255 255 / 78%);
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
 }
 
 .new-message-empty {
@@ -2057,7 +2149,7 @@ dd {
   align-items: flex-end;
   justify-content: flex-end;
   padding: 20px;
-  background: rgb(16 24 40 / 18%);
+  background: rgb(var(--shadow-color) / 18%);
 }
 
 .dialer-panel {
@@ -2788,7 +2880,7 @@ dd {
   background: var(--surface);
   border: 2px solid var(--accent-strong);
   border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 16%);
+  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 16%);
 }
 
 .ui-range::-moz-range-track {
@@ -2809,12 +2901,12 @@ dd {
   background: var(--surface);
   border: 2px solid var(--accent-strong);
   border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 16%);
+  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 16%);
 }
 
 .ui-range:focus-visible {
   box-shadow: none;
-  outline: 3px solid rgb(17 120 100 / 18%);
+  outline: 3px solid color-mix(in srgb, var(--accent) 18%, transparent);
   outline-offset: 2px;
 }
 
@@ -2896,7 +2988,7 @@ dd {
 
 .ui-check:focus-visible,
 .ui-radio:focus-visible {
-  box-shadow: 0 0 0 3px rgb(17 120 100 / 18%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .ui-check:disabled,
@@ -2941,7 +3033,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
   margin: 0;
   -webkit-appearance: none;
   appearance: none;
-  background: #d8dde2;
+  background: var(--border-strong);
   border: 0;
   border-radius: calc(var(--ui-switch-height) / 2);
   cursor: pointer;
@@ -2957,7 +3049,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
   content: "";
   background: var(--surface);
   border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 20%);
+  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 20%);
   transition: transform var(--motion-base) var(--ease-standard);
 }
 
@@ -2970,7 +3062,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
 }
 
 .ui-switch:focus-visible {
-  outline: 3px solid rgb(17 120 100 / 18%);
+  outline: 3px solid color-mix(in srgb, var(--accent) 18%, transparent);
   outline-offset: 2px;
 }
 
@@ -3342,7 +3434,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     grid-template-columns: repeat(3, minmax(0, 1fr)) 62px repeat(3, minmax(0, 1fr));
     grid-template-rows: 100%;
     padding-bottom: env(safe-area-inset-bottom);
-    background: rgb(255 255 255 / 96%);
+    background: color-mix(in srgb, var(--surface) 96%, transparent);
     border-top: 1px solid var(--border);
   }
 
@@ -3410,7 +3502,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     background: var(--accent);
     border: 4px solid var(--surface);
     border-radius: 50%;
-    box-shadow: 0 5px 14px rgb(16 24 40 / 20%);
+    box-shadow: 0 5px 14px rgb(var(--shadow-color) / 20%);
     transform: translateY(-11px);
   }
 
@@ -3510,7 +3602,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     background: var(--accent);
     border: 0;
     border-radius: 50%;
-    box-shadow: 0 6px 18px rgb(16 24 40 / 22%);
+    box-shadow: 0 6px 18px rgb(var(--shadow-color) / 22%);
     transform-origin: center;
     transition:
       opacity var(--motion-base) var(--ease-standard),

@@ -349,7 +349,7 @@ watch(
 .proxy-segmented button.is-selected {
   color: var(--accent-strong);
   background: var(--surface);
-  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
+  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 12%);
 }
 
 .proxy-modal__error {

@@ -57,7 +57,7 @@ const message = computed(() =>
   gap: var(--space-3);
   padding: 8px 8px 8px 16px;
   color: var(--text);
-  background: rgb(255 255 255 / 98%);
+  background: color-mix(in srgb, var(--surface) 98%, transparent);
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-surface);
   box-shadow: var(--shadow-lg);

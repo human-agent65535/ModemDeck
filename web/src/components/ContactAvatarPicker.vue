@@ -177,7 +177,7 @@ function removeAvatar(): void {
 .contact-avatar-picker__target:focus-visible,
 .contact-avatar-picker__target.is-dragging {
   border-color: var(--accent);
-  box-shadow: 0 0 0 4px rgb(17 120 100 / 13%);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 
 .contact-avatar-picker__target.is-dragging {
@@ -199,7 +199,7 @@ function removeAvatar(): void {
   display: grid;
   place-items: center;
   color: var(--on-accent);
-  background: rgb(15 23 42 / 46%);
+  background: rgb(var(--shadow-color) / 46%);
   border-radius: 50%;
   opacity: 0;
   transition: opacity var(--motion-base) var(--ease-standard);
@@ -219,7 +219,7 @@ function removeAvatar(): void {
   width: 28px;
   height: 28px;
   background: var(--accent);
-  box-shadow: 0 2px 7px rgb(15 23 42 / 22%);
+  box-shadow: 0 2px 7px rgb(var(--shadow-color) / 22%);
   opacity: 1;
 }
 
@@ -231,7 +231,7 @@ function removeAvatar(): void {
   color: var(--on-accent);
   font-size: 12px;
   font-weight: 700;
-  background: rgb(15 23 42 / 64%);
+  background: rgb(var(--shadow-color) / 64%);
   border-radius: 50%;
 }
 

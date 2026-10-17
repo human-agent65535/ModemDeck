@@ -951,6 +951,9 @@ export default {
     activityMissingDetail: '返回列表选择其他通信活动'
   },
   traffic: {
+    shareTitle: '本月各线路流量',
+    downloadShort: '↓ {value}',
+    uploadShort: '↑ {value}',
     lineFallback: '线路 {suffix}',
     unknownLine: '未知线路',
     runtimeStale: '运行状态暂未更新',

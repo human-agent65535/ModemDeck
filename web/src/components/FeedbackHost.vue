@@ -64,7 +64,7 @@ function iconFor(tone: FeedbackTone): typeof CircleCheck {
   gap: 10px;
   padding: 10px 10px 10px 14px;
   color: var(--text);
-  background: rgb(255 255 255 / 98%);
+  background: color-mix(in srgb, var(--surface) 98%, transparent);
   border: 1px solid var(--border);
   border-left: 4px solid var(--accent);
   border-radius: 10px;

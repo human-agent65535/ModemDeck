@@ -935,6 +935,9 @@ export default {
     "activityMissingDetail": "Kehren Sie zur Liste zurück und wählen Sie eine andere Aktivität aus"
   },
   "traffic": {
+    "shareTitle": "Dieser Monat nach Leitung",
+    "downloadShort": "↓ {value}",
+    "uploadShort": "↑ {value}",
     "lineFallback": "Zeile {suffix}",
     "unknownLine": "Unbekannte Zeile",
     "runtimeStale": "Der Laufzeitstatus wurde noch nicht aktualisiert",

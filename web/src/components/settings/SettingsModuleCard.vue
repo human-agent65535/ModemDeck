@@ -101,7 +101,7 @@ const headingTag = computed(() => `h${props.headingLevel}`)
   font-size: var(--text-lg);
   font-weight: 750;
   background: linear-gradient(145deg, var(--accent), var(--accent-strong));
-  box-shadow: 0 6px 18px rgb(11 120 102 / 18%);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .settings-module-card__icon--warning {
