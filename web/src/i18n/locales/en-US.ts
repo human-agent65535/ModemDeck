@@ -69,6 +69,7 @@ export default {
     password: 'Password',
     protocol: 'Protocol',
     yesterday: 'Yesterday',
+    today: 'Today',
     listSeparator: '; ',
     durationSeconds: '{count} sec'
   },
@@ -1020,6 +1021,7 @@ export default {
     passwordRequired: 'Enter a password'
   },
   recordings: {
+    detailPlaceholder: 'Choose a recording to play it and see its call',
     lineFilter: 'Recording line',
     allLines: 'All lines',
     allLinesDescription: 'Show recordings from every modem',

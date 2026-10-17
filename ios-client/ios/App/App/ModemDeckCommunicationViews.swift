@@ -2218,7 +2218,9 @@ struct ModemDeckMessageThreadRow: View {
                 }
                 HStack(spacing: 7) {
                     if let line, (controller.bootstrap?.lineCatalog.count ?? 0) > 1 {
-                        ModemDeckLineTag(line: line)
+                        ModemDeckLineTag(line: line, compact: true)
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.mdMuted)
                     }
                     Text(thread.lastContent ?? "")
                         .font(.footnote.weight(unread ? .medium : .regular))
@@ -2435,7 +2437,7 @@ struct ModemDeckConversationView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 8) {
+                        LazyVStack(spacing: 0) {
                             if store.hasMore {
                                 Button {
                                     loadOlder(using: proxy)
@@ -2450,6 +2452,7 @@ struct ModemDeckConversationView: View {
                                 .foregroundColor(.mdAccent)
                                 .frame(minHeight: 38)
                                 .disabled(store.loadingOlder)
+                                .padding(.bottom, 8)
                             }
                             if store.messages.isEmpty {
                                 ModemDeckStateView(
@@ -2459,6 +2462,7 @@ struct ModemDeckConversationView: View {
                                 )
                             }
                             ForEach(Array(store.messages.enumerated()), id: \.element.id) { index, message in
+                                let joinsPrevious = joinsPreviousMessage(at: index)
                                 VStack(spacing: 8) {
                                     if showsDateDivider(at: index) {
                                         dateDivider(for: message)
@@ -2471,9 +2475,13 @@ struct ModemDeckConversationView: View {
                                         controller: controller,
                                         timestampReveal: timestampReveal,
                                         showsDeliveryStatus: message.id == lastOutgoingMessageID ||
-                                            message.deliveryStatus?.lowercased() == "failed"
+                                            message.deliveryStatus?.lowercased() == "failed",
+                                        joinsPrevious: joinsPrevious,
+                                        joinsNext: joinsPreviousMessage(at: index + 1)
                                     )
                                 }
+                                // Grouped bubbles sit close; a new speaker or day opens a gap.
+                                .padding(.top, index == 0 ? 0 : (joinsPrevious ? 2 : 10))
                                 .id(message.id)
                             }
                             Color.clear
@@ -2553,17 +2561,18 @@ struct ModemDeckConversationView: View {
                 .background(Color.mdSurface)
                 .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
             } else {
-                HStack(alignment: .bottom, spacing: 10) {
+                let canSend = !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    !store.sending && controller.isOnline
+                // Chat-style composer: the send button lives inside the rounded field.
+                HStack(alignment: .bottom, spacing: 6) {
                     TextField(
                         controller.text("短信内容", "Message"),
                         text: $draft.text,
                         axis: .vertical
                     )
                         .lineLimit(1...5)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 42)
-                        .background(Color.mdSurfaceHover)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(.leading, 14)
+                        .padding(.vertical, 9)
                     Button {
                         let value = draft.text
                         let revision = draft.revision
@@ -2575,18 +2584,32 @@ struct ModemDeckConversationView: View {
                             }
                         }
                     } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.mdAccent)
+                        Group {
+                            if store.sending {
+                                ProgressView().frame(width: 30, height: 30)
+                            } else {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.system(size: 30))
+                                    .foregroundColor(canSend ? .mdAccent : .mdFaint)
+                            }
+                        }
+                        .frame(width: 44, height: 40)
+                        .contentShape(Rectangle())
                     }
-                    .disabled(
-                        draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                            store.sending || !controller.isOnline
-                    )
+                    .disabled(!canSend)
+                    .accessibilityLabel(controller.text("发送", "Send"))
                 }
-                .padding(12)
+                .frame(minHeight: 40)
                 .background(Color.mdSurface)
-                .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
+                .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
+                .overlay(
+                    RoundedRectangle.modemDeck(ModemDeckRadius.large)
+                        .stroke(Color.mdBorder, lineWidth: 1)
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.bar)
+                .overlay(alignment: .top) { ModemDeckHairline() }
             }
         }
         .navigationBarHidden(true)
@@ -2664,6 +2687,16 @@ struct ModemDeckConversationView: View {
                 guard horizontal < 0, abs(horizontal) > abs(vertical) * 1.2 else { return }
                 state = max(horizontal, -72)
             }
+    }
+
+    /// True when the message at `index` continues the previous one: same side, same day, no unread break.
+    private func joinsPreviousMessage(at index: Int) -> Bool {
+        guard index > 0, index < store.messages.count else { return false }
+        let message = store.messages[index]
+        let previous = store.messages[index - 1]
+        return message.incoming == previous.incoming &&
+            !showsDateDivider(at: index) &&
+            message.id != initialUnreadMessageID
     }
 
     private func showsDateDivider(at index: Int) -> Bool {
@@ -2860,6 +2893,23 @@ private struct ModemDeckMessageBubble: View {
     @ObservedObject var controller: ModemDeckSessionController
     let timestampReveal: CGFloat
     let showsDeliveryStatus: Bool
+    /// Neighbouring bubbles from the same side and day; their facing corners tighten.
+    var joinsPrevious = false
+    var joinsNext = false
+
+    private var bubbleShape: ModemDeckBubbleShape {
+        let tight: CGFloat = 6
+        let round: CGFloat = 18
+        return message.incoming
+            ? ModemDeckBubbleShape(
+                topLeading: joinsPrevious ? tight : round, topTrailing: round,
+                bottomLeading: joinsNext ? tight : round, bottomTrailing: round
+            )
+            : ModemDeckBubbleShape(
+                topLeading: round, topTrailing: joinsPrevious ? tight : round,
+                bottomLeading: round, bottomTrailing: joinsNext ? tight : round
+            )
+    }
 
     private var deliveryText: String? {
         guard !message.incoming, showsDeliveryStatus else { return nil }
@@ -2900,7 +2950,7 @@ private struct ModemDeckMessageBubble: View {
                         .padding(.horizontal, 13)
                         .padding(.vertical, 9)
                         .background(message.incoming ? Color.mdSurface : Color.mdAccent)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(bubbleShape)
                     if let deliveryText {
                         Label(deliveryText, systemImage: deliveryFailed ? "exclamationmark.circle" : "checkmark")
                             .font(.caption2)
@@ -2930,5 +2980,35 @@ private struct ModemDeckMessageBubble: View {
             controller.dateText(message.timestamp),
             deliveryText
         ].compactMap { $0 }.joined(separator: ", "))
+    }
+}
+
+/// A rounded rectangle with independent corner radii (iOS 16 has no UnevenRoundedRectangle).
+struct ModemDeckBubbleShape: Shape {
+    var topLeading: CGFloat
+    var topTrailing: CGFloat
+    var bottomLeading: CGFloat
+    var bottomTrailing: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let limit = min(rect.width, rect.height) / 2
+        let tl = min(topLeading, limit), tr = min(topTrailing, limit)
+        let bl = min(bottomLeading, limit), br = min(bottomTrailing, limit)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + tl, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.minY))
+        path.addArc(center: CGPoint(x: rect.maxX - tr, y: rect.minY + tr), radius: tr,
+                    startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br))
+        path.addArc(center: CGPoint(x: rect.maxX - br, y: rect.maxY - br), radius: br,
+                    startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        path.addLine(to: CGPoint(x: rect.minX + bl, y: rect.maxY))
+        path.addArc(center: CGPoint(x: rect.minX + bl, y: rect.maxY - bl), radius: bl,
+                    startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tl))
+        path.addArc(center: CGPoint(x: rect.minX + tl, y: rect.minY + tl), radius: tl,
+                    startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        path.closeSubpath()
+        return path
     }
 }

@@ -1017,6 +1017,7 @@ onBeforeUnmount(() => {
           >
             <RouterLink
               class="dashboard-summary-card is-message"
+              :class="{ 'needs-attention': unreadMessages > 0 }"
               :to="{ name: 'messages', query: { filter: 'unread' } }"
             >
               <span class="dashboard-summary-icon">
@@ -1030,6 +1031,7 @@ onBeforeUnmount(() => {
             </RouterLink>
             <RouterLink
               class="dashboard-summary-card is-missed"
+              :class="{ 'needs-attention': missedCalls > 0 }"
               :to="{ name: 'calls', query: { filter: 'missed' } }"
             >
               <span class="dashboard-summary-icon">
@@ -1043,6 +1045,7 @@ onBeforeUnmount(() => {
             </RouterLink>
             <RouterLink
               class="dashboard-summary-card is-lines"
+              :class="{ 'needs-attention': onlineModules < presentModules.length }"
               :to="{ name: 'settings', params: { section: 'devices' } }"
             >
               <span class="dashboard-summary-icon">
@@ -1356,67 +1359,74 @@ onBeforeUnmount(() => {
   grid-template-columns: 40px minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   column-gap: 12px;
-  padding: 16px;
+  padding: var(--space-4);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   transition:
     border-color var(--motion-base) var(--ease-standard),
     background var(--motion-base) var(--ease-standard);
 }
 
-.dashboard-summary-card:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
+@media (hover: hover) {
+  .dashboard-summary-card:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+  }
 }
 
+/* Counters stay neutral until there is something to act on. */
 .dashboard-summary-icon {
   display: inline-grid;
   width: 40px;
   height: 40px;
   grid-row: 1 / 3;
   place-items: center;
-  color: var(--blue);
-  background: var(--blue-soft);
-  border-radius: 6px;
+  color: var(--muted-strong);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
 }
 
-.dashboard-summary-card.is-missed .dashboard-summary-icon {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-
-.dashboard-summary-card.is-lines .dashboard-summary-icon {
+.dashboard-summary-card.is-message.needs-attention .dashboard-summary-icon {
   color: var(--accent-strong);
   background: var(--accent-soft);
 }
 
-.dashboard-summary-card.is-traffic .dashboard-summary-icon {
+.dashboard-summary-card.is-missed.needs-attention .dashboard-summary-icon {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.dashboard-summary-card.is-lines.needs-attention .dashboard-summary-icon {
   color: var(--warning-strong);
   background: var(--warning-soft);
+}
+
+.dashboard-summary-card.is-missed.needs-attention .dashboard-summary-value {
+  color: var(--danger);
 }
 
 .dashboard-summary-value {
   align-self: end;
   overflow: hidden;
-  font-size: 26px;
+  font-size: var(--text-xl);
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  line-height: 1;
+  font-weight: var(--weight-strong);
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dashboard-summary-value small {
   color: var(--muted);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
 }
 
 .dashboard-summary-label {
   align-self: start;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .dashboard-summary-card > svg {

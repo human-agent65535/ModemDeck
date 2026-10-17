@@ -28,7 +28,7 @@ test('phone and tablet list rows expose native-style swipe actions', async () =>
   )
 })
 
-test('phone and tablet details defer deletion to the swipe action', async () => {
+test('touch details defer deletion to the swipe action while pointer users keep the button', async () => {
   const views = await Promise.all([
     source('../src/views/MessagesView.vue'),
     source('../src/views/CallsView.vue'),
@@ -40,7 +40,7 @@ test('phone and tablet details defer deletion to the swipe action', async () => 
     assert.match(view, /class="icon-button icon-button--danger desktop-delete-action"/)
     assert.match(
       view,
-      /@media \(max-width: 1100px\)[\s\S]*?\.desktop-delete-action \{\s*display: none;/
+      /@media \(max-width: 1100px\) and \(pointer: coarse\)[\s\S]*?\.desktop-delete-action \{\s*display: none;/
     )
   }
 })

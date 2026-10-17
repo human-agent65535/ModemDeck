@@ -239,10 +239,10 @@ struct ModemDeckSettingsView: View {
     }
 
     private func settingsGroupLabel(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.caption2.weight(.bold))
-            .tracking(0.7)
-            .foregroundColor(.mdFaint)
+        Text(title)
+            .font(.footnote.weight(.semibold))
+            .foregroundColor(.mdMuted)
+            .accessibilityAddTraits(.isHeader)
             .padding(.horizontal, ModemDeckLayout.listHorizontalPadding)
             .padding(.top, 16)
             .padding(.bottom, 6)
@@ -257,17 +257,34 @@ private struct ModemDeckSettingsDirectoryRow: View {
     let subtitle: String
     var selected = false
 
+    /// Settings-app style tiles: one stable color per destination so rows can be found by color.
+    static func tileColor(for icon: String) -> Color {
+        switch icon {
+        case "slider.horizontal.3": return Color(.systemGray)
+        case "person.badge.key": return .mdBlue
+        case "bell.badge": return Color(.systemRed)
+        case "phone.connection": return .mdCallAnswer
+        case "waveform.path.ecg", "stethoscope": return Color(.systemPurple)
+        case "qrcode": return Color(.systemTeal)
+        case "person.crop.circle.badge.plus": return Color(.systemOrange)
+        case "person.3": return Color(.systemIndigo)
+        case "simcard.2": return .mdAccent
+        case "paperplane": return Color(.systemCyan)
+        case "network.badge.shield.half.filled": return Color(.systemBlue)
+        default: return Color(.systemGray)
+        }
+    }
+
     var body: some View {
         HStack(spacing: 11) {
             Image(systemName: icon)
+                .symbolVariant(.fill)
                 .font(.subheadline.weight(.semibold))
-                .foregroundColor(.mdBlue)
-                .frame(
-                    width: ModemDeckLayout.controlVisualSize,
-                    height: ModemDeckLayout.controlVisualSize
-                )
-                .background(Color.mdBlueSoft)
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .foregroundColor(.white)
+                .frame(width: 30, height: 30)
+                .background(ModemDeckSettingsDirectoryRow.tileColor(for: icon))
+                .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.small))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
@@ -370,25 +387,25 @@ private struct ModemDeckSettingsModule<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title.uppercased())
-                .font(.system(size: 11, weight: .bold))
-                .tracking(0.6)
-                .foregroundColor(.mdFaint)
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(.mdMuted)
+                .accessibilityAddTraits(.isHeader)
                 .padding(.horizontal, 18)
                 .padding(.bottom, 7)
             VStack(spacing: 0) {
                 content
             }
             .background(Color.mdSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.mdBorder, lineWidth: 1)
+                RoundedRectangle.modemDeck(ModemDeckRadius.medium)
+                    .stroke(Color.mdBorder.opacity(0.7), lineWidth: 0.5)
             )
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)
             if !footer.isEmpty {
                 Text(footer)
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundColor(.mdMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 18)
@@ -409,16 +426,17 @@ private struct ModemDeckSettingsValueRow: View {
         HStack(spacing: 11) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.body.weight(.medium))
                     .foregroundColor(.mdMuted)
                     .frame(width: 22)
+                    .accessibilityHidden(true)
             }
             Text(title)
-                .font(.system(size: 15))
+                .font(.body)
                 .foregroundColor(.mdText)
             Spacer(minLength: 14)
             Text(value)
-                .font(.system(size: 14))
+                .font(.subheadline)
                 .foregroundColor(valueColor)
                 .multilineTextAlignment(.trailing)
                 .lineLimit(3)

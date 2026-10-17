@@ -69,6 +69,7 @@ export default {
     "password": "Mật khẩu",
     "protocol": "Giao thức",
     "yesterday": "Hôm qua",
+    "today": "Hôm nay",
     "listSeparator": "; ",
     "durationSeconds": "{count} giây"
   },
@@ -978,6 +979,7 @@ export default {
     "passwordRequired": "Nhập mật khẩu"
   },
   "recordings": {
+    "detailPlaceholder": "Chọn một bản ghi âm để phát và xem cuộc gọi",
     "lineFilter": "Đường dây ghi âm",
     "allLines": "Tất cả đường dây",
     "allLinesDescription": "Hiển thị bản ghi từ mọi modem",

@@ -902,10 +902,10 @@ onBeforeUnmount(() => {
 .dialer-number-entry :deep(.suggest-input__field input) {
   padding: 0;
   color: var(--text);
-  font-size: clamp(22px, 2vw, 28px);
-  font-weight: 600;
+  font-size: clamp(26px, 2.4vw, 32px);
+  font-weight: var(--weight-regular);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.035em;
+  letter-spacing: 0.02em;
   text-align: center;
 }
 
@@ -916,8 +916,8 @@ onBeforeUnmount(() => {
 
 .dialer-number-entry :deep(.suggest-input__field input::placeholder) {
   color: var(--muted);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
   letter-spacing: 0;
 }
 

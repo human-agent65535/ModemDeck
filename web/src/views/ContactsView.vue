@@ -8,9 +8,11 @@ import {
   Phone,
   Star,
   Trash2,
-  UserPlus
+  UserPlus,
+  UserRound
 } from '@lucide/vue'
 import type { Contact, ContactInput } from '../api/types'
+import LineTag from '../components/LineTag.vue'
 import BatchActionBar from '../components/BatchActionBar.vue'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactEditor from '../components/ContactEditor.vue'
@@ -281,8 +283,12 @@ function openSavedContact(contact: Contact): void {
 }
 
 function preferredLineName(contact: Contact): string {
-  const line = contactLines.value.find(item => lineKey(item) === contact.preferred_line_id)
+  const line = preferredLine(contact)
   return line ? lineLabel(line) : contact.preferred_line_id || ''
+}
+
+function preferredLine(contact: Contact) {
+  return contactLines.value.find(item => lineKey(item) === contact.preferred_line_id)
 }
 
 onMounted(() => {
@@ -541,7 +547,13 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <p v-if="selected.preferred_line_id" class="contact-preferred-line">
-              {{ t('contacts.preferredLine') }}：{{ preferredLineName(selected) }}
+              <small>{{ t('contacts.preferredLine') }}</small>
+              <LineTag
+                v-if="preferredLine(selected)"
+                :line="preferredLine(selected)!"
+                :fallback="preferredLineName(selected)"
+              />
+              <strong v-else>{{ preferredLineName(selected) }}</strong>
             </p>
           </section>
           <p v-if="dialUnavailable || messageUnavailable" class="unavailable-note">
@@ -561,7 +573,9 @@ onBeforeUnmount(() => {
               state="empty"
               :title="t('contacts.select')"
               :detail="t('contacts.detailPlaceholder')"
-            />
+            >
+              <template #icon><UserRound :size="24" /></template>
+            </StatePanel>
           </LoadingSkeletonBoundary>
         </template>
       </WorkspaceDetailPane>
@@ -601,7 +615,8 @@ onBeforeUnmount(() => {
   margin: 0 16px 8px;
 }
 
-@media (max-width: 1100px) {
+/* Touch devices delete by swiping the row; pointer users keep the button. */
+@media (max-width: 1100px) and (pointer: coarse) {
   .desktop-delete-action {
     display: none;
   }

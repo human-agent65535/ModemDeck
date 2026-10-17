@@ -37,6 +37,30 @@ export function formatRelativeDate(value: string): string {
   }).format(date)
 }
 
+/** Day label for conversation separators: Today, Yesterday, or a full date. */
+export function formatMessageDay(value: string): string {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return value
+  const now = new Date()
+  if (date.toDateString() === now.toDateString()) return translate('common.today')
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  if (date.toDateString() === yesterday.toDateString()) return translate('common.yesterday')
+  return new Intl.DateTimeFormat(resolvedLocale(), {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' })
+  }).format(date)
+}
+
+/** Clock time shown inside a bubble once the day is shown by its separator. */
+export function formatMessageTime(value: string): string {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return value
+  return new Intl.DateTimeFormat(resolvedLocale(), { hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
 export function formatDateTime(value: string): string {
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return value

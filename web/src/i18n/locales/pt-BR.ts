@@ -69,6 +69,7 @@ export default {
     "password": "Senha",
     "protocol": "Protocolo",
     "yesterday": "Ontem",
+    "today": "Hoje",
     "listSeparator": "; ",
     "durationSeconds": "{count} seg."
   },
@@ -978,6 +979,7 @@ export default {
     "passwordRequired": "Digite uma senha"
   },
   "recordings": {
+    "detailPlaceholder": "Escolha uma gravação para ouvi-la e ver a chamada",
     "lineFilter": "Linha de gravação",
     "allLines": "Todas as linhas",
     "allLinesDescription": "Mostrar gravações de cada modem",

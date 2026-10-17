@@ -69,6 +69,7 @@ export default {
     password: '密碼',
     protocol: '協議',
     yesterday: '昨天',
+    today: '今天',
     listSeparator: '；',
     durationSeconds: '{count} 秒'
   },
@@ -994,6 +995,7 @@ export default {
     passwordRequired: '請輸入密碼'
   },
   recordings: {
+    detailPlaceholder: '選擇一段錄音即可播放並查看對應通話',
     lineFilter: '錄音線路',
     allLines: '全部線路',
     allLinesDescription: '顯示所有模組的錄音',

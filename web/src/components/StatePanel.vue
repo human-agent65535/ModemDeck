@@ -31,13 +31,16 @@ const emit = defineEmits<{ retry: [] }>()
     variant="content"
   />
   <div v-else class="state-panel" :role="state === 'error' || state === 'forbidden' ? 'alert' : 'status'">
-    <AlertCircle v-if="state === 'error'" :size="26" aria-hidden="true" />
-    <ShieldAlert v-else-if="state === 'forbidden'" :size="26" aria-hidden="true" />
-    <Inbox v-else :size="26" aria-hidden="true" />
+    <span class="state-panel__icon" :class="`state-panel__icon--${state}`" aria-hidden="true">
+      <AlertCircle v-if="state === 'error'" :size="24" />
+      <ShieldAlert v-else-if="state === 'forbidden'" :size="24" />
+      <slot v-else name="icon"><Inbox :size="24" /></slot>
+    </span>
     <strong>{{ title }}</strong>
     <p v-if="detail">{{ detail }}</p>
-    <button v-if="state === 'error' && retryable" class="text-button" type="button" @click="emit('retry')">
+    <button v-if="state === 'error' && retryable" class="secondary-button" type="button" @click="emit('retry')">
       {{ t('common.retry') }}
     </button>
+    <div v-if="$slots.actions" class="state-panel__actions"><slot name="actions" /></div>
   </div>
 </template>

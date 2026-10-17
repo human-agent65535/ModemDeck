@@ -71,7 +71,7 @@ const { t } = useI18n()
     <span class="list-item__content">
       <strong>{{ name }}</strong>
       <span class="message-thread-meta">
-        <LineTag :line="line" :fallback="lineFallback" />
+        <LineTag :line="line" :fallback="lineFallback" variant="dot" />
         <small>{{ thread.last_content || peer }}</small>
       </span>
     </span>

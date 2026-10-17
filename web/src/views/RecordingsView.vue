@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { Download, Star, Trash2 } from '@lucide/vue'
+import { AudioLines, Download, Star, Trash2 } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
 import BatchActionBar from '../components/BatchActionBar.vue'
 import CommunicationAvatar from '../components/CommunicationAvatar.vue'
@@ -515,6 +515,7 @@ onBeforeUnmount(() => {
                     <LineTag
                       :line="lineTagLine(lineForRecording(recording), recording.call.line_id)"
                       :fallback="recordingLineFallback(recording)"
+                      variant="dot"
                     />
                     <small>
                       {{ directionLabel(recording) }} ·
@@ -623,15 +624,6 @@ onBeforeUnmount(() => {
           </template>
           <template #actions>
             <WorkspaceDetailActions>
-              <template #primary>
-                <FavoriteActionButton
-                  :active="selected.favorite"
-                  :disabled="Boolean(favoritePendingCallID)"
-                  :activate-label="t('common.favorite')"
-                  :deactivate-label="t('common.unfavorite')"
-                  @toggle="toggleRecordingFavorite(selected)"
-                />
-              </template>
               <template #secondary>
                 <ContactNumberActions
                   :number="selected.call.remote_number"
@@ -647,6 +639,15 @@ onBeforeUnmount(() => {
                 >
                   <Trash2 :size="18" />
                 </button>
+              </template>
+              <template #trailing>
+                <FavoriteActionButton
+                  :active="selected.favorite"
+                  :disabled="Boolean(favoritePendingCallID)"
+                  :activate-label="t('common.favorite')"
+                  :deactivate-label="t('common.unfavorite')"
+                  @toggle="toggleRecordingFavorite(selected)"
+                />
               </template>
             </WorkspaceDetailActions>
           </template>
@@ -738,7 +739,10 @@ onBeforeUnmount(() => {
               v-else
               state="empty"
               :title="t('recordings.select')"
-            />
+              :detail="t('recordings.detailPlaceholder')"
+            >
+              <template #icon><AudioLines :size="24" /></template>
+            </StatePanel>
           </LoadingSkeletonBoundary>
         </template>
       </WorkspaceDetailPane>
@@ -781,11 +785,11 @@ onBeforeUnmount(() => {
   width: min(760px, 100%);
   min-height: 92px;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 30px;
-  padding: 18px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  padding: var(--space-4);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
 }
 
 .recording-player__controls {
@@ -799,7 +803,7 @@ onBeforeUnmount(() => {
 }
 
 .recording-download {
-  border: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .recording-call-link {
@@ -815,7 +819,8 @@ onBeforeUnmount(() => {
   margin: 0 16px 8px;
 }
 
-@media (max-width: 1100px) {
+/* Touch devices delete by swiping the row; pointer users keep the button. */
+@media (max-width: 1100px) and (pointer: coarse) {
   .desktop-delete-action {
     display: none;
   }

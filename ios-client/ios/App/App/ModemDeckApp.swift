@@ -18,7 +18,7 @@ extension Color {
     static let mdSelected = adaptive(0xDFEEE7, 0x244238)
     static let mdText = adaptive(0x19241F, 0xEBF0ED)
     static let mdMuted = adaptive(0x58675F, 0xAFBDB4)
-    static let mdFaint = adaptive(0x69776F, 0x9BAAA1)
+    static let mdFaint = adaptive(0x636F68, 0x9BAAA1)
     static let mdBorder = adaptive(0xDEE5E0, 0x354139)
     static let mdAccent = adaptive(0x117864, 0x85D4B8)
     static let mdAccentStrong = adaptive(0x0C624F, 0xA5E3CC)
@@ -982,37 +982,165 @@ private struct ModemDeckWorkspaceShell: View {
     }
 }
 
+/// Unread messages and unread missed calls shown on the section navigation.
+private struct ModemDeckSectionBadgeSource: DynamicProperty {
+    @ObservedObject var messages: ModemDeckMessagesStore
+    @ObservedObject var calls: ModemDeckCallsStore
+
+    init(controller: ModemDeckSessionController) {
+        _messages = ObservedObject(wrappedValue: controller.messagesStore)
+        _calls = ObservedObject(wrappedValue: controller.callsStore)
+    }
+
+    func count(for section: ModemDeckSection) -> Int {
+        switch section {
+        case .messages: return messages.unreadSummary.unreadThreadCount
+        case .calls: return calls.calls.lazy.filter { $0.missed && !$0.read }.count
+        default: return 0
+        }
+    }
+}
+
+private struct ModemDeckSectionBadge: View {
+    let count: Int
+
+    var body: some View {
+        if count > 0 {
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(.caption2.weight(.bold).monospacedDigit())
+                .foregroundColor(.white)
+                .padding(.horizontal, 5)
+                .frame(minWidth: 18, minHeight: 18)
+                .background(Capsule().fill(Color.mdCallEnd))
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 private struct ModemDeckPhoneTabBar: View {
     @ObservedObject var controller: ModemDeckSessionController
     @Binding var selection: ModemDeckSection
+    private let badges: ModemDeckSectionBadgeSource
+
+    init(controller: ModemDeckSessionController, selection: Binding<ModemDeckSection>) {
+        _controller = ObservedObject(wrappedValue: controller)
+        _selection = selection
+        badges = ModemDeckSectionBadgeSource(controller: controller)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(ModemDeckSection.contentSections) { section in
+                let selected = selection == section
+                let badge = badges.count(for: section)
                 Button { selection = section } label: {
-                    VStack(spacing: 5) {
+                    VStack(spacing: 4) {
                         Image(systemName: section.systemImage)
-                            .font(.system(size: 21, weight: .regular))
+                            .symbolVariant(selected ? .fill : .none)
+                            .font(.system(size: 21, weight: selected ? .semibold : .regular))
                             .frame(height: 25)
+                            .overlay(alignment: .topTrailing) {
+                                ModemDeckSectionBadge(count: badge).offset(x: 12, y: -6)
+                            }
                         Text(section.title(controller))
-                            .font(.caption2.weight(.medium))
+                            .font(.caption2.weight(selected ? .semibold : .medium))
                             .lineLimit(1)
                     }
-                    .foregroundColor(selection == section ? .mdAccent : .mdMuted)
+                    .foregroundColor(selected ? .mdAccent : .mdMuted)
                     .frame(maxWidth: .infinity, minHeight: 56)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("section-\(section.id)")
-                .accessibilityValue(selection == section ? controller.text("已选择", "Selected") : "")
-                .accessibilityAddTraits(selection == section ? .isSelected : [])
+                .accessibilityValue(badge > 0 ? "\(badge)" : "")
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
         .padding(.horizontal, 8)
         .padding(.top, 5)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .background(Color.mdSurface.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 0.5) }
+        .modemDeckSelectionFeedback(selection)
+        .background(.bar, ignoresSafeAreaEdges: .bottom)
+        .overlay(alignment: .top) { ModemDeckHairline() }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct ModemDeckPadNavigationRail: View {
+    @ObservedObject var controller: ModemDeckSessionController
+    @Binding var selection: ModemDeckSection
+    let openDialer: () -> Void
+    private let badges: ModemDeckSectionBadgeSource
+
+    init(controller: ModemDeckSessionController, selection: Binding<ModemDeckSection>, openDialer: @escaping () -> Void) {
+        _controller = ObservedObject(wrappedValue: controller)
+        _selection = selection
+        self.openDialer = openDialer
+        badges = ModemDeckSectionBadgeSource(controller: controller)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("ModemDeck")
+                .font(.title3.weight(.semibold))
+                .foregroundColor(.mdText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 24)
+            ForEach(ModemDeckSection.contentSections) { section in
+                let selected = selection == section
+                let badge = badges.count(for: section)
+                Button { selection = section } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: section.systemImage)
+                            .symbolVariant(selected ? .fill : .none)
+                            .frame(width: 24)
+                        Text(section.title(controller))
+                        Spacer(minLength: 4)
+                        if badge > 0 {
+                            Text("\(badge)")
+                                .font(.footnote.weight(.semibold).monospacedDigit())
+                                .foregroundColor(selected ? .mdOnAccent : .mdMuted)
+                        }
+                    }
+                    .font(.body.weight(selected ? .semibold : .regular))
+                    .foregroundColor(selected ? .mdOnAccent : .mdText)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .background(selected ? Color.mdAccent : Color.clear)
+                    .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityIdentifier("section-\(section.id)")
+                .accessibilityValue(badge > 0 ? "\(badge)" : "")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+            Spacer()
+            Button(action: openDialer) {
+                Label(controller.text("拨号", "Dial"), systemImage: "circle.grid.3x3.fill")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.mdAccent)
+            .buttonBorderShape(.capsule)
+            .padding(.bottom, 16)
+            .accessibilityLabel(controller.text("打开拨号盘", "Open dialer"))
+        }
+        .padding(.horizontal, 12)
+        .frame(width: 196)
+        .modemDeckSelectionFeedback(selection)
+        .background(.bar)
+    }
+}
+
+/// A one-pixel separator that stays crisp at every display scale.
+struct ModemDeckHairline: View {
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        Rectangle().fill(Color.mdBorder).frame(height: 1 / displayScale)
     }
 }
 
@@ -1039,50 +1167,6 @@ extension ModemDeckSection {
         case .recordings: return controller.text("录音", "Recordings")
         case .dial: return controller.text("拨号", "Dial")
         }
-    }
-}
-
-private struct ModemDeckPadNavigationRail: View {
-    @ObservedObject var controller: ModemDeckSessionController
-    @Binding var selection: ModemDeckSection
-    let openDialer: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("ModemDeck")
-                .font(.title3.weight(.semibold))
-                .foregroundColor(.mdText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 24)
-            ForEach(ModemDeckSection.contentSections) { section in
-                Button { selection = section } label: {
-                    Label(section.title(controller), systemImage: section.systemImage)
-                        .font(.body)
-                        .foregroundColor(selection == section ? .mdAccentStrong : .mdText)
-                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        .padding(.horizontal, 14)
-                        .background(selection == section ? Color.mdSurface : Color.clear)
-                        .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("section-\(section.id)")
-                .accessibilityAddTraits(selection == section ? .isSelected : [])
-            }
-            Button(action: openDialer) {
-                Label(controller.text("拨号", "Dial"), systemImage: "phone.arrow.up.right")
-                    .font(.body)
-                    .foregroundColor(.mdAccent)
-                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                    .padding(.horizontal, 14)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(controller.text("打开拨号盘", "Open dialer"))
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .frame(width: 196)
-        .background(Color.mdSurfaceHover.ignoresSafeArea())
     }
 }
 
@@ -1257,7 +1341,9 @@ struct ModemDeckPageHeader: View {
             Text(title)
                 .font(backAction == nil ? .largeTitle.weight(.bold) : .title2.weight(.bold))
                 .foregroundColor(.mdText)
+                .lineLimit(1).minimumScaleFactor(0.8)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                .accessibilityAddTraits(.isHeader)
             Spacer()
             HStack(spacing: 4) {
                 if let secondaryActionIcon, let secondaryAction {
@@ -1286,7 +1372,7 @@ struct ModemDeckPageHeader: View {
                 }
                 if let padDialerAction {
                     Button(action: padDialerAction.open) {
-                        Image(systemName: "phone")
+                        Image(systemName: "circle.grid.3x3.fill")
                             .font(.body.weight(.medium))
                             .foregroundColor(.mdAccent)
                             .frame(width: 44, height: 44)
@@ -1372,8 +1458,11 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
                 if let backAction {
                     ModemDeckCollectionHeaderButton(icon: "chevron.left", title: backAccessibilityText, action: backAction)
                 }
-                Text(title).font(.title2.weight(.bold)).foregroundColor(.mdText)
-                    .lineLimit(1).minimumScaleFactor(0.85)
+                // Top-level collections share the large title used by Recents and Settings.
+                Text(title).font(backAction == nil ? .largeTitle.weight(.bold) : .title2.weight(.bold))
+                    .foregroundColor(.mdText)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 4)
                 ModemDeckCollectionHeaderButton(icon: "magnifyingglass", title: controller.text("搜索", "Search")) {
@@ -1383,7 +1472,7 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
                 .accessibilityIdentifier("collection-search-open")
                 actions()
                 if let dialerAction {
-                    ModemDeckCollectionHeaderButton(icon: "phone", title: dialerAction.accessibilityLabel, action: dialerAction.open)
+                    ModemDeckCollectionHeaderButton(icon: "circle.grid.3x3.fill", title: dialerAction.accessibilityLabel, action: dialerAction.open)
                 }
             }
         }
@@ -1577,15 +1666,10 @@ struct ModemDeckLineTag: View {
             .font(.caption.weight(.semibold))
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .foregroundColor(line.palette.foreground)
-            .padding(.horizontal, 7)
+            .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .frame(minHeight: 23)
-            .background(line.palette.soft)
-            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.small))
-            .overlay(
-                RoundedRectangle.modemDeck(ModemDeckRadius.small)
-                    .stroke(line.palette.border, lineWidth: 1)
-            )
+            .frame(minHeight: 22)
+            .background(Capsule().fill(line.palette.soft))
     }
 }
 
@@ -1795,20 +1879,38 @@ struct ModemDeckStateView: View {
     let detail: String
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.largeTitle)
-                .foregroundColor(.mdFaint)
+        VStack(spacing: 8) {
+            ModemDeckStateIcon(icon: icon)
+                .padding(.bottom, 4)
             Text(title)
                 .font(.headline)
                 .foregroundColor(.mdText)
+                .multilineTextAlignment(.center)
             Text(detail)
                 .font(.subheadline)
                 .foregroundColor(.mdMuted)
                 .multilineTextAlignment(.center)
         }
-        .padding(28)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 36)
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The shared empty/state glyph: a muted symbol on a soft circular tile.
+struct ModemDeckStateIcon: View {
+    let icon: String
+    @ScaledMetric(relativeTo: .title) private var size: CGFloat = 56
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.title2.weight(.medium))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundColor(.mdMuted)
+            .frame(width: size, height: size)
+            .background(Circle().fill(Color.mdSurfaceHover))
+            .accessibilityHidden(true)
     }
 }
 
@@ -1818,13 +1920,12 @@ struct ModemDeckWorkspaceEmptyView: View {
     var detail = ""
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.title.weight(.medium))
-                .foregroundColor(.mdFaint)
+        VStack(spacing: 8) {
+            ModemDeckStateIcon(icon: icon)
+                .padding(.bottom, 4)
             Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(.mdMuted)
+                .font(.headline)
+                .foregroundColor(.mdText)
             if !detail.isEmpty {
                 Text(detail)
                     .font(.footnote)

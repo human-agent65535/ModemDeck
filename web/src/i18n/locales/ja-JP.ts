@@ -69,6 +69,7 @@ export default {
     "password": "パスワード",
     "protocol": "プロトコル",
     "yesterday": "昨日",
+    "today": "今日",
     "listSeparator": "; ",
     "durationSeconds": "{count} 秒"
   },
@@ -978,6 +979,7 @@ export default {
     "passwordRequired": "パスワードを入力してください"
   },
   "recordings": {
+    "detailPlaceholder": "録音を選ぶと再生して通話を確認できます",
     "lineFilter": "録音回線",
     "allLines": "すべての回線",
     "allLinesDescription": "すべてのモデムからの録画を表示する",

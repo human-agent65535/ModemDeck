@@ -6,6 +6,7 @@ import {
   LoaderCircle,
   Mail,
   MailOpen,
+  MessageSquare,
   MessageSquarePlus,
   Phone,
   Send,
@@ -88,7 +89,7 @@ import {
   threadsPagination,
   threadsResource
 } from '../state/workspace'
-import { formatRelativeDate } from '../utils/format'
+import { formatMessageDay, formatMessageTime } from '../utils/format'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 import {
   findRecipientThread,
@@ -190,6 +191,17 @@ const selectedThread = computed(() =>
 const currentMessages = computed(() =>
   selectedKey.value ? messagesFor(selectedKey.value) : null
 )
+// A day separator precedes the first message of each calendar day.
+const messageDayBreaks = computed(() => {
+  const breaks: Record<string, string> = {}
+  let previousDay = ''
+  for (const message of currentMessages.value?.data || []) {
+    const day = new Date(message.timestamp).toDateString()
+    if (day !== previousDay) breaks[message.id] = formatMessageDay(message.timestamp)
+    previousDay = day
+  }
+  return breaks
+})
 const currentMessagePagination = computed(() =>
   selectedThread.value ? messagePaginationFor(selectedThread.value.key) : null
 )
@@ -1328,9 +1340,11 @@ onBeforeUnmount(() => {
               :title="t('messages.conversationEmpty')"
             />
             <div v-else-if="!composingNew" class="message-stack">
+            <template v-for="message in currentMessages?.data || []" :key="message.id">
+            <div v-if="messageDayBreaks[message.id]" class="message-day" role="separator">
+              <span>{{ messageDayBreaks[message.id] }}</span>
+            </div>
             <div
-              v-for="message in currentMessages?.data || []"
-              :key="message.id"
               class="message-row"
               :class="[
                 `message-row--${message.direction}`,
@@ -1339,8 +1353,8 @@ onBeforeUnmount(() => {
             >
               <div class="message-bubble">
                 <p>{{ message.content }}</p>
-                <span>
-                  {{ formatRelativeDate(message.timestamp) }}
+                <span class="num">
+                  {{ formatMessageTime(message.timestamp) }}
                   <template
                     v-if="
                       message.direction === 'outgoing' &&
@@ -1352,6 +1366,7 @@ onBeforeUnmount(() => {
                 </span>
               </div>
             </div>
+            </template>
             </div>
             <div v-else class="new-message-empty">
             <MessageSquarePlus :size="30" />
@@ -1409,7 +1424,9 @@ onBeforeUnmount(() => {
               state="empty"
               :title="t('messages.selectConversation')"
               :detail="t('messages.detailPlaceholder')"
-            />
+            >
+              <template #icon><MessageSquare :size="24" /></template>
+            </StatePanel>
           </LoadingSkeletonBoundary>
         </template>
       </WorkspaceDetailPane>
@@ -1527,7 +1544,8 @@ onBeforeUnmount(() => {
   margin: 0 16px 8px;
 }
 
-@media (max-width: 1100px) {
+/* Touch devices delete by swiping the row; pointer users keep the button. */
+@media (max-width: 1100px) and (pointer: coarse) {
   .desktop-delete-action {
     display: none;
   }

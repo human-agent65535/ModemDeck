@@ -349,7 +349,9 @@ struct ModemDeckDialerView: View {
                         .font(.footnote).foregroundColor(.mdMuted)
                         .lineLimit(1).frame(minHeight: 24)
                 }
-                HStack(spacing: 16) {
+                // Line picker as a capsule; the recording default sits on its own line so the
+                // line name is never truncated.
+                VStack(spacing: 6) {
                     Menu {
                         ForEach(lines) { line in
                             Button {
@@ -363,25 +365,35 @@ struct ModemDeckDialerView: View {
                         }
                     } label: {
                         HStack(spacing: 6) {
-                            Text(selectedLine?.displayName ?? controller.text("无可用线路", "No available line"))
-                                .lineLimit(1)
-                            Image(systemName: "chevron.down").font(.caption2)
+                            if let selectedLine {
+                                ModemDeckLineTag(line: selectedLine, compact: true)
+                            } else {
+                                Text(controller.text("无可用线路", "No available line"))
+                                    .lineLimit(1)
+                            }
+                            Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                         }
-                        .font(.subheadline).foregroundColor(.mdText)
-                        .padding(.horizontal, 12).frame(minHeight: 44)
-                        .background(Color.mdSurfaceHover)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .font(.subheadline.weight(.medium)).foregroundColor(.mdText)
+                        .padding(.horizontal, 14).frame(minHeight: 36)
+                        .background(Capsule().fill(Color.mdSurfaceHover))
+                        .fixedSize()
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                     }
                     .disabled(lines.isEmpty)
                     .accessibilityLabel(controller.text("通话线路", "Calling line"))
                     .accessibilityValue(selectedLine?.displayName ?? "")
-                    Text(draft.recordingInitialized
-                        ? controller.text(draft.recording ? "默认开启录音" : "默认关闭录音", draft.recording ? "Recording on by default" : "Recording off by default")
-                        : controller.text("正在读取录音设置…", "Loading recording setting…"))
-                        .font(.caption).foregroundColor(.mdMuted)
-                        .accessibilityIdentifier("dial-recording-status")
+                    Label {
+                        Text(draft.recordingInitialized
+                            ? controller.text(draft.recording ? "默认开启录音" : "默认关闭录音", draft.recording ? "Recording on by default" : "Recording off by default")
+                            : controller.text("正在读取录音设置…", "Loading recording setting…"))
+                    } icon: {
+                        Image(systemName: draft.recording ? "record.circle.fill" : "record.circle")
+                            .foregroundColor(draft.recording ? .mdDanger : .mdFaint)
+                    }
+                    .font(.caption).foregroundColor(.mdMuted)
+                    .accessibilityIdentifier("dial-recording-status")
                 }
-                .frame(minHeight: 44)
 
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(76), spacing: 24), count: 3), spacing: 12) {
                     ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
@@ -395,19 +407,21 @@ struct ModemDeckDialerView: View {
                             .font(.title3).frame(width: 44, height: 56)
                     }
                     .accessibilityLabel(controller.text("选择联系人", "Choose contact"))
+                    Spacer(minLength: 0)
+                    // Round green call key, as in the system Phone keypad.
                     Button(action: startCall) {
-                        HStack(spacing: 10) {
-                            if callController.busy { ProgressView().tint(.mdOnAccent) }
-                            else { Image(systemName: "phone.fill") }
-                            Text(controller.text("拨打", "Call"))
+                        Group {
+                            if callController.busy { ProgressView().tint(.white) }
+                            else { Image(systemName: "phone.fill").font(.system(size: 28, weight: .semibold)) }
                         }
-                        .font(.headline).foregroundColor(.mdOnAccent)
-                        .frame(maxWidth: .infinity, minHeight: 56)
-                        .background(Color.mdAccent.opacity(canDial ? 1 : 0.4))
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .foregroundColor(canDial ? .white : .mdFaint)
+                        .frame(width: 72, height: 72)
+                        .background(Circle().fill(canDial ? Color.mdCallAnswer : Color.mdSurfaceHover))
                     }
                     .disabled(!canDial)
+                    .accessibilityLabel(controller.text("拨打", "Call"))
                     .accessibilityIdentifier("dial-call")
+                    Spacer(minLength: 0)
                     Button(action: removeDigit) {
                         Image(systemName: "delete.left")
                             .font(.title3).frame(width: 44, height: 56)
@@ -924,7 +938,11 @@ struct ModemDeckCallRecordRow: View {
                         .foregroundColor(.mdFaint)
                 }
                 HStack(spacing: 7) {
-                    if let line { ModemDeckLineTag(line: line) }
+                    if let line {
+                        ModemDeckLineTag(line: line, compact: true)
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.mdMuted)
+                    }
                     Image(systemName: directionIcon)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(call.missed ? .mdDanger : .mdMuted)
@@ -1296,7 +1314,11 @@ struct ModemDeckRecordingRow: View {
                         .foregroundColor(.mdFaint)
                 }
                 HStack(spacing: 7) {
-                    if let line { ModemDeckLineTag(line: line) }
+                    if let line {
+                        ModemDeckLineTag(line: line, compact: true)
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.mdMuted)
+                    }
                     Image(systemName: "waveform")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(recording.playable ? .mdBlue : .mdFaint)
@@ -1401,19 +1423,31 @@ private struct ModemDeckDetailAction: View {
     var busy = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            if busy { ProgressView().tint(prominent ? .mdOnAccent : .mdAccent) }
-            Label(title, systemImage: icon)
+        // Contact-card style action tile: symbol above a short label.
+        VStack(spacing: 4) {
+            if busy {
+                ProgressView().tint(prominent ? .mdOnAccent : .mdAccent)
+                    .frame(height: 22)
+            } else {
+                Image(systemName: icon)
+                    .symbolVariant(.fill)
+                    .font(.title3.weight(.semibold))
+                    .frame(height: 22)
+            }
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
-        .font(.system(size: 14, weight: .semibold))
         .foregroundColor(prominent ? .mdOnAccent : .mdAccent)
-        .frame(maxWidth: .infinity, minHeight: 44)
+        .frame(maxWidth: .infinity, minHeight: 58)
         .background(prominent ? Color.mdAccent : Color.mdSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(prominent ? Color.clear : Color.mdBorder, lineWidth: 1)
+            RoundedRectangle.modemDeck(ModemDeckRadius.medium)
+                .stroke(prominent ? Color.clear : Color.mdBorder, lineWidth: 0.5)
         )
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -1758,6 +1792,21 @@ private final class ModemDeckRecordingPlayer: NSObject, ObservableObject, AVAudi
         self.segmentID = segmentID
     }
 
+    var isLoaded: Bool { player != nil }
+    var currentTime: TimeInterval { player?.currentTime ?? 0 }
+    var duration: TimeInterval { player?.duration ?? 0 }
+
+    /// Seeks within the loaded recording; the UI only offers seeking after the first load.
+    func seek(to time: TimeInterval) {
+        guard let player else { return }
+        player.currentTime = min(max(0, time), player.duration)
+        objectWillChange.send()
+    }
+
+    func skip(by seconds: TimeInterval) {
+        seek(to: currentTime + seconds)
+    }
+
     func toggle() {
         if let player {
             if player.isPlaying {
@@ -1926,42 +1975,12 @@ struct ModemDeckRecordingDetailView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     ModemDeckDetailCard(title: controller.text("播放", "Playback")) {
-                        Button { player.toggle() } label: {
-                            HStack(spacing: 13) {
-                                ZStack {
-                                    Circle()
-                                        .fill(recording.playable ? Color.mdAccent : Color.mdSurfaceHover)
-                                        .frame(width: 50, height: 50)
-                                    if player.loading {
-                                        ProgressView().tint(.mdOnAccent)
-                                    } else {
-                                        Image(systemName: player.playing ? "pause.fill" : "play.fill")
-                                            .font(.system(size: 19, weight: .bold))
-                                            .foregroundColor(recording.playable ? .mdOnAccent : .mdFaint)
-                                            .offset(x: player.playing ? 0 : 1)
-                                    }
-                                }
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(player.playing
-                                         ? controller.text("暂停", "Pause")
-                                         : controller.text("播放录音", "Play Recording"))
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(.mdText)
-                                    Text(ModemDeckDateText.duration(recording.segment.durationMs / 1_000))
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.mdMuted)
-                                }
-                                Spacer()
-                                Image(systemName: "waveform")
-                                    .font(.system(size: 23))
-                                    .foregroundColor(recording.playable ? .mdBlue : .mdFaint)
-                            }
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: 74)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!recording.playable || player.loading)
+                        ModemDeckRecordingPlaybackControls(
+                            player: player,
+                            controller: controller,
+                            playable: recording.playable,
+                            knownDuration: TimeInterval(recording.segment.durationMs) / 1_000
+                        )
                     }
 
                     if !player.errorMessage.isEmpty {
@@ -3086,7 +3105,7 @@ private struct ModemDeckInCallKeypad: View {
 }
 
 // iOS 17+ effects. Haptics are not motion; symbol effects are gated by callers on Reduce Motion.
-private extension View {
+extension View {
     @ViewBuilder func modemDeckSelectionFeedback<Trigger: Equatable>(_ trigger: Trigger) -> some View {
         if #available(iOS 17.0, *) { sensoryFeedback(.selection, trigger: trigger) } else { self }
     }
@@ -3109,5 +3128,98 @@ private extension View {
         } else {
             background(.thickMaterial, in: RoundedRectangle.modemDeck(ModemDeckRadius.large))
         }
+    }
+}
+
+/// Play/pause with elapsed time, a scrubber once audio is loaded, and 15-second skips.
+private struct ModemDeckRecordingPlaybackControls: View {
+    @ObservedObject var player: ModemDeckRecordingPlayer
+    @ObservedObject var controller: ModemDeckSessionController
+    let playable: Bool
+    let knownDuration: TimeInterval
+    @State private var scrubbing: TimeInterval?
+
+    var body: some View {
+        // Refresh the clock while playing; a paused player needs no timeline ticks.
+        TimelineView(.periodic(from: .now, by: player.playing ? 0.25 : 3_600)) { _ in
+            let duration = player.isLoaded ? player.duration : knownDuration
+            let elapsed = scrubbing ?? player.currentTime
+            VStack(spacing: 10) {
+                HStack(spacing: 14) {
+                    Button { player.toggle() } label: {
+                        ZStack {
+                            Circle()
+                                .fill(playable ? Color.mdAccent : Color.mdSurfaceHover)
+                                .frame(width: 52, height: 52)
+                            if player.loading {
+                                ProgressView().tint(.mdOnAccent)
+                            } else {
+                                Image(systemName: player.playing ? "pause.fill" : "play.fill")
+                                    .font(.title3.weight(.bold))
+                                    .foregroundColor(playable ? .mdOnAccent : .mdFaint)
+                                    .offset(x: player.playing ? 0 : 1)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!playable || player.loading)
+                    .accessibilityLabel(player.playing
+                        ? controller.text("暂停", "Pause")
+                        : controller.text("播放录音", "Play Recording"))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(clock(elapsed)) / \(clock(duration))")
+                            .font(.headline.monospacedDigit())
+                            .foregroundColor(.mdText)
+                        Text(player.playing
+                             ? controller.text("正在播放", "Playing")
+                             : controller.text("录音", "Recording"))
+                            .font(.footnote)
+                            .foregroundColor(.mdMuted)
+                    }
+                    Spacer(minLength: 0)
+                    skipButton(-15, icon: "gobackward.15", label: controller.text("后退 15 秒", "Back 15 seconds"))
+                    skipButton(15, icon: "goforward.15", label: controller.text("前进 15 秒", "Forward 15 seconds"))
+                }
+                Slider(
+                    value: Binding(
+                        get: { min(elapsed, max(duration, 0.1)) },
+                        set: { scrubbing = $0 }
+                    ),
+                    in: 0...max(duration, 0.1),
+                    onEditingChanged: { editing in
+                        if !editing, let target = scrubbing {
+                            player.seek(to: target)
+                            scrubbing = nil
+                        }
+                    }
+                )
+                .tint(.mdAccent)
+                .disabled(!player.isLoaded)
+                .accessibilityLabel(controller.text("播放进度", "Playback position"))
+                .accessibilityValue(clock(elapsed))
+            }
+            .padding(14)
+        }
+    }
+
+    private func skipButton(_ seconds: TimeInterval, icon: String, label: String) -> some View {
+        Button { player.skip(by: seconds) } label: {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundColor(player.isLoaded ? .mdAccent : .mdFaint)
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .disabled(!player.isLoaded)
+        .accessibilityLabel(label)
+    }
+
+    private func clock(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded(.down)))
+        let hours = total / 3_600, minutes = (total % 3_600) / 60, rest = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, rest)
+            : String(format: "%d:%02d", minutes, rest)
     }
 }

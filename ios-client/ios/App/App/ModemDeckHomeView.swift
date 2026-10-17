@@ -144,37 +144,50 @@ struct ModemDeckHomeView: View {
     private var shortcuts: some View {
         HStack(spacing: 8) {
             shortcut(controller.text("通话记录", "Calls"), icon: "phone", count: calls.calls.count, filter: "all")
-            shortcut(controller.text("未接来电", "Missed"), icon: "phone.down", count: calls.calls.filter(\.missed).count, filter: "missed")
+            shortcut(controller.text("未接来电", "Missed"), icon: "phone.arrow.down.left", count: calls.calls.filter(\.missed).count,
+                     filter: "missed", attention: calls.calls.contains { $0.missed && !$0.read })
             shortcut(controller.text("通话录音", "Recordings"), icon: "waveform", count: Set(calls.recordings.map { $0.call.id }).count, filter: "recorded")
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
     }
 
-    private func shortcut(_ title: String, icon: String, count: Int, filter: String) -> some View {
+    /// Counter card: the number leads; it only turns red while unread missed calls are waiting.
+    private func shortcut(_ title: String, icon: String, count: Int, filter: String, attention: Bool = false) -> some View {
         Button { controller.openCalls(filter: filter) } label: {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Image(systemName: icon).foregroundColor(.mdAccent)
+                    Image(systemName: icon)
+                        .symbolVariant(.fill)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(attention ? .mdDanger : .mdAccent)
                     Spacer(minLength: 0)
-                    Text(count.formatted()).foregroundColor(.mdMuted).monospacedDigit()
                 }
-                Text(title).font(.caption.weight(.medium)).foregroundColor(.mdText).lineLimit(1)
+                Text(count.formatted())
+                    .font(.title2.weight(.semibold).monospacedDigit())
+                    .foregroundColor(attention ? .mdDanger : .mdText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(title).font(.footnote).foregroundColor(.mdMuted).lineLimit(1)
             }
             .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
-            .background(Color.mdSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+            .background(attention ? Color.mdDangerSoft : Color.mdSurface)
+            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("recent-calls-" + filter)
     }
 
     private var activityList: some View {
         List {
             VStack(alignment: .leading, spacing: 12) {
-                Text(controller.text("我的线路", "MY LINES"))
-                    .font(.caption.weight(.semibold)).foregroundColor(.mdMuted)
+                Text(controller.text("我的线路", "My Lines"))
+                    .font(.footnote.weight(.semibold)).foregroundColor(.mdMuted)
+                    .accessibilityAddTraits(.isHeader)
                 ModemDeckHomeLineGrid(controller: controller, lines: controller.bootstrap?.lines ?? [])
             }
             .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 16)

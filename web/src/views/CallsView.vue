@@ -987,7 +987,9 @@ onBeforeUnmount(() => {
               state="empty"
               :title="t('calls.select')"
               :detail="t('calls.detailPlaceholder')"
-            />
+            >
+              <template #icon><Phone :size="24" /></template>
+            </StatePanel>
           </LoadingSkeletonBoundary>
         </template>
       </WorkspaceDetailPane>
@@ -1010,7 +1012,8 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-@media (max-width: 1100px) {
+/* Touch devices delete by swiping the row; pointer users keep the button. */
+@media (max-width: 1100px) and (pointer: coarse) {
   .desktop-delete-action {
     display: none;
   }

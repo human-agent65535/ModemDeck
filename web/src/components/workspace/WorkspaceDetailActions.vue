@@ -64,6 +64,10 @@ onBeforeUnmount(() => {
     >
       <slot name="secondary" />
     </div>
+    <!-- Favorite-style toggles stay visible and close the row on every page. -->
+    <div v-if="$slots.trailing" class="workspace-detail-actions__primary">
+      <slot name="trailing" />
+    </div>
   </div>
 </template>
 

@@ -87,7 +87,7 @@ const showNumber = computed(
         <strong>{{ name }}</strong>
       </span>
       <span class="call-list-item__meta">
-        <LineTag :line="line" :fallback="lineFallback" />
+        <LineTag :line="line" :fallback="lineFallback" variant="dot" />
         <small>
           {{ directionLabel }}<template v-if="showNumber"> · {{ number }}</template>
         </small>

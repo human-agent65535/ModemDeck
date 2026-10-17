@@ -217,9 +217,9 @@ onBeforeUnmount(() => {
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .recording-audio-player__native {
@@ -228,8 +228,8 @@ onBeforeUnmount(() => {
 
 .recording-audio-player__toggle {
   display: inline-grid;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   place-items: center;
   color: var(--on-accent);
   background: var(--accent);
@@ -247,7 +247,6 @@ onBeforeUnmount(() => {
   transform: scale(0.96);
 }
 
-.recording-audio-player__toggle:focus-visible,
 .recording-audio-player__progress {
   display: grid;
   min-width: 0;
@@ -271,7 +270,7 @@ onBeforeUnmount(() => {
 }
 
 .recording-audio-player__timeline progress {
-  height: 4px;
+  height: 6px;
   overflow: hidden;
   appearance: none;
   background: var(--control-muted);
@@ -297,7 +296,7 @@ onBeforeUnmount(() => {
 .recording-audio-player__timeline input {
   --ui-range-track-color: transparent;
   --ui-range-progress-color: transparent;
-  --ui-range-thumb-size: 12px;
+  --ui-range-thumb-size: 14px;
 
   height: 18px;
 }
@@ -307,7 +306,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   justify-content: space-between;
   color: var(--muted);
-  font-size: var(--text-2xs);
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }

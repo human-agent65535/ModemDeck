@@ -502,10 +502,10 @@ const accessTechnology = computed(() => {
   grid-template-rows: minmax(35px, auto) auto auto;
   gap: 10px 14px;
   margin: 0;
-  padding: 10px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
+  padding: var(--space-3);
+  background: var(--surface-sunken);
+  border: 0;
+  border-radius: var(--radius-sm);
 }
 
 .module-card__facts div {

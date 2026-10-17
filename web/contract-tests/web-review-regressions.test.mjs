@@ -168,8 +168,8 @@ test('dialer separates the primary call action from backspace', async () => {
     /grid-template-columns: repeat\(3, var\(--keypad-track-size\)\)/
   )
   assert.match(dialer, /<small v-if="key\.letters">\{\{ key\.letters \}\}<\/small>/)
-  assert.match(styles, /\.keypad__key strong\s*\{[\s\S]*?font-size: 26px/)
-  assert.match(styles, /\.keypad__key--zero small\s*\{[\s\S]*?font-size: 14px/)
+  assert.match(styles, /\.keypad__key strong\s*\{[\s\S]*?font-size: 28px/)
+  assert.match(styles, /\.keypad__key--zero small\s*\{[\s\S]*?font-size: var\(--text-base\)/)
 })
 
 test('header menu and audio dialog implement bounded keyboard focus behavior', async () => {
