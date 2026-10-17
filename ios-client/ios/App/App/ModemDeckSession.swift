@@ -74,6 +74,11 @@ final class ModemDeckSessionController: ObservableObject {
         }
     }
     @Published private(set) var listInteractionRevision = 0
+    /// Number of visible full-screen conversation surfaces; the iPhone tab bar hides while > 0.
+    @Published private(set) var immersiveScreenCount = 0
+
+    func enterImmersiveScreen() { immersiveScreenCount += 1 }
+    func leaveImmersiveScreen() { immersiveScreenCount = max(0, immersiveScreenCount - 1) }
     @Published var callsFilter = "all"
     @Published private(set) var callsNavigationRevision = 0
     @Published private(set) var requestedMessageThreadKey: String?
@@ -96,6 +101,12 @@ final class ModemDeckSessionController: ObservableObject {
     private var connectivityObserver: AnyCancellable?
     private var runtimeForeground = true
     private var runtimeEventStream: ModemDeckRuntimeCallStream?
+    /// Incoming-SMS stream; keeps the message list live without relying on push delivery.
+    private var messageEventStream: ModemDeckRuntimeCallStream?
+    private var messageEventGeneration = 0
+    private var messageReconnectAttempts = 0
+    private var messageReconnectWorkItem: DispatchWorkItem?
+    private var messageRefreshTask: Task<Void, Never>?
     private var runtimeEventGeneration = 0
     private var runtimeReconnectWorkItem: DispatchWorkItem?
     private var runtimeReconnectAttempts = 0
@@ -234,6 +245,7 @@ final class ModemDeckSessionController: ObservableObject {
         recovery.setForeground(true)
         guard phase == .paired else { return }
         startRuntimeEvents()
+        startMessageEvents()
         if runtimeReloadRequested { requestRuntimeCollectionsRefresh() }
         await refresh()
     }
@@ -241,6 +253,7 @@ final class ModemDeckSessionController: ObservableObject {
     func suspend() {
         runtimeForeground = false
         stopRuntimeEvents()
+        stopMessageEvents()
         ModemDeckDiagnostics.shared.record(.app, "background")
         ModemDeckDiagnostics.shared.flush()
         refreshGeneration &+= 1
@@ -293,6 +306,74 @@ final class ModemDeckSessionController: ObservableObject {
         )
         runtimeEventStream = stream
         stream.start()
+    }
+
+    private func startMessageEvents() {
+        guard runtimeForeground, phase == .paired,
+              messageEventStream == nil, messageReconnectWorkItem == nil,
+              let credential = try? credentialStore.load(),
+              let request = try? authorizedRequest(
+                  credential: credential, path: "/api/v1/messages/events", method: "GET",
+                  headers: ["Accept": "text/event-stream"], timeout: 90
+              ) else { return }
+        messageEventGeneration &+= 1
+        let generation = messageEventGeneration
+        let stream = ModemDeckRuntimeCallStream(
+            request: request,
+            onEvent: { [weak self] event, _ in
+                guard let self, generation == self.messageEventGeneration else { return }
+                self.messageReconnectAttempts = 0
+                if event == "sms" { self.requestLiveMessageRefresh() }
+            },
+            onCompletion: { [weak self] status, _ in
+                guard let self, generation == self.messageEventGeneration else { return }
+                self.messageEventStream = nil
+                // Authentication failures are handled by the runtime stream; a forbidden
+                // stream does not authorize polling instead.
+                guard status != 401, status != 403 else { return }
+                self.scheduleMessageEventsReconnect()
+            }
+        )
+        messageEventStream = stream
+        stream.start()
+    }
+
+    private func scheduleMessageEventsReconnect() {
+        guard runtimeForeground, phase == .paired, messageReconnectWorkItem == nil else { return }
+        let generation = messageEventGeneration
+        let delay = min(30.0, 2.0 * pow(2.0, Double(min(messageReconnectAttempts, 4))))
+        messageReconnectAttempts = min(messageReconnectAttempts + 1, 5)
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, generation == self.messageEventGeneration else { return }
+            self.messageReconnectWorkItem = nil
+            self.startMessageEvents()
+        }
+        messageReconnectWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    private func stopMessageEvents() {
+        messageEventGeneration &+= 1
+        messageReconnectWorkItem?.cancel()
+        messageReconnectWorkItem = nil
+        messageEventStream?.cancel()
+        messageEventStream = nil
+        messageReconnectAttempts = 0
+        messageRefreshTask?.cancel()
+        messageRefreshTask = nil
+    }
+
+    /// Coalesces bursts of incoming SMS into one list reload; an open conversation reloads
+    /// through the same notification push delivery uses.
+    private func requestLiveMessageRefresh() {
+        guard messageRefreshTask == nil else { return }
+        messageRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.messageRefreshTask = nil
+            await self.messagesStore.load()
+            NotificationCenter.default.post(name: .modemDeckRemoteNotification, object: self)
+        }
     }
 
     private func scheduleRuntimeEventsReconnect() {
@@ -395,6 +476,7 @@ final class ModemDeckSessionController: ObservableObject {
             errorMessage = ""
             phase = .paired
             startRuntimeEvents()
+            startMessageEvents()
             // Session and capabilities authorize controls. History pagination is
             // background work, not a prerequisite for interacting with the app.
             if transportFailureRevision == failuresBeforeCheck { connectionState = .online }
@@ -447,6 +529,7 @@ final class ModemDeckSessionController: ObservableObject {
                 )
             }
             stopRuntimeEvents(resetWatermark: true)
+            stopMessageEvents()
             callsStore.clear()
             api.clearCachedData()
             try credentialStore.save(credential)
@@ -483,6 +566,14 @@ final class ModemDeckSessionController: ObservableObject {
             phase = .paired
             recovery.requestFailed()
         }
+    }
+
+    /// Clears this device's credential without server confirmation, for a server that can no
+    /// longer be reached (moved, reinstalled, certificate changed). The server-side credential
+    /// stays valid until it is revoked from Web settings, which the confirmation says.
+    func removeLocalPairing() async {
+        ModemDeckDiagnostics.shared.record(.pairing, "pairing_removed_locally")
+        await resetAfterRevocation()
     }
 
     func openMessage(threadKey: String) {
@@ -601,6 +692,7 @@ final class ModemDeckSessionController: ObservableObject {
 
     private func resetAfterRevocation() async {
         stopRuntimeEvents(resetWatermark: true)
+        stopMessageEvents()
         refreshGeneration &+= 1
         dialDraft.clear()
         callsFilter = "all"

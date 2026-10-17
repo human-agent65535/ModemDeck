@@ -1508,6 +1508,7 @@ onMounted(() => {
           :key="tab.id"
           type="button"
           :class="{ 'is-selected': activeTab === tab.id }"
+          :aria-current="activeTab === tab.id ? 'page' : undefined"
           @click="activeTab = tab.id"
         >
           <component :is="tab.icon" :size="16" />

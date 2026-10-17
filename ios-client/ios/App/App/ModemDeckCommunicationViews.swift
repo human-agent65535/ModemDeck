@@ -636,6 +636,7 @@ struct ModemDeckIdentityHeader: View {
     var contactBound = false
     var showsBackButton = true
     let backTitle: String
+    var moreActionsTitle = "More actions"
     var actions: [ModemDeckHeaderAction] = []
     var copyItems: [ModemDeckCopyItem] = []
     let dismiss: () -> Void
@@ -645,11 +646,13 @@ struct ModemDeckIdentityHeader: View {
             if showsBackButton {
                 Button(action: dismiss) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 19, weight: .semibold))
+                        .font(.title3.weight(.semibold))
                         .foregroundColor(.mdText)
-                        .frame(width: 32, height: 44)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .padding(.leading, -6)
                 .accessibilityLabel(backTitle)
             }
 
@@ -668,12 +671,13 @@ struct ModemDeckIdentityHeader: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.headline)
                         .foregroundColor(.mdText)
                         .lineLimit(1)
+                        .accessibilityAddTraits(.isHeader)
                     if !subtitle.isEmpty {
                         Text(subtitle)
-                            .font(.system(size: 13))
+                            .font(.subheadline.monospacedDigit())
                             .foregroundColor(.mdMuted)
                             .lineLimit(1)
                     }
@@ -696,11 +700,12 @@ struct ModemDeckIdentityHeader: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.body.weight(.semibold))
                         .foregroundColor(.mdMuted)
-                        .frame(width: 38, height: 40)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .accessibilityLabel("More actions")
+                .accessibilityLabel(moreActionsTitle)
             } else {
                 ForEach(actions) { item in
                     headerButton(item)
@@ -708,7 +713,10 @@ struct ModemDeckIdentityHeader: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: 64)
+        .padding(.vertical, 6)
+        .frame(minHeight: 64)
+        // Large text grows the header; the cap keeps the action row usable.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .background(Color.mdSurface)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.mdBorder).frame(height: 1)
@@ -722,11 +730,12 @@ struct ModemDeckIdentityHeader: View {
                     ProgressView().tint(item.color)
                 } else {
                     Image(systemName: item.icon)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.body.weight(.semibold))
                         .foregroundColor(item.color)
                 }
             }
-            .frame(width: 38, height: 40)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(item.disabled || item.busy)
@@ -779,6 +788,7 @@ struct ModemDeckContactDetailView: View {
                 avatarSource: displayedContact.avatar,
                 showsBackButton: showsBackButton,
                 backTitle: controller.text("返回联系人", "Back to contacts"),
+                moreActionsTitle: controller.text("更多操作", "More actions"),
                 actions: contactHeaderActions,
                 copyItems: [
                     ModemDeckCopyItem(
@@ -1431,6 +1441,7 @@ struct ModemDeckDirectMessageView: View {
                 channel: .message,
                 contactBound: contactBound,
                 backTitle: controller.text("返回", "Back"),
+                moreActionsTitle: controller.text("更多操作", "More actions"),
                 copyItems: [
                     ModemDeckCopyItem(
                         label: controller.text("复制联系人", "Copy Contact"),
@@ -1479,6 +1490,7 @@ struct ModemDeckDirectMessageView: View {
         .background(Color.mdBackground)
         .navigationBarHidden(true)
         .modemDeckInteractiveBack()
+        .modemDeckImmersiveScreen(controller)
         // An edited draft is a new message; an unedited one is a retry.
         .onChange(of: content) { _ in sendAttempt = UUID().uuidString }
         .task {
@@ -2410,6 +2422,7 @@ struct ModemDeckConversationView: View {
                 contactBound: contactBound,
                 showsBackButton: showsBackButton,
                 backTitle: controller.text("返回消息", "Back to messages"),
+                moreActionsTitle: controller.text("更多操作", "More actions"),
                 actions: threadHeaderActions,
                 copyItems: [
                     ModemDeckCopyItem(
@@ -2614,6 +2627,7 @@ struct ModemDeckConversationView: View {
         }
         .navigationBarHidden(true)
         .modemDeckInteractiveBack(showsBackButton)
+        .modemDeckImmersiveScreen(controller)
         .task {
             await store.load()
             initialLoadFinished = true

@@ -990,12 +990,13 @@ onBeforeUnmount(() => {
           />
         </template>
         <template #filters>
-          <div class="segmented-control" :aria-label="t('messages.filter')">
+          <div class="segmented-control" role="group" :aria-label="t('messages.filter')">
             <button
               v-for="item in messageFilters"
               :key="item.value"
               type="button"
               :class="{ 'is-active': messageFilter === item.value }"
+              :aria-pressed="messageFilter === item.value"
               @click="setMessageFilter(item.value)"
             >
               {{ item.label }}

@@ -149,7 +149,7 @@ struct ModemDeckHomeView: View {
             shortcut(controller.text("通话录音", "Recordings"), icon: "waveform", count: Set(calls.recordings.map { $0.call.id }).count, filter: "recorded")
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 16)
+        .padding(.bottom, 4)
     }
 
     /// Counter card: the number leads; it only turns red while unread missed calls are waiting.
@@ -225,6 +225,8 @@ struct ModemDeckHomeView: View {
             }
         }
         .listStyle(.plain)
+        // Plain lists add a tall default header; keep the first day close to the counters.
+        .environment(\.defaultMinListHeaderHeight, 0)
         .scrollContentBackground(.hidden)
         .environment(\.defaultMinListRowHeight, 0)
         .background(Color.mdBackground)

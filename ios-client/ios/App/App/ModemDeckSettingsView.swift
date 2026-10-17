@@ -300,7 +300,8 @@ private struct ModemDeckSettingsDirectoryRow: View {
                 .foregroundColor(.mdFaint)
         }
         .padding(.horizontal, ModemDeckLayout.listHorizontalPadding)
-        .frame(minHeight: ModemDeckLayout.listRowMinHeight)
+        .padding(.vertical, 8)
+        .frame(minHeight: ModemDeckLayout.settingsRowMinHeight)
         .background(selected ? Color.mdSelected : Color.clear)
         .overlay(alignment: .leading) {
             if selected {
@@ -870,7 +871,8 @@ private struct ModemDeckSecuritySettingsView: View {
                             detail: sessionDetail(session),
                             current: session.current,
                             busy: revokingSessionID == session.id,
-                            signOutTitle: controller.text("注销设备", "Sign Out")
+                            signOutTitle: controller.text("注销设备", "Sign Out"),
+                            currentTitle: controller.text("本机", "This iPhone")
                         ) { sessionToRevoke = session }
                     }
                 }
@@ -980,6 +982,7 @@ private struct ModemDeckAccountSessionSettingsRow: View {
     let current: Bool
     let busy: Bool
     let signOutTitle: String
+    var currentTitle = "Current"
     let signOut: () -> Void
 
     var body: some View {
@@ -992,24 +995,23 @@ private struct ModemDeckAccountSessionSettingsRow: View {
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundColor(.mdText)
                     .lineLimit(1)
                 Text(detail)
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundColor(.mdMuted)
                     .lineLimit(3)
             }
             Spacer(minLength: 8)
             if current {
-                Text("CURRENT")
-                    .font(.system(size: 9, weight: .bold))
+                Text(currentTitle)
+                    .font(.caption.weight(.semibold))
                     .foregroundColor(.mdAccentStrong)
-                    .padding(.horizontal, 7)
-                    .frame(height: 24)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 24)
                     .background(Color.mdAccentSoft)
                     .clipShape(Capsule())
-                    .accessibilityLabel("Current device")
             } else {
                 Button(action: signOut) {
                     Group {
@@ -1019,11 +1021,11 @@ private struct ModemDeckAccountSessionSettingsRow: View {
                             Image(systemName: "rectangle.portrait.and.arrow.right")
                         }
                     }
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundColor(.mdDanger)
-                    .frame(width: 40, height: 40)
-                    .background(Color.mdDanger.opacity(0.07))
-                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .frame(width: 44, height: 44)
+                    .background(Color.mdDangerSoft)
+                    .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
                 }
                 .buttonStyle(.plain)
                 .disabled(busy)
@@ -2058,6 +2060,7 @@ private struct ModemDeckContactImportSettingsView: View {
 private struct ModemDeckConnectionSettingsView: View {
     @ObservedObject var controller: ModemDeckSessionController
     @State private var showingDisconnectConfirmation = false
+    @State private var showingLocalRemovalConfirmation = false
     @State private var disconnecting = false
     @State private var disconnectError = ""
 
@@ -2111,10 +2114,39 @@ private struct ModemDeckConnectionSettingsView: View {
 
             if !disconnectError.isEmpty {
                 Text(disconnectError)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundColor(.mdDanger)
                     .padding(.horizontal, 18)
+                // The server could not confirm; let the user leave a server they can no longer reach.
+                ModemDeckSettingsModule(title: controller.text("无法连接服务器？", "Can't Reach the Server?")) {
+                    ModemDeckSettingsActionRow(
+                        title: controller.text("仅从本机移除配对", "Remove from This iPhone Only"),
+                        icon: "iphone.slash",
+                        destructive: true,
+                        busy: disconnecting
+                    ) {
+                        showingLocalRemovalConfirmation = true
+                    }
+                }
             }
+        }
+        .alert(
+            controller.text("仅从本机移除配对？", "Remove Pairing from This iPhone Only?"),
+            isPresented: $showingLocalRemovalConfirmation
+        ) {
+            Button(controller.text("取消", "Cancel"), role: .cancel) {}
+            Button(controller.text("仅从本机移除", "Remove Locally"), role: .destructive) {
+                disconnecting = true
+                Task {
+                    await controller.removeLocalPairing()
+                    disconnecting = false
+                }
+            }
+        } message: {
+            Text(controller.text(
+                "本机会清除凭证并回到配对页。服务器上的此设备凭证仍然有效，请在网页“设置 → 配对”中撤销。",
+                "This iPhone forgets the credential and returns to pairing. The server still trusts this device until you revoke it in Web Settings → Pairing."
+            ))
         }
         .alert(
             controller.text("撤销本机配对？", "Disconnect This Device?"),

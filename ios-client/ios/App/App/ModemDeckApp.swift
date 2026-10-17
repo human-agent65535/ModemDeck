@@ -419,6 +419,8 @@ enum ModemDeckLayout {
     static let searchVisualHeight: CGFloat = 44
     static let listHorizontalPadding: CGFloat = 20
     static let listRowMinHeight: CGFloat = 80
+    /// Settings directory rows are single-purpose and denser than communication rows.
+    static let settingsRowMinHeight: CGFloat = 64
     static let listAvatarSize: CGFloat = 44
     static let listAvatarTextSpacing: CGFloat = 12
     static let listTextLeading = listHorizontalPadding + listAvatarSize + listAvatarTextSpacing
@@ -966,8 +968,9 @@ private struct ModemDeckWorkspaceShell: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if !usesSplitWorkspace {
+            if !usesSplitWorkspace && controller.immersiveScreenCount == 0 {
                 ModemDeckPhoneTabBar(controller: controller, selection: $controller.selectedSection)
+                    .transition(.move(edge: .bottom))
             }
         }
         .background(Color.mdBackground.ignoresSafeArea())
@@ -1013,6 +1016,7 @@ private struct ModemDeckSectionBadge: View {
                 .frame(minWidth: 18, minHeight: 18)
                 .background(Capsule().fill(Color.mdCallEnd))
                 .accessibilityHidden(true)
+                .allowsHitTesting(false)
         }
     }
 }
@@ -1132,6 +1136,14 @@ private struct ModemDeckPadNavigationRail: View {
         .frame(width: 196)
         .modemDeckSelectionFeedback(selection)
         .background(.bar)
+    }
+}
+
+extension View {
+    /// Marks a pushed screen (a conversation or composer) that should own the bottom edge on iPhone.
+    func modemDeckImmersiveScreen(_ controller: ModemDeckSessionController) -> some View {
+        onAppear { controller.enterImmersiveScreen() }
+            .onDisappear { controller.leaveImmersiveScreen() }
     }
 }
 

@@ -404,6 +404,7 @@ onBeforeUnmount(() => {
                 class="list-item"
                 :class="{ 'is-selected': contact.id === selectedId }"
                 type="button"
+                :aria-current="contact.id === selectedId ? 'true' : undefined"
                 @click="selectContact(contact)"
               >
                 <ListItemAvatarStatus>

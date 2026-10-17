@@ -59,6 +59,7 @@ const showNumber = computed(
       'is-unread': call.missed && !call.read
     }"
     type="button"
+    :aria-current="selected ? 'true' : undefined"
     :aria-label="
       call.missed && !call.read
         ? t('calls.viewUnreadDetails', { name })

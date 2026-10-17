@@ -117,6 +117,7 @@ private struct ModemDeckDialKeyButton: View {
     var size: CGFloat = 76
     /// The dialer accepts "+" from a long press on 0; DTMF has no "+" tone.
     var allowsPlus = true
+    var plusHint = "Long press to enter plus"
     let action: (String) -> Void
     @State private var zeroLongPressTriggered = false
 
@@ -151,7 +152,7 @@ private struct ModemDeckDialKeyButton: View {
         )
         .accessibilityLabel(letters.isEmpty ? digit : "\(digit) \(letters)")
         .accessibilityHint(
-            allowsPlus && digit == "0" ? "Long press to enter plus" : ""
+            allowsPlus && digit == "0" ? plusHint : ""
         )
     }
 }
@@ -397,7 +398,9 @@ struct ModemDeckDialerView: View {
 
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(76), spacing: 24), count: 3), spacing: 12) {
                     ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
-                        ModemDeckDialKeyButton(digit: key.0, letters: key.1, action: appendDigit)
+                        ModemDeckDialKeyButton(digit: key.0, letters: key.1,
+                                               plusHint: controller.text("长按输入 +", "Long press to enter plus"),
+                                               action: appendDigit)
                             .accessibilityIdentifier("dial-key-\(key.0)")
                     }
                 }
@@ -1522,6 +1525,7 @@ struct ModemDeckCallDetailView: View {
                 contactBound: contactBound,
                 showsBackButton: showsBackButton,
                 backTitle: controller.text("返回通话", "Back to calls"),
+                moreActionsTitle: controller.text("更多操作", "More actions"),
                 actions: callHeaderActions,
                 copyItems: [
                     ModemDeckCopyItem(
@@ -1951,6 +1955,7 @@ struct ModemDeckRecordingDetailView: View {
                 contactBound: contactBound,
                 showsBackButton: showsBackButton,
                 backTitle: controller.text("返回录音", "Back to recordings"),
+                moreActionsTitle: controller.text("更多操作", "More actions"),
                 actions: recordingHeaderActions,
                 copyItems: [
                     ModemDeckCopyItem(

@@ -604,7 +604,8 @@ test('native communication density keeps compact visuals and full touch targets'
   assert.match(app, /accessibilityAddTraits\(active \? \.isSelected : \[\]\)/)
   assert.ok((communication.match(/ModemDeckCollectionHeader\(/g) || []).length >= 2)
   assert.ok((calls.match(/ModemDeckCollectionHeader\(/g) || []).length >= 2)
-  assert.match(settings, /ModemDeckSettingsDirectoryRow[\s\S]*ModemDeckLayout\.listRowMinHeight/)
+  assert.match(app, /static let settingsRowMinHeight: CGFloat = 64/)
+  assert.match(settings, /ModemDeckSettingsDirectoryRow[\s\S]*ModemDeckLayout\.settingsRowMinHeight/)
 })
 
 test('microphone permission is requested only by an explicit call or settings action', async () => {

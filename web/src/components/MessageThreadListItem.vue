@@ -47,6 +47,7 @@ const { t } = useI18n()
     }"
     role="button"
     tabindex="0"
+    :aria-current="selected ? 'true' : undefined"
     @click="emit('select', props.thread.key)"
     @keydown.enter.prevent="emit('select', props.thread.key)"
     @keydown.space.prevent="emit('select', props.thread.key)"

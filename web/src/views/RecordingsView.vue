@@ -494,6 +494,7 @@ onBeforeUnmount(() => {
                 class="list-item recording-list-item"
                 :class="{ 'is-selected': recording.id === selectedID }"
                 type="button"
+                :aria-current="recording.id === selectedID ? 'true' : undefined"
                 @click="selectRecording(recording)"
               >
                 <ListItemAvatarStatus class="recording-list-item__avatar">
