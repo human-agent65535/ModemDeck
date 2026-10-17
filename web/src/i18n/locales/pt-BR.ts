@@ -1,4 +1,28 @@
 export default {
+  "errors": {
+    "network": "Não foi possível acessar o ModemDeck. Verifique a conexão e tente novamente.",
+    "server": "O ModemDeck encontrou um problema. Tente novamente em instantes.",
+    "forbidden": "Você não tem permissão para fazer isso.",
+    "authentication_required": "Sua sessão expirou. Entre novamente.",
+    "invalid_credentials": "Usuário ou senha incorretos.",
+    "invalid_current_password": "A senha atual está incorreta.",
+    "password_too_short": "A senha é muito curta.",
+    "password_too_long": "A senha é muito longa.",
+    "password_unchanged": "Escolha uma senha diferente da atual.",
+    "username_conflict": "Esse nome de usuário já está em uso.",
+    "username_invalid": "Esse nome de usuário não pode ser usado.",
+    "revision_conflict": "Isso foi alterado em outro lugar. Recarregue e tente novamente.",
+    "not_found": "Este item não existe mais.",
+    "phone_conflict": "Este número já pertence a outro contato.",
+    "communications_unavailable": "O serviço do modem está indisponível agora. Tente novamente em breve.",
+    "media_in_use": "O áudio da chamada está em uso em outro dispositivo.",
+    "call_lease_unavailable": "Esta chamada está sendo atendida em outro dispositivo.",
+    "recording_unavailable": "A gravação não está disponível agora.",
+    "update_in_progress": "Já há uma atualização em andamento.",
+    "network_rejected": "A rede móvel recusou esta solicitação.",
+    "invalid_line": "Escolha uma linha disponível.",
+    "not_supported": "Este modem não oferece suporte a isso."
+  },
   callTest: {
     "title": "Diagnóstico de chamadas",
     "description": "Uma chamada de teste chega em cerca de 5 segundos. Atenda na janela da chamada. Teste o áudio entre o navegador e o servidor: ouça o sinal, fale e ouça sua voz. Termina após 60 segundos. Não usa SIM; o áudio fica temporariamente na memória do servidor e é apagado ao terminar.",

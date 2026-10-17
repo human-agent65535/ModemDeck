@@ -1,4 +1,28 @@
 export default {
+  "errors": {
+    "network": "ModemDeck に接続できません。接続を確認して再試行してください。",
+    "server": "ModemDeck で問題が発生しました。しばらくしてから再試行してください。",
+    "forbidden": "この操作を行う権限がありません。",
+    "authentication_required": "セッションの有効期限が切れました。もう一度サインインしてください。",
+    "invalid_credentials": "ユーザー名またはパスワードが正しくありません。",
+    "invalid_current_password": "現在のパスワードが正しくありません。",
+    "password_too_short": "パスワードが短すぎます。",
+    "password_too_long": "パスワードが長すぎます。",
+    "password_unchanged": "現在とは異なるパスワードを選んでください。",
+    "username_conflict": "このユーザー名は既に使われています。",
+    "username_invalid": "このユーザー名は使用できません。",
+    "revision_conflict": "別の場所で変更されました。再読み込みして再試行してください。",
+    "not_found": "この項目はもう存在しません。",
+    "phone_conflict": "この番号は既に別の連絡先に登録されています。",
+    "communications_unavailable": "モデムサービスは現在利用できません。しばらくしてから再試行してください。",
+    "media_in_use": "通話音声は別のデバイスで使用中です。",
+    "call_lease_unavailable": "この通話は別のデバイスで処理されています。",
+    "recording_unavailable": "録音は現在利用できません。",
+    "update_in_progress": "アップデートが既に進行中です。",
+    "network_rejected": "モバイルネットワークがこのリクエストを拒否しました。",
+    "invalid_line": "利用可能な回線を選んでください。",
+    "not_supported": "このモデムはその操作に対応していません。"
+  },
   callTest: {
     "title": "通話診断",
     "description": "約 5 秒後のテスト着信に通話ウィンドウで応答してください。ブラウザーとサーバー間の通話音声をテストします。合図の後に話し、自分の声の再生を確認してください。60 秒で自動終了します。SIM は使用せず、音声はサーバーのメモリに一時保存され、終了時に消去されます。",

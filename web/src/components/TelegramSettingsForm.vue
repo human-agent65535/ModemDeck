@@ -38,6 +38,7 @@ import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
 import SettingsResourceStatus from './settings/SettingsResourceStatus.vue'
+import { userErrorMessage } from '../utils/errorMessage'
 
 type TelegramScopeOption = {
   id: string
@@ -406,9 +407,7 @@ async function submit(): Promise<void> {
     saveError.value =
       error instanceof ApiError && error.status === 403
         ? t('telegram.updateForbidden')
-        : error instanceof Error
-          ? error.message
-          : t('telegram.saveFailed')
+        : userErrorMessage(error, t('telegram.saveFailed'))
     showError(saveError.value)
   } finally {
     saving.value = false
@@ -439,9 +438,7 @@ async function remove(): Promise<void> {
     saveError.value =
       error instanceof ApiError && error.status === 403
         ? t('telegram.deleteForbidden')
-        : error instanceof Error
-          ? error.message
-          : t('telegram.deleteFailed')
+        : userErrorMessage(error, t('telegram.deleteFailed'))
   } finally {
     deleting.value = false
     deleteConfirm.value = false

@@ -1,4 +1,28 @@
 export default {
+  "errors": {
+    "network": "Không thể kết nối ModemDeck. Hãy kiểm tra kết nối rồi thử lại.",
+    "server": "ModemDeck gặp sự cố. Hãy thử lại sau giây lát.",
+    "forbidden": "Bạn không có quyền thực hiện thao tác này.",
+    "authentication_required": "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.",
+    "invalid_credentials": "Tên người dùng hoặc mật khẩu không đúng.",
+    "invalid_current_password": "Mật khẩu hiện tại không đúng.",
+    "password_too_short": "Mật khẩu quá ngắn.",
+    "password_too_long": "Mật khẩu quá dài.",
+    "password_unchanged": "Hãy chọn mật khẩu khác với mật khẩu hiện tại.",
+    "username_conflict": "Tên người dùng này đã được sử dụng.",
+    "username_invalid": "Không thể dùng tên người dùng này.",
+    "revision_conflict": "Nội dung đã được thay đổi ở nơi khác. Hãy tải lại rồi thử lại.",
+    "not_found": "Mục này không còn tồn tại.",
+    "phone_conflict": "Số này đã thuộc về một liên hệ khác.",
+    "communications_unavailable": "Dịch vụ modem hiện không khả dụng. Hãy thử lại sau.",
+    "media_in_use": "Âm thanh cuộc gọi đang được dùng trên thiết bị khác.",
+    "call_lease_unavailable": "Cuộc gọi này đang được xử lý trên thiết bị khác.",
+    "recording_unavailable": "Hiện không thể ghi âm.",
+    "update_in_progress": "Đang có một bản cập nhật chạy.",
+    "network_rejected": "Mạng di động đã từ chối yêu cầu này.",
+    "invalid_line": "Hãy chọn một đường dây khả dụng.",
+    "not_supported": "Modem này không hỗ trợ thao tác đó."
+  },
   callTest: {
     "title": "Chẩn đoán cuộc gọi",
     "description": "Cuộc gọi thử đến sau khoảng 5 giây. Trả lời trong cửa sổ cuộc gọi. Kiểm tra âm thanh giữa trình duyệt và máy chủ: nghe tiếng bíp, nói rồi nghe lại giọng của bạn. Tự kết thúc sau 60 giây. Không dùng SIM; âm thanh chỉ được giữ tạm trong bộ nhớ máy chủ và xóa khi kết thúc.",

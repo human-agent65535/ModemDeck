@@ -58,7 +58,10 @@ final class ModemDeckSessionController: ObservableObject {
     @Published private(set) var phase: ModemDeckSessionPhase = .launching {
         didSet { if phase != oldValue { ModemDeckDiagnostics.shared.record(.app, "session_phase_changed", fields: ["status": String(describing: phase)]) } }
     }
-    @Published private(set) var session: ModemDeckMobileSession?
+    @Published private(set) var session: ModemDeckMobileSession? {
+        // Errors are described outside view code; keep their language in step with the UI.
+        didSet { ModemDeckErrorLanguage.setChinese(usesChinese) }
+    }
     @Published private(set) var bootstrap: ModemDeckBootstrap?
     @Published private(set) var notificationStatus = "unknown" {
         didSet { if notificationStatus != oldValue { ModemDeckDiagnostics.shared.record(.permissions, "notification_permission", fields: ["status": notificationStatus]) } }

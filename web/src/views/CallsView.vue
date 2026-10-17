@@ -76,6 +76,7 @@ import {
 import { formatDateTime, formatDuration } from '../utils/format'
 import { isContactPhoneCandidate } from '../utils/communicationAddress'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const props = withDefaults(
   defineProps<{
@@ -347,7 +348,7 @@ async function toggleCallFavorite(call: CallRecord): Promise<void> {
     }
   } catch (error) {
     callMutationError.value =
-      error instanceof Error ? error.message : t('common.favoriteFailed')
+      userErrorMessage(error, t('common.favoriteFailed'))
   } finally {
     favoritePendingCallID.value = ''
   }
@@ -378,7 +379,7 @@ async function removeCall(call: CallRecord): Promise<void> {
     }
   } catch (error) {
     callMutationError.value =
-      error instanceof Error ? error.message : t('calls.deleteFailed')
+      userErrorMessage(error, t('calls.deleteFailed'))
   } finally {
     deletingCallID.value = ''
   }
@@ -430,7 +431,7 @@ async function batchSetFavorite(favorite: boolean): Promise<void> {
     }
   } catch (error) {
     callMutationError.value =
-      error instanceof Error ? error.message : t('common.favoriteFailed')
+      userErrorMessage(error, t('common.favoriteFailed'))
   } finally {
     batchBusy.value = false
   }
@@ -464,7 +465,7 @@ async function batchDelete(): Promise<void> {
     selection.exit()
   } catch (error) {
     callMutationError.value =
-      error instanceof Error ? error.message : t('calls.deleteFailed')
+      userErrorMessage(error, t('calls.deleteFailed'))
   } finally {
     batchBusy.value = false
   }

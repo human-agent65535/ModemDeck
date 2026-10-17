@@ -11,6 +11,7 @@ import {
   passwordByteCount,
   passwordCharacterCount
 } from '../utils/password'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -52,7 +53,7 @@ function validationError(): string {
 
 function apiErrorMessage(cause: unknown): string {
   if (!(cause instanceof ApiError)) {
-    return cause instanceof Error ? cause.message : t('account.passwordChangeFailed')
+    return userErrorMessage(cause, t('account.passwordChangeFailed'))
   }
   const messages: Record<string, string> = {
     invalid_current_password: t('account.currentPasswordIncorrect'),

@@ -61,6 +61,7 @@ import {
   saveContact
 } from '../state/workspace'
 import { phoneDestination, primaryPhone } from '../utils/format'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const route = useRoute()
 const router = useRouter()
@@ -170,7 +171,7 @@ async function save(input: ContactInput): Promise<void> {
     await router.push({ name: 'contacts', params: { contactId: contact.id } })
     showSuccess(t('common.saved'))
   } catch (error) {
-    editorError.value = error instanceof Error ? error.message : t('contacts.saveFailed')
+    editorError.value = userErrorMessage(error, t('contacts.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -193,7 +194,7 @@ async function remove(contact: Contact): Promise<void> {
     }
   } catch (error) {
     deleteError.value =
-      error instanceof Error ? error.message : t('contacts.deleteFailed')
+      userErrorMessage(error, t('contacts.deleteFailed'))
   } finally {
     deleting.value = false
   }
@@ -220,7 +221,7 @@ async function batchDelete(): Promise<void> {
     selection.exit()
   } catch (error) {
     deleteError.value =
-      error instanceof Error ? error.message : t('contacts.deleteFailed')
+      userErrorMessage(error, t('contacts.deleteFailed'))
   } finally {
     batchBusy.value = false
   }
@@ -255,7 +256,7 @@ async function toggleFavorite(contact: Contact): Promise<void> {
     )
   } catch (error) {
     favoriteError.value =
-      error instanceof Error ? error.message : t('contacts.favoriteSaveFailed')
+      userErrorMessage(error, t('contacts.favoriteSaveFailed'))
   } finally {
     favoritePending.value = false
   }

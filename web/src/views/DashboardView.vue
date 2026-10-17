@@ -111,6 +111,7 @@ import {
 } from '../utils/operatorNetwork'
 import { primaryPhone, primaryPhoneDestination } from '../utils/format'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const route = useRoute()
 const router = useRouter()
@@ -407,7 +408,7 @@ async function markActivityUnread(activity: CommunicationActivity): Promise<void
     }
   } catch (error) {
     activityMutationError.value =
-      error instanceof Error ? error.message : t('runtime.requestFailed')
+      userErrorMessage(error, t('runtime.requestFailed'))
   }
 }
 
@@ -485,7 +486,7 @@ async function batchSetRead(read: boolean): Promise<void> {
     ])
   } catch (error) {
     activityMutationError.value =
-      error instanceof Error ? error.message : t('runtime.requestFailed')
+      userErrorMessage(error, t('runtime.requestFailed'))
   } finally {
     batchBusy.value = false
   }
@@ -508,7 +509,7 @@ async function batchSetFavorite(favorite: boolean): Promise<void> {
     ])
   } catch (error) {
     activityMutationError.value =
-      error instanceof Error ? error.message : t('common.favoriteFailed')
+      userErrorMessage(error, t('common.favoriteFailed'))
   } finally {
     batchBusy.value = false
   }
@@ -602,7 +603,7 @@ async function batchDelete(): Promise<void> {
 }
 
 function failureMessage(error: unknown): string {
-  return error instanceof Error ? error.message : t('runtime.requestFailed')
+  return userErrorMessage(error, t('runtime.requestFailed'))
 }
 
 function onSelectionKeydown(event: KeyboardEvent): void {
@@ -702,7 +703,7 @@ async function saveNewContact(input: ContactInput): Promise<void> {
     showSuccess(t('common.saved'))
   } catch (error) {
     contactEditorError.value =
-      error instanceof Error ? error.message : t('contacts.saveFailed')
+      userErrorMessage(error, t('contacts.saveFailed'))
   } finally {
     contactSaving.value = false
   }

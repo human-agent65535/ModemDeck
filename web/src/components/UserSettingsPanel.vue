@@ -38,6 +38,7 @@ import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
 import SettingsResourceStatus from './settings/SettingsResourceStatus.vue'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -208,7 +209,7 @@ async function load(): Promise<void> {
     }
   } catch (cause) {
     status.value = 'error'
-    loadError.value = cause instanceof Error ? cause.message : t('users.loadFailed')
+    loadError.value = userErrorMessage(cause, t('users.loadFailed'))
   }
 }
 
@@ -269,7 +270,7 @@ async function submit(): Promise<void> {
         count: minimumPasswordCharacters
       })
     } else {
-      saveError.value = cause instanceof Error ? cause.message : t('users.saveFailed')
+      saveError.value = userErrorMessage(cause, t('users.saveFailed'))
     }
     showError(saveError.value)
   } finally {
@@ -310,7 +311,7 @@ async function setSelectedUserPassword(): Promise<void> {
     resetPassword.value = ''
   } catch (cause) {
     passwordResetError.value =
-      cause instanceof Error ? cause.message : t('users.setPasswordFailed')
+      userErrorMessage(cause, t('users.setPasswordFailed'))
     showError(passwordResetError.value)
   } finally {
     passwordResetting.value = false
@@ -349,7 +350,7 @@ async function revokeSelectedPairing(): Promise<void> {
     )
   } catch (cause) {
     showError(
-      cause instanceof Error ? cause.message : t('iosPairing.revokeFailed')
+      userErrorMessage(cause, t('iosPairing.revokeFailed'))
     )
   } finally {
     pairingRevoking.value = false

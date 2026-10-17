@@ -10,6 +10,7 @@ import { sessionState } from '../state/session'
 import AccountSecurityForm from './AccountSecurityForm.vue'
 import AccountSessionsPanel from './AccountSessionsPanel.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const { t } = useI18n()
 const sessions = ref<AccountSession[]>([])
@@ -26,7 +27,7 @@ async function loadSessions(): Promise<void> {
     status.value = 'ready'
   } catch (cause) {
     loadError.value =
-      cause instanceof Error ? cause.message : t('account.sessionsLoadFailed')
+      userErrorMessage(cause, t('account.sessionsLoadFailed'))
     status.value = 'error'
   }
 }
@@ -84,7 +85,7 @@ async function revokeOtherSessions(): Promise<void> {
     sessions.value = sessions.value.filter(session => session.current)
     showSuccess(t('account.otherSessionsLoggedOut'))
   } catch (cause) {
-    showError(cause instanceof Error ? cause.message : t('account.sessionLogoutFailed'))
+    showError(userErrorMessage(cause, t('account.sessionLogoutFailed')))
     await loadSessions()
   } finally {
     revokingOthers.value = false

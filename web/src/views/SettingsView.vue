@@ -46,6 +46,7 @@ import {
   presentModuleLines
 } from '../state/workspace'
 import { isRegisteredNetwork } from '../utils/operatorNetwork'
+import { userErrorMessage } from '../utils/errorMessage'
 
 type SettingsSectionDefinition = {
   id: SettingsSection
@@ -331,7 +332,7 @@ async function logout(): Promise<void> {
     await router.replace({ name: 'login' })
   } catch (error) {
     logoutError.value =
-      error instanceof Error ? error.message : t('settings.logoutFailed')
+      userErrorMessage(error, t('settings.logoutFailed'))
   } finally {
     logoutPending.value = false
   }

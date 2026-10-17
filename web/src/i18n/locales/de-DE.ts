@@ -1,4 +1,28 @@
 export default {
+  "errors": {
+    "network": "ModemDeck ist nicht erreichbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
+    "server": "Bei ModemDeck ist ein Problem aufgetreten. Versuchen Sie es gleich noch einmal.",
+    "forbidden": "Sie haben keine Berechtigung dafür.",
+    "authentication_required": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+    "invalid_credentials": "Benutzername oder Passwort ist falsch.",
+    "invalid_current_password": "Das aktuelle Passwort ist falsch.",
+    "password_too_short": "Das Passwort ist zu kurz.",
+    "password_too_long": "Das Passwort ist zu lang.",
+    "password_unchanged": "Wählen Sie ein anderes Passwort als das aktuelle.",
+    "username_conflict": "Dieser Benutzername ist bereits vergeben.",
+    "username_invalid": "Dieser Benutzername kann nicht verwendet werden.",
+    "revision_conflict": "Dies wurde an anderer Stelle geändert. Laden Sie neu und versuchen Sie es erneut.",
+    "not_found": "Dieses Element existiert nicht mehr.",
+    "phone_conflict": "Diese Nummer gehört bereits zu einem anderen Kontakt.",
+    "communications_unavailable": "Der Modemdienst ist gerade nicht verfügbar. Versuchen Sie es gleich noch einmal.",
+    "media_in_use": "Der Anrufton wird auf einem anderen Gerät verwendet.",
+    "call_lease_unavailable": "Dieser Anruf wird auf einem anderen Gerät bearbeitet.",
+    "recording_unavailable": "Aufnahme ist gerade nicht verfügbar.",
+    "update_in_progress": "Es läuft bereits ein Update.",
+    "network_rejected": "Das Mobilfunknetz hat die Anfrage abgelehnt.",
+    "invalid_line": "Wählen Sie eine verfügbare Leitung.",
+    "not_supported": "Dieses Modem unterstützt das nicht."
+  },
   callTest: {
     "title": "Anrufdiagnose",
     "description": "Ein Testanruf kommt in etwa 5 Sekunden. Nehmen Sie ihn im Anruffenster an. Testen Sie den Ton zwischen Browser und Server: Nach dem Signal sprechen und die eigene Stimme anhören. Endet nach 60 Sekunden. Keine SIM wird verwendet; Audio bleibt kurz im Serverspeicher und wird danach gelöscht.",

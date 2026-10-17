@@ -57,6 +57,7 @@ import {
 } from '../state/workspace'
 import { formatDateTime, formatDuration, formatRelativeDate } from '../utils/format'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const route = useRoute()
 const router = useRouter()
@@ -224,7 +225,7 @@ async function toggleRecordingFavorite(recording: RecordingEntry): Promise<void>
     }
   } catch (error) {
     deleteError.value =
-      error instanceof Error ? error.message : t('common.favoriteFailed')
+      userErrorMessage(error, t('common.favoriteFailed'))
   } finally {
     favoritePendingCallID.value = ''
   }
@@ -249,7 +250,7 @@ async function removeRecording(recording: RecordingEntry): Promise<void> {
     }
   } catch (error) {
     deleteError.value =
-      error instanceof Error ? error.message : t('recordings.deleteFailed')
+      userErrorMessage(error, t('recordings.deleteFailed'))
   } finally {
     deletingRecordingID.value = ''
   }
@@ -276,7 +277,7 @@ async function batchDelete(): Promise<void> {
     selection.exit()
   } catch (error) {
     deleteError.value =
-      error instanceof Error ? error.message : t('recordings.deleteFailed')
+      userErrorMessage(error, t('recordings.deleteFailed'))
   } finally {
     batchBusy.value = false
   }
@@ -300,7 +301,7 @@ async function batchSetFavorite(favorite: boolean): Promise<void> {
     }
   } catch (error) {
     deleteError.value =
-      error instanceof Error ? error.message : t('common.favoriteFailed')
+      userErrorMessage(error, t('common.favoriteFailed'))
   } finally {
     batchBusy.value = false
   }

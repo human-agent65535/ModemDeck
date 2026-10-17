@@ -1,4 +1,28 @@
 export default {
+  "errors": {
+    "network": "Impossible de joindre ModemDeck. Vérifiez la connexion et réessayez.",
+    "server": "ModemDeck a rencontré un problème. Réessayez dans un instant.",
+    "forbidden": "Vous n’avez pas l’autorisation de faire cela.",
+    "authentication_required": "Votre session a expiré. Reconnectez-vous.",
+    "invalid_credentials": "Nom d’utilisateur ou mot de passe incorrect.",
+    "invalid_current_password": "Le mot de passe actuel est incorrect.",
+    "password_too_short": "Le mot de passe est trop court.",
+    "password_too_long": "Le mot de passe est trop long.",
+    "password_unchanged": "Choisissez un mot de passe différent de l’actuel.",
+    "username_conflict": "Ce nom d’utilisateur est déjà pris.",
+    "username_invalid": "Ce nom d’utilisateur ne peut pas être utilisé.",
+    "revision_conflict": "Cet élément a été modifié ailleurs. Rechargez et réessayez.",
+    "not_found": "Cet élément n’existe plus.",
+    "phone_conflict": "Ce numéro appartient déjà à un autre contact.",
+    "communications_unavailable": "Le service du modem est indisponible pour le moment. Réessayez bientôt.",
+    "media_in_use": "L’audio de l’appel est utilisé sur un autre appareil.",
+    "call_lease_unavailable": "Cet appel est géré sur un autre appareil.",
+    "recording_unavailable": "L’enregistrement n’est pas disponible pour le moment.",
+    "update_in_progress": "Une mise à jour est déjà en cours.",
+    "network_rejected": "Le réseau mobile a refusé cette demande.",
+    "invalid_line": "Choisissez une ligne disponible.",
+    "not_supported": "Ce modem ne le prend pas en charge."
+  },
   callTest: {
     "title": "Diagnostic des appels",
     "description": "Un appel de test arrive dans environ 5 secondes. Répondez dans la fenêtre d’appel. Testez le son entre le navigateur et le serveur : après le signal, parlez puis écoutez votre voix. Fin après 60 secondes. Aucune SIM utilisée ; le son reste brièvement en mémoire sur le serveur et est effacé à la fin.",

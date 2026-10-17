@@ -105,6 +105,7 @@ import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
 import SectionSkeleton from './skeletons/SectionSkeleton.vue'
 import DeviceWorkspace from './settings/DeviceWorkspace.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
+import { userErrorMessage } from '../utils/errorMessage'
 
 type DeviceTab = 'overview' | 'network' | 'sim' | 'sms' | 'voice' | 'ussd'
 type AsyncStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -907,7 +908,7 @@ async function makeDefault(line: LineSummary): Promise<void> {
     await updateDefaultLine(lineID)
   } catch (error) {
     moduleError.value =
-      error instanceof Error ? error.message : t('device.defaultLineSaveFailed')
+      userErrorMessage(error, t('device.defaultLineSaveFailed'))
   }
 }
 
@@ -941,9 +942,7 @@ async function deleteHistoricalModule(line: LineSummary): Promise<void> {
     moduleError.value =
       error instanceof ApiError && error.code === 'device_present'
         ? t('device.deleteConnectedModuleFailed')
-        : error instanceof Error
-          ? error.message
-          : t('device.deleteModuleFailed')
+        : userErrorMessage(error, t('device.deleteModuleFailed'))
   } finally {
     moduleDeletePending.value = ''
   }
@@ -984,7 +983,7 @@ async function saveModuleName(): Promise<void> {
     showSuccess(t('common.saved'))
   } catch (error) {
     moduleNameError.value =
-      error instanceof Error ? error.message : t('device.moduleNameSaveFailed')
+      userErrorMessage(error, t('device.moduleNameSaveFailed'))
     showError(moduleNameError.value)
   } finally {
     moduleNamePending.value = false
@@ -1010,7 +1009,7 @@ async function saveLineLabel(): Promise<void> {
     showSuccess(t('common.saved'))
   } catch (error) {
     lineLabelError.value =
-      error instanceof Error ? error.message : t('device.lineLabelSaveFailed')
+      userErrorMessage(error, t('device.lineLabelSaveFailed'))
     showError(lineLabelError.value)
   } finally {
     lineLabelPending.value = false
@@ -1156,7 +1155,7 @@ async function loadSIM(force = false): Promise<void> {
   } catch (error) {
     if (!isCurrentLineServiceRequest(lineID, generation)) return
     simLoadStatus.value = 'error'
-    simError.value = error instanceof Error ? error.message : t('device.simLoadFailed')
+    simError.value = userErrorMessage(error, t('device.simLoadFailed'))
   }
 }
 
@@ -1192,7 +1191,7 @@ async function applySIMCommand(): Promise<void> {
     simNewPIN.value = ''
     await loadSIM(true)
   } catch (error) {
-    simError.value = error instanceof Error ? error.message : t('device.simOperationFailed')
+    simError.value = userErrorMessage(error, t('device.simOperationFailed'))
   } finally {
     simPending.value = false
   }
@@ -1213,7 +1212,7 @@ async function loadProfiles(force = false): Promise<void> {
     if (!isCurrentLineServiceRequest(lineID, generation)) return
     profileLoadStatus.value = 'error'
     profileError.value =
-      error instanceof Error ? error.message : t('device.profilesLoadFailed')
+      userErrorMessage(error, t('device.profilesLoadFailed'))
   }
 }
 
@@ -1257,7 +1256,7 @@ async function saveProfile(): Promise<void> {
     }
     showSuccess(t('common.saved'))
   } catch (error) {
-    const message = error instanceof Error ? error.message : t('device.profileSaveFailed')
+    const message = userErrorMessage(error, t('device.profileSaveFailed'))
     if (isCurrentLineServiceRequest(lineID, generation)) profileError.value = message
     showError(message)
   } finally {
@@ -1286,7 +1285,7 @@ async function deleteProfile(profile: ConnectionProfile): Promise<void> {
     await loadProfiles(true)
   } catch (error) {
     profileError.value =
-      error instanceof Error ? error.message : t('device.profileDeleteFailed')
+      userErrorMessage(error, t('device.profileDeleteFailed'))
   } finally {
     profilePending.value = false
   }
@@ -1306,7 +1305,7 @@ async function loadUSSD(force = false): Promise<void> {
   } catch (error) {
     if (!isCurrentLineServiceRequest(lineID, generation)) return
     ussdLoadStatus.value = 'error'
-    ussdError.value = error instanceof Error ? error.message : t('device.ussdLoadFailed')
+    ussdError.value = userErrorMessage(error, t('device.ussdLoadFailed'))
   }
 }
 
@@ -1323,7 +1322,7 @@ async function submitUSSD(action: 'initiate' | 'respond' | 'cancel'): Promise<vo
     if (action !== 'respond') ussdCommand.value = ''
     await loadUSSD(true)
   } catch (error) {
-    ussdError.value = error instanceof Error ? error.message : t('device.ussdRequestFailed')
+    ussdError.value = userErrorMessage(error, t('device.ussdRequestFailed'))
   } finally {
     ussdPending.value = false
   }

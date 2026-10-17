@@ -18,6 +18,7 @@ import {
   loadContacts,
   saveContact
 } from '../state/workspace'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const props = withDefaults(
   defineProps<{
@@ -124,7 +125,7 @@ async function createContact(input: ContactInput): Promise<void> {
     showSuccess(t('common.saved'))
     emit('saved', saved)
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : t('contacts.saveFailed')
+    error.value = userErrorMessage(cause, t('contacts.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -174,7 +175,7 @@ async function addToContact(): Promise<void> {
     showSuccess(t('common.saved'))
     emit('saved', saved)
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : t('contacts.saveFailed')
+    error.value = userErrorMessage(cause, t('contacts.saveFailed'))
   } finally {
     saving.value = false
   }

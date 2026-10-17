@@ -60,6 +60,7 @@ import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SelectControl from './SelectControl.vue'
 import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
 import SectionSkeleton from './skeletons/SectionSkeleton.vue'
+import { userErrorMessage } from '../utils/errorMessage'
 
 type SnapshotState = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
 type LogConnectionState =
@@ -671,7 +672,7 @@ async function loadSnapshot(): Promise<void> {
     snapshotError.value = ''
     void refreshUnconfirmedDiagnosticDevices(recoveryLineIDs.value)
   } catch (error) {
-    snapshotError.value = error instanceof Error ? error.message : t('diagnostics.snapshotFailed')
+    snapshotError.value = userErrorMessage(error, t('diagnostics.snapshotFailed'))
     if (snapshot.value) {
       snapshotState.value = 'ready'
       return
@@ -706,7 +707,7 @@ async function loadLogs(): Promise<void> {
     }
   } catch (error) {
     if (generation !== streamGeneration || disposed) return
-    logError.value = error instanceof Error ? error.message : t('diagnostics.logsFailed')
+    logError.value = userErrorMessage(error, t('diagnostics.logsFailed'))
     scheduleReconnect(generation)
   } finally {
     if (generation === streamGeneration) logsLoading.value = false
@@ -744,7 +745,7 @@ async function downloadLogs(): Promise<void> {
     link.remove()
     URL.revokeObjectURL(url)
   } catch (error) {
-    logError.value = error instanceof Error ? error.message : t('diagnostics.downloadFailed')
+    logError.value = userErrorMessage(error, t('diagnostics.downloadFailed'))
   } finally {
     downloading.value = false
   }

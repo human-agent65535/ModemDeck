@@ -12,6 +12,7 @@ import {
 } from '../state/recording'
 import { requestConfirmation } from '../state/confirmation'
 import { formatDateTime, formatDuration } from '../utils/format'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const { t } = useI18n()
 const props = defineProps<{
@@ -77,7 +78,7 @@ async function removeRecording(recordingID: string): Promise<void> {
     await deleteRecording(props.callId, recordingID)
   } catch (error) {
     deleteError.value =
-      error instanceof Error ? error.message : t('recordings.deleteFailed')
+      userErrorMessage(error, t('recordings.deleteFailed'))
   } finally {
     deletingID.value = ''
   }

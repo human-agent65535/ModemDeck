@@ -7,6 +7,7 @@ import {
   audioState,
   cancelSelectedAudioOutputApplication
 } from '../state/audio'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const props = withDefaults(
   defineProps<{
@@ -116,7 +117,7 @@ async function togglePlayback(): Promise<void> {
     await element.play()
   } catch (error) {
     playbackError.value =
-      error instanceof Error ? error.message : t('audio.playbackFailed')
+      userErrorMessage(error, t('audio.playbackFailed'))
   }
 }
 

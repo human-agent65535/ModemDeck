@@ -1,4 +1,28 @@
 export default {
+  errors: {
+    network: '無法連線 ModemDeck，請檢查網路後重試。',
+    server: 'ModemDeck 發生問題，請稍後重試。',
+    forbidden: '你沒有執行此操作的權限。',
+    authentication_required: '登入已過期，請重新登入。',
+    invalid_credentials: '使用者名稱或密碼不正確。',
+    invalid_current_password: '目前密碼不正確。',
+    password_too_short: '密碼太短。',
+    password_too_long: '密碼太長。',
+    password_unchanged: '新密碼不能與目前密碼相同。',
+    username_conflict: '該使用者名稱已被使用。',
+    username_invalid: '該使用者名稱無法使用。',
+    revision_conflict: '內容已在其他地方被修改，請重新整理後重試。',
+    not_found: '該項目已不存在。',
+    phone_conflict: '該號碼已屬於其他聯絡人。',
+    communications_unavailable: '數據機服務暫時無法使用，請稍後重試。',
+    media_in_use: '通話音訊正在其他裝置上使用。',
+    call_lease_unavailable: '該通話正由其他裝置處理。',
+    recording_unavailable: '錄音暫時無法使用。',
+    update_in_progress: '已有更新正在進行。',
+    network_rejected: '行動網路拒絕了此請求。',
+    invalid_line: '請選擇可用線路。',
+    not_supported: '此數據機不支援該操作。'
+  },
   callTest: {
     "title": "通話診斷",
     "description": "約 5 秒後收到測試來電，在通話視窗接聽。測試瀏覽器與伺服器之間的通話音訊：聽提示音、說幾句話，再聽自己的回放。60 秒後自動結束，不使用 SIM；收音僅暫存在伺服器記憶體，結束後清除。",

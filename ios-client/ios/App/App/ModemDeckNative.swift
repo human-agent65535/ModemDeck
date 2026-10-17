@@ -182,21 +182,24 @@ private enum ModemDeckNativeError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "This iOS device is not paired with ModemDeck."
+            return ModemDeckErrorLanguage.text("此设备尚未与 ModemDeck 配对。", "This iOS device is not paired with ModemDeck.")
         case .invalidServerURL:
-            return "The pairing server address is invalid."
+            return ModemDeckErrorLanguage.text(
+                "配对地址无效：服务器地址必须以 https:// 开头。",
+                "The pairing address is invalid. The server address must start with https://."
+            )
         case .invalidToken:
-            return "The iOS pairing token is invalid."
+            return ModemDeckErrorLanguage.text("配对码无效，请在网页设置中重新生成二维码。", "The pairing code is invalid. Generate a new QR code in Web settings.")
         case .invalidPath:
             return "The requested ModemDeck API path is invalid."
         case .invalidMethod:
             return "The requested HTTP method is invalid."
         case .invalidResponse:
-            return "ModemDeck returned an invalid response."
+            return ModemDeckErrorLanguage.text("ModemDeck 返回了无法识别的响应，请稍后重试。", "ModemDeck returned an invalid response. Try again shortly.")
         case .noActiveCall:
             return "There is no active iOS call."
         case .microphoneDenied:
-            return "Microphone access is required for calls."
+            return ModemDeckErrorLanguage.text("通话需要麦克风权限，请在“设置”中允许。", "Microphone access is required for calls. Allow it in Settings.")
         case .keychain(let status):
             return "Keychain operation failed (\(status))."
         }

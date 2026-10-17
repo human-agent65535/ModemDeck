@@ -9,6 +9,7 @@ import { setSystemLanguage, systemLanguage } from '../i18n'
 import { bootstrapResource, loadBootstrap } from '../state/workspace'
 import SelectControl from './SelectControl.vue'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const { t } = useI18n()
 const initialSettings = bootstrapResource.data?.system_settings
@@ -20,7 +21,7 @@ const loading = ref(!initialSettings)
 const loadError = ref('')
 const saveMutation = useSettingsMutation({
   errorMessage: cause =>
-    cause instanceof Error ? cause.message : t('settings.languageSaveFailed')
+    userErrorMessage(cause, t('settings.languageSaveFailed'))
 })
 const saving = saveMutation.saving
 
@@ -98,7 +99,7 @@ async function load(): Promise<void> {
     await setSystemLanguage(loaded.language)
   } catch (cause) {
     loadError.value =
-      cause instanceof Error ? cause.message : t('settings.systemLoadFailed')
+      userErrorMessage(cause, t('settings.systemLoadFailed'))
   } finally {
     loading.value = false
   }

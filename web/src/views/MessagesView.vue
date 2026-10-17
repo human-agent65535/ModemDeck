@@ -100,6 +100,7 @@ import {
   canAcknowledgeMessageThread,
   messageViewportIsAtBottom
 } from './messages/messageReadVisibility'
+import { userErrorMessage } from '../utils/errorMessage'
 
 type MessageReadFilter = 'all' | 'unread' | 'read'
 
@@ -656,7 +657,7 @@ async function removeThread(thread: MessageThread): Promise<void> {
     }
   } catch (error) {
     threadDeleteError.value =
-      error instanceof Error ? error.message : t('messages.deleteFailed')
+      userErrorMessage(error, t('messages.deleteFailed'))
   } finally {
     deletingThreadKey.value = ''
   }
@@ -670,7 +671,7 @@ async function toggleFavorite(thread: MessageThread): Promise<void> {
     await setThreadsFavorite([thread], !thread.favorite)
   } catch (error) {
     threadDeleteError.value =
-      error instanceof Error ? error.message : t('messages.favoriteFailed')
+      userErrorMessage(error, t('messages.favoriteFailed'))
   } finally {
     favoritePendingKey.value = ''
   }
@@ -701,7 +702,7 @@ async function batchSetRead(read: boolean): Promise<void> {
     }
   } catch (error) {
     threadDeleteError.value =
-      error instanceof Error ? error.message : t('runtime.requestFailed')
+      userErrorMessage(error, t('runtime.requestFailed'))
   } finally {
     batchBusy.value = false
   }
@@ -715,7 +716,7 @@ async function batchSetFavorite(favorite: boolean): Promise<void> {
     await setThreadsFavorite(batchThreads.value, favorite)
   } catch (error) {
     threadDeleteError.value =
-      error instanceof Error ? error.message : t('messages.favoriteFailed')
+      userErrorMessage(error, t('messages.favoriteFailed'))
   } finally {
     batchBusy.value = false
   }
@@ -742,7 +743,7 @@ async function batchDelete(): Promise<void> {
     selection.exit()
   } catch (error) {
     threadDeleteError.value =
-      error instanceof Error ? error.message : t('messages.deleteFailed')
+      userErrorMessage(error, t('messages.deleteFailed'))
   } finally {
     batchBusy.value = false
   }
@@ -844,7 +845,7 @@ async function submit(): Promise<void> {
     }
     scrollToEnd()
   } catch (error) {
-    sendError.value = error instanceof Error ? error.message : t('messages.sendFailed')
+    sendError.value = userErrorMessage(error, t('messages.sendFailed'))
   } finally {
     sending.value = false
   }

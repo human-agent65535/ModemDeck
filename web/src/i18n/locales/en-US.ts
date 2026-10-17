@@ -1,4 +1,28 @@
 export default {
+  errors: {
+    network: 'Can\'t reach ModemDeck. Check your connection and try again.',
+    server: 'ModemDeck ran into a problem. Try again in a moment.',
+    forbidden: 'You don\'t have permission to do this.',
+    authentication_required: 'Your session has expired. Sign in again.',
+    invalid_credentials: 'Incorrect username or password.',
+    invalid_current_password: 'The current password is incorrect.',
+    password_too_short: 'The password is too short.',
+    password_too_long: 'The password is too long.',
+    password_unchanged: 'Choose a password different from the current one.',
+    username_conflict: 'That username is already taken.',
+    username_invalid: 'That username can\'t be used.',
+    revision_conflict: 'This was changed somewhere else. Reload and try again.',
+    not_found: 'This item no longer exists.',
+    phone_conflict: 'This number already belongs to another contact.',
+    communications_unavailable: 'The modem service is unavailable right now. Try again shortly.',
+    media_in_use: 'Call audio is in use on another device.',
+    call_lease_unavailable: 'This call is being handled on another device.',
+    recording_unavailable: 'Recording isn\'t available right now.',
+    update_in_progress: 'An update is already in progress.',
+    network_rejected: 'The mobile network rejected this request.',
+    invalid_line: 'Choose an available line.',
+    not_supported: 'This modem doesn\'t support that.'
+  },
   callTest: {
     "title": "Call diagnostics",
     "description": "A test call arrives in about 5 seconds. Answer in the call window. Test call audio between this browser and the server: listen for the tone, speak, then hear your voice played back. Ends after 60 seconds. No SIM is used; captured audio stays briefly in server memory and is cleared when the test ends.",

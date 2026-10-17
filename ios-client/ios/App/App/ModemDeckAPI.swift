@@ -1,19 +1,84 @@
 import CryptoKit
 import Foundation
 
+/// The UI language for error text, set by the session controller (errors are described off the main actor).
+enum ModemDeckErrorLanguage {
+    private static let lock = NSLock()
+    private static var chinese = Locale.preferredLanguages.first?.lowercased().hasPrefix("zh") ?? false
+
+    static var usesChinese: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return chinese
+    }
+
+    static func setChinese(_ value: Bool) {
+        lock.lock(); chinese = value; lock.unlock()
+    }
+
+    static func text(_ chinese: String, _ english: String) -> String {
+        usesChinese ? chinese : english
+    }
+}
+
 enum ModemDeckAPIError: LocalizedError {
     case notPaired
     case invalidResponse
     case server(status: Int, code: String, message: String)
 
     var errorDescription: String? {
+        let text = ModemDeckErrorLanguage.text
         switch self {
         case .notPaired:
-            return "This device is not paired with ModemDeck."
+            return text("此设备尚未与 ModemDeck 配对。", "This device is not paired with ModemDeck.")
         case .invalidResponse:
-            return "ModemDeck returned an invalid response."
-        case .server(_, _, let message):
-            return message
+            return text("ModemDeck 返回了无法识别的响应，请稍后重试。", "ModemDeck returned an invalid response. Try again shortly.")
+        case .server(let status, let code, let message):
+            // Server text is written for developers; known codes and status classes get
+            // a translated, actionable message and anything else keeps the server text.
+            if let known = Self.knownMessage(code: code) { return known }
+            switch status {
+            case 401: return text("登录已过期，请重新配对或登录。", "Your session has expired. Pair or sign in again.")
+            case 403: return text("你没有执行此操作的权限。", "You don't have permission to do this.")
+            case 500...: return text("ModemDeck 出现问题，请稍后重试。", "ModemDeck ran into a problem. Try again in a moment.")
+            default: return message
+            }
+        }
+    }
+
+    private static func knownMessage(code: String) -> String? {
+        let text = ModemDeckErrorLanguage.text
+        switch code {
+        case "microphone_permission_denied":
+            return text("拨打电话前需要允许麦克风访问。", "Microphone access is required before placing a call.")
+        case "not_found", "contact_not_found", "message_thread_not_found", "call_not_found",
+             "recording_not_found", "user_not_found", "line_not_found":
+            return text("该项目已不存在。", "This item no longer exists.")
+        case "revision_conflict", "conflict":
+            return text("内容已在其他地方被修改，请刷新后重试。", "This was changed somewhere else. Refresh and try again.")
+        case "phone_conflict":
+            return text("该号码已属于其他联系人。", "This number already belongs to another contact.")
+        case "communications_unavailable":
+            return text("调制解调器服务暂时不可用，请稍后重试。", "The modem service is unavailable right now. Try again shortly.")
+        case "media_in_use":
+            return text("通话音频正在其他设备上使用。", "Call audio is in use on another device.")
+        case "call_lease_unavailable":
+            return text("该通话正由其他设备处理。", "This call is being handled on another device.")
+        case "recording_unavailable":
+            return text("录音暂时不可用。", "Recording isn't available right now.")
+        case "invalid_line":
+            return text("请选择可用线路。", "Choose an available line.")
+        case "network_rejected":
+            return text("移动网络拒绝了此请求。", "The mobile network rejected this request.")
+        case "not_supported":
+            return text("此调制解调器不支持该操作。", "This modem doesn't support that.")
+        case "invalid_current_password":
+            return text("当前密码不正确。", "The current password is incorrect.")
+        case "password_too_short":
+            return text("密码太短。", "The password is too short.")
+        case "password_unchanged":
+            return text("新密码不能与当前密码相同。", "Choose a password different from the current one.")
+        default:
+            return nil
         }
     }
 

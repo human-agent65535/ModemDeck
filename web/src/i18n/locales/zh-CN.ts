@@ -1,4 +1,28 @@
 export default {
+  errors: {
+    network: '无法连接 ModemDeck，请检查网络后重试。',
+    server: 'ModemDeck 出现问题，请稍后重试。',
+    forbidden: '你没有执行此操作的权限。',
+    authentication_required: '登录已过期，请重新登录。',
+    invalid_credentials: '用户名或密码不正确。',
+    invalid_current_password: '当前密码不正确。',
+    password_too_short: '密码太短。',
+    password_too_long: '密码太长。',
+    password_unchanged: '新密码不能与当前密码相同。',
+    username_conflict: '该用户名已被使用。',
+    username_invalid: '该用户名不可用。',
+    revision_conflict: '内容已在其他地方被修改，请刷新后重试。',
+    not_found: '该项目已不存在。',
+    phone_conflict: '该号码已属于其他联系人。',
+    communications_unavailable: '调制解调器服务暂时不可用，请稍后重试。',
+    media_in_use: '通话音频正在其他设备上使用。',
+    call_lease_unavailable: '该通话正由其他设备处理。',
+    recording_unavailable: '录音暂时不可用。',
+    update_in_progress: '已有更新正在进行。',
+    network_rejected: '移动网络拒绝了此请求。',
+    invalid_line: '请选择可用线路。',
+    not_supported: '此调制解调器不支持该操作。'
+  },
   callTest: {
     "title": "通话诊断",
     "description": "约 5 秒后收到测试来电，在通话窗口接听。测试浏览器与服务器之间的通话音频：听提示音、说几句话，再听自己的回放。60 秒后自动结束，不使用 SIM；收音仅暂存在服务器内存，结束后清除。",

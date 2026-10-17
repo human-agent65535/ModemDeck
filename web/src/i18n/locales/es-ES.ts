@@ -1,4 +1,28 @@
 export default {
+  "errors": {
+    "network": "No se puede conectar con ModemDeck. Comprueba la conexión e inténtalo de nuevo.",
+    "server": "ModemDeck ha tenido un problema. Inténtalo de nuevo en un momento.",
+    "forbidden": "No tienes permiso para hacer esto.",
+    "authentication_required": "Tu sesión ha caducado. Vuelve a iniciar sesión.",
+    "invalid_credentials": "Usuario o contraseña incorrectos.",
+    "invalid_current_password": "La contraseña actual es incorrecta.",
+    "password_too_short": "La contraseña es demasiado corta.",
+    "password_too_long": "La contraseña es demasiado larga.",
+    "password_unchanged": "Elige una contraseña distinta de la actual.",
+    "username_conflict": "Ese nombre de usuario ya está en uso.",
+    "username_invalid": "Ese nombre de usuario no se puede usar.",
+    "revision_conflict": "Esto se cambió en otro lugar. Recarga e inténtalo de nuevo.",
+    "not_found": "Este elemento ya no existe.",
+    "phone_conflict": "Este número ya pertenece a otro contacto.",
+    "communications_unavailable": "El servicio del módem no está disponible ahora. Inténtalo en breve.",
+    "media_in_use": "El audio de la llamada está en uso en otro dispositivo.",
+    "call_lease_unavailable": "Esta llamada se está gestionando en otro dispositivo.",
+    "recording_unavailable": "La grabación no está disponible ahora.",
+    "update_in_progress": "Ya hay una actualización en curso.",
+    "network_rejected": "La red móvil rechazó esta solicitud.",
+    "invalid_line": "Elige una línea disponible.",
+    "not_supported": "Este módem no lo admite."
+  },
   callTest: {
     "title": "Diagnóstico de llamadas",
     "description": "Recibirás una llamada de prueba en unos 5 segundos. Responde en la ventana de llamada. Prueba el audio entre el navegador y el servidor: escucha el tono, habla y escucha tu voz. Termina a los 60 segundos. No usa SIM; el audio se guarda brevemente en la memoria del servidor y se borra al finalizar.",

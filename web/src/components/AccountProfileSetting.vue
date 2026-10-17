@@ -8,6 +8,7 @@ import { contactsResource, loadContacts } from '../state/workspace'
 import BaseAvatar from './BaseAvatar.vue'
 import SelectControl from './SelectControl.vue'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const { t } = useI18n()
 const emit = defineEmits<{
@@ -17,7 +18,7 @@ const emit = defineEmits<{
 const selectedContactID = ref(sessionState.profileContactID)
 const profileMutation = useSettingsMutation({
   errorMessage: cause =>
-    cause instanceof Error ? cause.message : t('account.profileSaveFailed')
+    userErrorMessage(cause, t('account.profileSaveFailed'))
 })
 const saving = profileMutation.saving
 

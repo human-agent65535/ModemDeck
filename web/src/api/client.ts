@@ -1055,12 +1055,12 @@ async function requestWithResponse(
     const message =
       details?.message ||
       details?.detail ||
-      (typeof body === 'string' && body.trim() ? body.trim() : `请求失败（${response.status}）`)
+      (typeof body === 'string' && body.trim() ? body.trim() : `Request failed (${response.status})`)
     throw new ApiError(message, response.status, details?.code, details?.field)
   }
   if (!statusExpected) {
     throw new ApiError(
-      `ModemDeck 服务返回了意外状态（${response.status}，预期 ${expectedStatuses.join(' 或 ')}）`,
+      `ModemDeck returned unexpected status ${response.status} (expected ${expectedStatuses.join(' or ')})`,
       response.status,
       'unexpected_status'
     )

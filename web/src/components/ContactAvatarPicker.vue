@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ImagePlus, Trash2 } from '@lucide/vue'
 import { createContactAvatar } from '../utils/contactAvatar'
 import BaseAvatar from './BaseAvatar.vue'
+import { userErrorMessage } from '../utils/errorMessage'
 
 const { t } = useI18n()
 const props = withDefaults(
@@ -38,7 +39,7 @@ async function processFile(file?: File): Promise<void> {
   try {
     emit('update:modelValue', await createContactAvatar(file))
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : t('contacts.avatarProcessFailed')
+    error.value = userErrorMessage(cause, t('contacts.avatarProcessFailed'))
   } finally {
     busy.value = false
     emit('processing', false)
