@@ -2636,6 +2636,7 @@ struct ModemDeckConversationView: View {
                 .overlay(alignment: .top) { ModemDeckHairline() }
             }
         }
+        .background(Color.mdBackground)
         .navigationBarHidden(true)
         .modemDeckInteractiveBack(showsBackButton)
         .modemDeckImmersiveScreen(controller)

@@ -38,6 +38,12 @@ enum ModemDeckRoute: Hashable {
     case call(String)
     case recording(String)
     case recordings
+
+    /// Conversations own the bottom edge on iPhone, so the tab bar slides away for them.
+    var opensConversation: Bool {
+        if case .message = self { return true }
+        return false
+    }
 }
 
 private struct ModemDeckNavigateKey: EnvironmentKey {

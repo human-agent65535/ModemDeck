@@ -779,7 +779,8 @@ struct ModemDeckCallsView: View {
     private var callBatchBar: some View {
         let selected = selectedCalls
         let missed = selected.filter(\.missed)
-        let allMissedUnread = !missed.isEmpty && missed.allSatisfy { !$0.read }
+        // Any unread missed call makes "Mark Read" the primary action, as in Messages.
+        let missedHasUnread = missed.contains { !$0.read }
         let allFavorite = !selected.isEmpty && selected.allSatisfy(\.favorite)
 
         return ModemDeckBatchActionBar(
@@ -801,12 +802,12 @@ struct ModemDeckCallsView: View {
             }
             if !missed.isEmpty {
                 ModemDeckBatchActionButton(
-                    title: allMissedUnread
+                    title: missedHasUnread
                         ? controller.text("标为已读", "Mark Read")
                         : controller.text("标为未读", "Mark Unread"),
-                    icon: allMissedUnread ? "phone.badge.checkmark" : "phone.badge.waveform",
+                    icon: missedHasUnread ? "phone.badge.checkmark" : "phone.badge.waveform",
                     disabled: batchBusy || !controller.isOnline
-                ) { mutateSelectedCalls(allMissedUnread ? .read : .unread, calls: missed) }
+                ) { mutateSelectedCalls(missedHasUnread ? .read : .unread, calls: missed) }
             }
             ModemDeckBatchActionButton(
                 title: allFavorite
@@ -1628,6 +1629,7 @@ struct ModemDeckCallDetailView: View {
                                         onChanged: onChanged,
                                         onDeleted: { _ in onChanged() }
                                     )
+                                    .modemDeckTabBarClearance()
                                 } label: {
                                     HStack(spacing: 12) {
                                         Image(systemName: recording.playable ? "waveform.circle.fill" : "waveform.circle")

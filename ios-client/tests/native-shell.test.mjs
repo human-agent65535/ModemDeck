@@ -643,6 +643,27 @@ test('native phone detail screens enable the standard left-edge back gesture', a
   assert.match(settings, /ModemDeckSettingsDetailScaffold[\s\S]*\.modemDeckInteractiveBack\(showsBackButton\)/)
 })
 
+test('phone tab bar slides over a fixed navigation container instead of resizing pushed pages', async () => {
+  const [app, routes, calls, settings] = await Promise.all([
+    source('ios/App/App/ModemDeckApp.swift'),
+    source('ios/App/App/ModemDeckListInteraction.swift'),
+    source('ios/App/App/ModemDeckCallViews.swift'),
+    source('ios/App/App/ModemDeckSettingsView.swift')
+  ])
+
+  // Resizing the stack mid-push left the conversation composer clipped and broke edge swipes.
+  assert.match(app, /sectionTabs[\s\S]{0,600}\.overlay\(alignment: \.bottom\) \{ phoneBottomChrome \}/)
+  assert.match(app, /if showsTabBar \{[\s\S]*ModemDeckPhoneTabBar[\s\S]*\.transition\(\.move\(edge: \.bottom\)\)/)
+  assert.match(app, /\.animation\(reduceMotion \? nil : [^,]+, value: showsTabBar\)/)
+  assert.match(app, /\.safeAreaInset\(edge: \.bottom, spacing: 0\)[\s\S]*includesTabBar \? chrome\.tabBar : 0/)
+  assert.match(app, /ModemDeckImmersiveScreenModifier[\s\S]*ModemDeckBottomChromeClearance\(includesTabBar: false\)/)
+  assert.match(app, /destination\s*\.modemDeckTabBarClearance\(\)/)
+  assert.match(app, /if route\.opensConversation \{[\s\S]*\} else \{[\s\S]*\.modemDeckTabBarClearance\(\)/)
+  assert.match(routes, /var opensConversation: Bool \{\s*if case \.message = self/)
+  assert.match(calls, /ModemDeckRecordingDetailView\([^)]*onDeleted[^\n]*\n\s*\)\s*\.modemDeckTabBarClearance\(\)/)
+  assert.match(settings, /settingsDestination\(section\)\s*\.modemDeckTabBarClearance\(\)/)
+})
+
 test('native iPad communication workspaces mirror the Web list-detail geometry', async () => {
   const [app, communication, calls] = await Promise.all([
     source('ios/App/App/ModemDeckApp.swift'),
@@ -811,6 +832,10 @@ test('native communication lists expose Web-equivalent batch mutations', async (
   assert.match(communication, /private var messageBatchBar/)
   assert.match(communication, /mutateSelectedThreads\(hasUnread \? \.read : \.unread\)/)
   assert.match(communication, /mutateSelectedThreads\(allFavorite \? \.unfavorite : \.favorite\)/)
+  // Select All with any unread missed call must offer Mark Read first, as in Messages.
+  assert.match(calls, /let missedHasUnread = missed\.contains \{ !\$0\.read \}/)
+  assert.match(calls, /mutateSelectedCalls\(missedHasUnread \? \.read : \.unread, calls: missed\)/)
+  assert.doesNotMatch(calls, /missed\.allSatisfy \{ !\$0\.read \}/)
   assert.match(
     communication,
     /private var selectedContacts:[\s\S]*?filteredContacts\.filter \{ selectedIDs\.contains\(\$0\.id\) \}/

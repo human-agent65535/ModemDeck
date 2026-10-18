@@ -203,6 +203,7 @@ struct ModemDeckSettingsView: View {
         } else {
             NavigationLink {
                 settingsDestination(section)
+                    .modemDeckTabBarClearance()
             } label: {
                 ModemDeckSettingsDirectoryRow(icon: icon, title: title, subtitle: subtitle)
             }

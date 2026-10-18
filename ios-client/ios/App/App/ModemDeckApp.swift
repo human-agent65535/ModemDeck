@@ -760,8 +760,14 @@ private struct ModemDeckSectionRoot: View {
     var body: some View {
         NavigationStack(path: $navigation.path) {
             destination
+                .modemDeckTabBarClearance()
                 .navigationDestination(for: ModemDeckRoute.self) { route in
-                    ModemDeckRouteContent(route: route, controller: controller)
+                    if route.opensConversation {
+                        ModemDeckRouteContent(route: route, controller: controller)
+                    } else {
+                        ModemDeckRouteContent(route: route, controller: controller)
+                            .modemDeckTabBarClearance()
+                    }
                 }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -935,6 +941,9 @@ private struct ModemDeckWorkspaceShell: View {
     @Binding var callExpanded: Bool
     let usesSplitWorkspace: Bool
     @State private var showingDialer: Bool
+    @State private var tabBarHeight: CGFloat = 61
+    @State private var miniCallBarHeight: CGFloat = 72
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(controller: ModemDeckSessionController, usesSplitWorkspace: Bool, callExpanded: Binding<Bool>) {
         self.controller = controller
@@ -945,34 +954,32 @@ private struct ModemDeckWorkspaceShell: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                if usesSplitWorkspace {
+        Group {
+            if usesSplitWorkspace {
+                HStack(spacing: 0) {
                     ModemDeckPadNavigationRail(
                         controller: controller, selection: $controller.selectedSection,
-                        openDialer: { if callController.call != nil { callExpanded = true } else { showingDialer = true } }
+                        openDialer: openDialer
                     )
                     Rectangle().fill(Color.mdBorder).frame(width: 1)
-                }
-                VStack(spacing: 0) {
-                    ModemDeckSectionTabs(controller: controller)
-                        .environment(\.modemDeckPadDialerAction, ModemDeckPadDialerAction(
-                            accessibilityLabel: controller.text("打开拨号盘", "Open dialer"),
-                            open: { if callController.call != nil { callExpanded = true } else { showingDialer = true } }
-                        ))
-                    if let call = callController.visibleCall, !callExpanded {
-                        ModemDeckMiniCallBar(call: call, controller: controller, callController: callController,
-                                             restore: { callExpanded = true })
-                            .padding(.horizontal, 12).padding(.vertical, 8)
+                    VStack(spacing: 0) {
+                        sectionTabs
+                        if let call = miniCall { miniCallBar(call) }
                     }
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if !usesSplitWorkspace && controller.immersiveScreenCount == 0 {
-                ModemDeckPhoneTabBar(controller: controller, selection: $controller.selectedSection)
-                    .transition(.move(edge: .bottom))
+            } else {
+                sectionTabs
+                    // Pages extend under the floating bottom chrome and reserve its space
+                    // themselves, so hiding the tab bar for a conversation never resizes the
+                    // navigation container mid-push.
+                    .environment(\.modemDeckBottomChrome, ModemDeckBottomChrome(
+                        tabBar: tabBarHeight,
+                        miniCallBar: miniCall == nil ? 0 : miniCallBarHeight
+                    ))
+                    .overlay(alignment: .bottom) { phoneBottomChrome }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.mdBackground.ignoresSafeArea())
         .sheet(isPresented: $showingDialer) {
             ModemDeckDialerPanel(controller: controller, close: { showingDialer = false })
@@ -982,6 +989,45 @@ private struct ModemDeckWorkspaceShell: View {
         .onReceive(controller.callController.$call) { call in
             if call != nil { showingDialer = false }
         }
+    }
+
+    private var sectionTabs: some View {
+        ModemDeckSectionTabs(controller: controller)
+            .environment(\.modemDeckPadDialerAction, ModemDeckPadDialerAction(
+                accessibilityLabel: controller.text("打开拨号盘", "Open dialer"),
+                open: openDialer
+            ))
+    }
+
+    private var miniCall: ModemDeckPresentedCall? {
+        callExpanded ? nil : callController.visibleCall
+    }
+
+    private func openDialer() {
+        if callController.call != nil { callExpanded = true } else { showingDialer = true }
+    }
+
+    private func miniCallBar(_ call: ModemDeckPresentedCall) -> some View {
+        ModemDeckMiniCallBar(call: call, controller: controller, callController: callController,
+                             restore: { callExpanded = true })
+            .padding(.horizontal, 12).padding(.vertical, 8)
+    }
+
+    /// The iPhone tab bar and mini call bar float over the reserved bottom space; the tab bar
+    /// slides away while a conversation is open instead of changing the layout under it.
+    private var phoneBottomChrome: some View {
+        let showsTabBar = controller.immersiveScreenCount == 0
+        return VStack(spacing: 0) {
+            if let call = miniCall {
+                miniCallBar(call).modemDeckReadHeight($miniCallBarHeight)
+            }
+            if showsTabBar {
+                ModemDeckPhoneTabBar(controller: controller, selection: $controller.selectedSection)
+                    .modemDeckReadHeight($tabBarHeight)
+                    .transition(.move(edge: .bottom))
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: showsTabBar)
     }
 }
 
@@ -1139,11 +1185,65 @@ private struct ModemDeckPadNavigationRail: View {
     }
 }
 
+/// Heights of the iPhone shell's floating bottom bars.
+struct ModemDeckBottomChrome: Equatable {
+    var tabBar: CGFloat = 0
+    var miniCallBar: CGFloat = 0
+}
+
+private struct ModemDeckBottomChromeKey: EnvironmentKey {
+    static let defaultValue = ModemDeckBottomChrome()
+}
+
+extension EnvironmentValues {
+    var modemDeckBottomChrome: ModemDeckBottomChrome {
+        get { self[ModemDeckBottomChromeKey.self] }
+        set { self[ModemDeckBottomChromeKey.self] = newValue }
+    }
+}
+
+private struct ModemDeckBottomChromeClearance: ViewModifier {
+    let includesTabBar: Bool
+    @Environment(\.modemDeckBottomChrome) private var chrome
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear
+                .frame(height: chrome.miniCallBar + (includesTabBar ? chrome.tabBar : 0))
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct ModemDeckImmersiveScreenModifier: ViewModifier {
+    let controller: ModemDeckSessionController
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(ModemDeckBottomChromeClearance(includesTabBar: false))
+            .onAppear { controller.enterImmersiveScreen() }
+            .onDisappear { controller.leaveImmersiveScreen() }
+    }
+}
+
 extension View {
+    /// Reserves the iPhone tab bar (and any mini call bar) under a section screen.
+    /// Every pushed screen other than a conversation or composer applies this.
+    func modemDeckTabBarClearance() -> some View {
+        modifier(ModemDeckBottomChromeClearance(includesTabBar: true))
+    }
+
     /// Marks a pushed screen (a conversation or composer) that should own the bottom edge on iPhone.
     func modemDeckImmersiveScreen(_ controller: ModemDeckSessionController) -> some View {
-        onAppear { controller.enterImmersiveScreen() }
-            .onDisappear { controller.leaveImmersiveScreen() }
+        modifier(ModemDeckImmersiveScreenModifier(controller: controller))
+    }
+
+    func modemDeckReadHeight(_ height: Binding<CGFloat>) -> some View {
+        background(GeometryReader { proxy in
+            Color.clear
+                .onAppear { height.wrappedValue = proxy.size.height }
+                .onChange(of: proxy.size.height) { height.wrappedValue = $0 }
+        })
     }
 }
 
