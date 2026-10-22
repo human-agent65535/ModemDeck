@@ -822,8 +822,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     },
     {
       name: 'cloudflared',
-      current_version: hardwareUpdateFixture ? '2026.6.0' : '2026.7.3',
-      target_version: '2026.7.3',
+      current_version: hardwareUpdateFixture ? '2026.6.0' : '2026.10.3',
+      target_version: '2026.10.3',
       changed: hardwareUpdateFixture
     }
   ]

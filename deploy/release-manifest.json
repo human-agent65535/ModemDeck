@@ -8,7 +8,7 @@
   },
   "cloudflared": {
     "image": "cloudflare/cloudflared",
-    "version": "2026.7.3",
-    "digest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf"
+    "version": "2026.10.3",
+    "digest": "sha256:faa8e0a1475f137c910be6025f43c8e4092fdd35461b31e19fd1390657a1ff39"
   }
 }

@@ -17,7 +17,7 @@ bash -n "${hardware_dir}/tests/runtime-readonly-test.sh"
 bash -n "${hardware_dir}/tests/runtime-advanced-readonly-test.sh"
 
 grep -Fq \
-  'debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd' \
+  'debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad' \
   "${hardware_dir}/Dockerfile" \
   || fail "runtime is not pinned to the reviewed Debian trixie image"
 grep -Fq 'MODEMMANAGER_DEBIAN_VERSION=1.24.0-1+deb13u1' \

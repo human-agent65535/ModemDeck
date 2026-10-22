@@ -21,7 +21,7 @@ func TestCheckPlansOnlyChangedReleaseComponents(t *testing.T) {
 			"modemdeck":   "ghcr.io/human-agent65535/modemdeck-web:v1.9.2@" + testDigest("b"),
 			"hardware":    "ghcr.io/human-agent65535/modemdeck-hardware:v1.9.2@" + hardwareDigest,
 			"updater":     "ghcr.io/human-agent65535/modemdeck-updater:v1.9.2@" + testDigest("c"),
-			"cloudflared": "cloudflare/cloudflared:2026.7.3@" + cloudflaredDigest,
+			"cloudflared": "cloudflare/cloudflared:2026.10.3@" + cloudflaredDigest,
 		},
 	}
 	manifest := testManifest(cloudflaredDigest)
@@ -249,7 +249,7 @@ func testManifest(cloudflaredDigest string) ReleaseManifest {
 	manifest.Images.Hardware = "ghcr.io/human-agent65535/modemdeck-hardware"
 	manifest.Images.Updater = "ghcr.io/human-agent65535/modemdeck-updater"
 	manifest.Cloudflared.Image = "cloudflare/cloudflared"
-	manifest.Cloudflared.Version = "2026.7.3"
+	manifest.Cloudflared.Version = "2026.10.3"
 	manifest.Cloudflared.Digest = cloudflaredDigest
 	return manifest
 }

@@ -1,9 +1,9 @@
 SHELL := /bin/sh
 
-GO_IMAGE ?= golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c
-ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.9-neteq-df21b0a
+GO_IMAGE ?= golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af
+ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.10-neteq-df21b0a
 ROOT_TOOLCHAIN_TARGET ?= go-toolchain
-NODE_IMAGE ?= node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
+NODE_IMAGE ?= node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 SHELLCHECK_IMAGE ?= koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
 AGENT_NAME ?= modemdeck-agent
