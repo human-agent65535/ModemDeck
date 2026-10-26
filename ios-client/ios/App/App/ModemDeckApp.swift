@@ -313,6 +313,22 @@ extension ModemDeckSessionController {
         usesChinese ? chinese : english
     }
 
+    /// Standard phone labels arrive as English keys ("mobile", "home"); custom labels show as typed.
+    func phoneLabelText(_ label: String) -> String {
+        switch label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "mobile", "cell": return text("手机", "Mobile")
+        case "home": return text("住宅", "Home")
+        case "work": return text("工作", "Work")
+        case "main": return text("主要", "Main")
+        case "iphone": return "iPhone"
+        case "fax", "home fax", "work fax": return text("传真", "Fax")
+        case "pager": return text("传呼", "Pager")
+        case "other": return text("其他", "Other")
+        case "": return text("电话", "Phone")
+        default: return label
+        }
+    }
+
     func dateText(_ value: String) -> String {
         ModemDeckDateText.short(
             value,
@@ -425,6 +441,16 @@ enum ModemDeckLayout {
     static let splitWorkspaceMinimumWidth: CGFloat = 900
     /// A trailing safe area this wide is a status-bar column rather than a rounded-corner inset.
     static let statusColumnMinimumWidth: CGFloat = 60
+
+    /// iPhone Duo centres its clock and status icons under the camera cutout, 48 pt from the
+    /// trailing edge on both screens, while the safe-area column is 84 pt wide. UIKit reports no
+    /// side status-bar frame, so the column's items take that axis from this measured offset.
+    static let statusColumnAxisFromTrailingEdge: CGFloat = 48
+
+    /// Extra trailing inset that moves column content onto the status items' axis.
+    static func statusColumnAxisInset(columnWidth: CGFloat) -> CGFloat {
+        min(columnWidth / 3, max(0, 2 * (statusColumnAxisFromTrailingEdge - columnWidth / 2)))
+    }
     static let pageHorizontalPadding: CGFloat = 20
     static let pageHeaderHeight: CGFloat = 76
     static let collectionHeaderHeight: CGFloat = 56
@@ -443,6 +469,8 @@ enum ModemDeckLayout {
     static let listTextLeading = listHorizontalPadding + listAvatarSize + listAvatarTextSpacing
     static let listUnreadIndicatorSize: CGFloat = 10
     static let listSelectionMarkWidth: CGFloat = 24
+    /// Header glyphs keep growing with text up to here, then stay inside their 44 pt targets.
+    static let headerGlyphMaximumSize = DynamicTypeSize.xxxLarge
 }
 
 private struct ModemDeckUsesSplitWorkspaceKey: EnvironmentKey {
@@ -789,7 +817,8 @@ private struct ModemDeckSectionRoot: View {
         .toolbar(.hidden, for: .navigationBar)
         .environment(\.modemDeckNavigate, { navigation.path.append($0) })
         .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
-        .environment(\.modemDeckPadDialerAction, padDialerAction)
+        // Dialing belongs to Recents and Calls; other sections keep their headers uncluttered.
+        .environment(\.modemDeckPadDialerAction, section == .home || section == .calls ? padDialerAction : nil)
         .onChange(of: controller.callsNavigationRevision) { _ in
             if section == .calls { navigation.path.removeAll() }
         }
@@ -948,9 +977,11 @@ private struct ModemDeckAdaptiveShell: View {
             let insets = geometry.safeAreaInsets
             let statusColumnWidth = insets.trailing >= ModemDeckLayout.statusColumnMinimumWidth && insets.leading < 1
                 ? insets.trailing : nil
+            let statusAxisInset = statusColumnWidth.map(ModemDeckLayout.statusColumnAxisInset) ?? 0
             ModemDeckWorkspaceShell(
                 controller: controller, usesSplitWorkspace: usesSplitWorkspace,
-                statusColumnWidth: statusColumnWidth, callExpanded: $callExpanded
+                statusColumnWidth: statusColumnWidth, statusAxisInset: statusAxisInset,
+                callExpanded: $callExpanded
             )
             .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
             .environmentObject(retainedSections)
@@ -966,6 +997,8 @@ private struct ModemDeckWorkspaceShell: View {
     let usesSplitWorkspace: Bool
     /// Width of a trailing status-bar column (iPhone Duo) that hosts section navigation.
     let statusColumnWidth: CGFloat?
+    /// Trailing inset that puts the column's items on the system status items' axis.
+    let statusAxisInset: CGFloat
     @State private var showingDialer: Bool
     @State private var tabBarHeight: CGFloat = 61
     @State private var miniCallBarHeight: CGFloat = 72
@@ -973,11 +1006,12 @@ private struct ModemDeckWorkspaceShell: View {
 
     init(
         controller: ModemDeckSessionController, usesSplitWorkspace: Bool,
-        statusColumnWidth: CGFloat?, callExpanded: Binding<Bool>
+        statusColumnWidth: CGFloat?, statusAxisInset: CGFloat = 0, callExpanded: Binding<Bool>
     ) {
         self.controller = controller
         self.usesSplitWorkspace = usesSplitWorkspace
         self.statusColumnWidth = statusColumnWidth
+        self.statusAxisInset = statusAxisInset
         _callController = ObservedObject(wrappedValue: controller.callController)
         _callExpanded = callExpanded
         _showingDialer = State(initialValue: ModemDeckSection.initialSection == .dial)
@@ -990,10 +1024,13 @@ private struct ModemDeckWorkspaceShell: View {
                 // pages take the column's place in the trailing safe area.
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
-                        sectionTabs
+                        sectionTabs()
                         if let call = miniCall { miniCallBar(call) }
                     }
-                    ModemDeckStatusColumnNavigation(controller: controller, selection: $controller.selectedSection)
+                    ModemDeckStatusColumnNavigation(
+                        controller: controller, selection: $controller.selectedSection,
+                        axisInset: statusAxisInset
+                    )
                         .frame(width: statusColumnWidth)
                         // Stay put under the status items while the keyboard is up.
                         .ignoresSafeArea(.keyboard)
@@ -1007,12 +1044,12 @@ private struct ModemDeckWorkspaceShell: View {
                     )
                     Rectangle().fill(Color.mdBorder).frame(width: 1)
                     VStack(spacing: 0) {
-                        sectionTabs
+                        sectionTabs(headerDialer: false)
                         if let call = miniCall { miniCallBar(call) }
                     }
                 }
             } else {
-                sectionTabs
+                sectionTabs()
                     // Pages extend under the floating bottom chrome and reserve its space
                     // themselves, so hiding the tab bar for a conversation never resizes the
                     // navigation container mid-push.
@@ -1035,12 +1072,13 @@ private struct ModemDeckWorkspaceShell: View {
         }
     }
 
-    private var sectionTabs: some View {
+    /// The iPad rail has its own Dial button, so page headers offer the dialer only without it.
+    private func sectionTabs(headerDialer: Bool = true) -> some View {
         ModemDeckSectionTabs(controller: controller)
-            .environment(\.modemDeckPadDialerAction, ModemDeckPadDialerAction(
+            .environment(\.modemDeckPadDialerAction, headerDialer ? ModemDeckPadDialerAction(
                 accessibilityLabel: controller.text("打开拨号盘", "Open dialer"),
                 open: openDialer
-            ))
+            ) : nil)
     }
 
     private var miniCall: ModemDeckPresentedCall? {
@@ -1164,11 +1202,13 @@ private struct ModemDeckPhoneTabBar: View {
 private struct ModemDeckStatusColumnNavigation: View {
     @ObservedObject var controller: ModemDeckSessionController
     @Binding var selection: ModemDeckSection
+    let axisInset: CGFloat
     private let badges: ModemDeckSectionBadgeSource
 
-    init(controller: ModemDeckSessionController, selection: Binding<ModemDeckSection>) {
+    init(controller: ModemDeckSessionController, selection: Binding<ModemDeckSection>, axisInset: CGFloat) {
         _controller = ObservedObject(wrappedValue: controller)
         _selection = selection
+        self.axisInset = axisInset
         badges = ModemDeckSectionBadgeSource(controller: controller)
     }
 
@@ -1201,7 +1241,9 @@ private struct ModemDeckStatusColumnNavigation: View {
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
-        .padding(.horizontal, 4)
+        .padding(.leading, 4)
+        // The system centres the clock and status icons under the camera, not on the whole inset.
+        .padding(.trailing, 4 + axisInset)
         // Centered vertically, clear of the clock and status icons at the top of the column.
         .frame(maxHeight: .infinity)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
@@ -1561,6 +1603,7 @@ struct ModemDeckPageHeader: View {
                         Image(systemName: secondaryActionIcon)
                             .font(.body.weight(.semibold))
                             .foregroundColor(.mdAccent)
+                            .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
                             .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
@@ -1573,6 +1616,7 @@ struct ModemDeckPageHeader: View {
                         Image(systemName: actionIcon)
                             .font(.body.weight(.semibold))
                             .foregroundColor(.mdAccent)
+                            .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
                             .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
@@ -1585,9 +1629,8 @@ struct ModemDeckPageHeader: View {
                         Image(systemName: "circle.grid.3x3.fill")
                             .font(.body.weight(.medium))
                             .foregroundColor(.mdAccent)
+                            .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
                             .frame(width: 44, height: 44)
-                            .background(Color.mdSurface)
-                            .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(padDialerAction.accessibilityLabel)
@@ -1597,6 +1640,29 @@ struct ModemDeckPageHeader: View {
         .padding(.horizontal, ModemDeckLayout.pageHorizontalPadding)
         .frame(minHeight: ModemDeckLayout.pageHeaderHeight)
         .background(Color.mdBackground)
+    }
+}
+
+/// A list row's title and date share a line; at accessibility sizes the title wraps and the
+/// date moves below it instead of truncating the name to a few characters.
+struct ModemDeckRowTitleLine<Title: View, Trailing: View>: View {
+    @ViewBuilder var title: Title
+    @ViewBuilder var trailing: Trailing
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 2) {
+                title.lineLimit(3)
+                trailing
+            }
+        } else {
+            HStack(spacing: 8) {
+                title.lineLimit(1)
+                Spacer(minLength: 6)
+                trailing
+            }
+        }
     }
 }
 
@@ -1704,6 +1770,8 @@ struct ModemDeckCollectionHeaderButton: View {
         Button(action: action) {
             Image(systemName: icon).font(.body.weight(.medium))
                 .foregroundColor(.mdAccent)
+                // Glyphs stop growing inside their fixed hit area so neighbours never overlap.
+                .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
                 .frame(width: 44, height: 44).contentShape(Rectangle())
         }
         .buttonStyle(.plain).disabled(disabled)
@@ -1743,6 +1811,7 @@ struct ModemDeckCollectionFilters<Extra: View>: View {
                 Image(systemName: "line.3.horizontal.decrease").font(.body.weight(.medium))
                 if count > 0 { Text("\(count)").font(.caption.weight(.bold)) }
             }
+            .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
             .foregroundColor(count > 0 ? .mdAccent : .mdMuted)
             .frame(width: 44, height: 44)
             .background(count > 0 ? Color.mdAccentSoft : .clear)
@@ -1800,8 +1869,40 @@ struct ModemDeckSegmentPicker: View {
     let options: [ModemDeckSegmentOption]
     @Binding var selection: String
     var compact = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
+        // Accessibility sizes cannot fit several tabs on one line; one menu keeps every label whole.
+        if dynamicTypeSize.isAccessibilitySize {
+            accessibilityMenu
+        } else {
+            segments
+        }
+    }
+
+    private var accessibilityMenu: some View {
+        Menu {
+            Picker(selection: $selection) {
+                ForEach(options) { option in Text(option.title).tag(option.id) }
+            } label: { EmptyView() }
+        } label: {
+            HStack(spacing: 6) {
+                Text(options.first { $0.id == selection }?.title ?? "")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+            }
+            .foregroundColor(.mdAccent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(Color.mdAccentSoft))
+            .frame(minHeight: ModemDeckLayout.controlHitSize)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+    }
+
+    private var segments: some View {
         HStack(spacing: 2) {
             ForEach(options) { option in
                 Button {

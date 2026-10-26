@@ -301,7 +301,10 @@ final class CommunicationUXTests: XCTestCase {
         XCTAssertEqual(number.value as? String, "12025550101")
         capture("refresh-dialer-draft", app: app)
         app.buttons["dialer-collapse"].tap()
+        // The dialer is offered from Recents and Calls; its draft survives switching sections.
         app.buttons["section-messages"].tap()
+        XCTAssertFalse(app.buttons["打开拨号盘"].exists, "Messages must not repeat the dialer entry")
+        app.buttons["section-home"].tap()
         app.buttons["打开拨号盘"].firstMatch.tap()
         XCTAssertTrue(number.waitForExistence(timeout: 3))
         XCTAssertEqual(number.value as? String, "12025550101")
@@ -324,7 +327,7 @@ final class CommunicationUXTests: XCTestCase {
         app.buttons["section-home"].tap()
         capture("refresh-recents-dark", app: app)
         app.buttons["打开拨号盘"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["dial-recording-status"].exists)
+        XCTAssertTrue(app.buttons["dial-recording-status"].exists)
         capture("refresh-dialer-dark", app: app)
     }
 

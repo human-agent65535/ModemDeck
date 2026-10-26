@@ -83,6 +83,7 @@ struct ModemDeckHomeView: View {
     @ObservedObject private var contacts: ModemDeckContactsStore
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
     @Environment(\.modemDeckNavigate) private var navigate
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedRoute: ModemDeckRoute?
     @State private var activity = ModemDeckActivitySnapshot()
     @State private var preparingActivity = true
@@ -141,8 +142,12 @@ struct ModemDeckHomeView: View {
         }
     }
 
+    /// Accessibility sizes stack the counters as full-width rows so labels and counts stay whole.
+    private var shortcutsStacked: Bool { dynamicTypeSize.isAccessibilitySize }
+
     private var shortcuts: some View {
-        HStack(spacing: 8) {
+        let layout = shortcutsStacked ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
             shortcut(controller.text("通话记录", "Calls"), icon: "phone", count: calls.calls.count, filter: "all")
             shortcut(controller.text("未接来电", "Missed"), icon: "phone.arrow.down.left", count: calls.calls.filter(\.missed).count,
                      filter: "missed", attention: calls.calls.contains { $0.missed && !$0.read })
@@ -155,23 +160,40 @@ struct ModemDeckHomeView: View {
     /// Counter card: the number leads; it only turns red while unread missed calls are waiting.
     private func shortcut(_ title: String, icon: String, count: Int, filter: String, attention: Bool = false) -> some View {
         Button { controller.openCalls(filter: filter) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Image(systemName: icon)
-                        .symbolVariant(.fill)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(attention ? .mdDanger : .mdAccent)
-                    Spacer(minLength: 0)
+            Group {
+                if shortcutsStacked {
+                    HStack(spacing: 12) {
+                        Image(systemName: icon)
+                            .symbolVariant(.fill)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(attention ? .mdDanger : .mdAccent)
+                        Text(title).font(.body).foregroundColor(.mdText)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        Text(count.formatted())
+                            .font(.body.weight(.semibold).monospacedDigit())
+                            .foregroundColor(attention ? .mdDanger : .mdText)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: icon)
+                                .symbolVariant(.fill)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(attention ? .mdDanger : .mdAccent)
+                            Spacer(minLength: 0)
+                        }
+                        Text(count.formatted())
+                            .font(.title2.weight(.semibold).monospacedDigit())
+                            .foregroundColor(attention ? .mdDanger : .mdText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text(title).font(.footnote).foregroundColor(.mdMuted).lineLimit(1)
+                    }
                 }
-                Text(count.formatted())
-                    .font(.title2.weight(.semibold).monospacedDigit())
-                    .foregroundColor(attention ? .mdDanger : .mdText)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Text(title).font(.footnote).foregroundColor(.mdMuted).lineLimit(1)
             }
             .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: shortcutsStacked ? 56 : 92, alignment: .leading)
             .background(attention ? Color.mdDangerSoft : Color.mdSurface)
             .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
             .contentShape(Rectangle())
@@ -197,17 +219,20 @@ struct ModemDeckHomeView: View {
                 ProgressView(controller.text("正在载入…", "Loading…"))
                     .frame(maxWidth: .infinity, minHeight: 140)
                     .listRowSeparator(.hidden)
+                    .listRowBackground(Color.mdBackground)
             } else if activity.days.isEmpty && !loadError.isEmpty {
                 ModemDeckLoadErrorState(controller: controller, detail: loadError) {
                     Task { await controller.refresh() }
                 }
                 .listRowSeparator(.hidden)
+                .listRowBackground(Color.mdBackground)
             } else if activity.days.isEmpty {
                 ModemDeckStateView(
                     icon: "tray", title: controller.text("暂无活动", "No Activity Yet"),
                     detail: controller.text("短信与通话活动会显示在这里。", "Messages and calls appear here.")
                 )
                 .listRowSeparator(.hidden)
+                .listRowBackground(Color.mdBackground)
             } else {
                 ForEach(activity.days) { day in
                     Section {

@@ -131,7 +131,7 @@ private struct ModemDeckDialKeyButton: View {
         } label: {
             VStack(spacing: 1) {
                 Text(digit)
-                    .font(.system(size: 34, weight: .regular, design: .rounded))
+                    .font(.system(size: size * 0.45, weight: .regular, design: .rounded))
                     .lineLimit(1)
                 Text(letters.isEmpty ? " " : letters)
                     .font(.caption2.weight(.semibold))
@@ -303,6 +303,36 @@ struct ModemDeckDialerPage: View {
     }
 }
 
+/// Keypad geometry derived from the space the dialer is given, so every key and the call
+/// button fit without scrolling on short screens, sheets and iPad form sheets.
+struct ModemDeckDialerMetrics {
+    static let numberHeight: CGFloat = 54
+    static let statusHeight: CGFloat = 24
+    static let optionsHeight: CGFloat = 52
+    static let minimumGap: CGFloat = 8
+    static let bottomPadding: CGFloat = 12
+    static let maximumKey: CGFloat = 76
+    static let minimumKey: CGFloat = 52
+
+    let key: CGFloat
+    let rowSpacing: CGFloat
+    let columnSpacing: CGFloat
+    let callKey: CGFloat
+
+    init(size: CGSize) {
+        let chrome = Self.numberHeight + 3 + Self.statusHeight + Self.optionsHeight + 2 * Self.minimumGap + Self.bottomPadding
+        let callKey = min(72, max(60, size.height * 0.1))
+        // Four rows of keys plus three gaps of about a sixth of a key.
+        let byHeight = (size.height - chrome - callKey) / (4 + 3 * 0.16)
+        let byWidth = (min(size.width, 380) - 40) / (3 + 2 * 0.32)
+        let key = max(Self.minimumKey, min(Self.maximumKey, byHeight, byWidth))
+        self.key = key
+        rowSpacing = (key * 0.16).rounded()
+        columnSpacing = (key * 0.32).rounded()
+        self.callKey = callKey
+    }
+}
+
 struct ModemDeckDialerView: View {
     @ObservedObject var controller: ModemDeckSessionController
     @ObservedObject private var callController: ModemDeckCallController
@@ -338,118 +368,63 @@ struct ModemDeckDialerView: View {
         !callController.busy && callController.call == nil
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                VStack(spacing: 3) {
-                    ModemDeckDialNumberField(text: $draft.number,
-                        placeholder: controller.text("输入号码", "Enter number"),
-                        accessibilityLabel: controller.text("电话号码", "Phone number"))
-                        .frame(height: 54)
-                    Text(matchedContact?.displayName ?? controller.text("选择联系人，或直接输入号码", "Choose a contact or enter a number"))
-                        .font(.footnote).foregroundColor(.mdMuted)
-                        .lineLimit(1).frame(minHeight: 24)
-                }
-                // Line picker as a capsule; the recording default sits on its own line so the
-                // line name is never truncated.
-                VStack(spacing: 6) {
-                    Menu {
-                        ForEach(lines) { line in
-                            Button {
-                                draft.selectedLineID = line.id
-                                draft.lineSelectionOverridden = true
-                            } label: {
-                                if line.id == draft.selectedLineID {
-                                    Label(line.displayName, systemImage: "checkmark")
-                                } else { Text(line.displayName) }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if let selectedLine {
-                                ModemDeckLineTag(line: selectedLine, compact: true)
-                            } else {
-                                Text(controller.text("无可用线路", "No available line"))
-                                    .lineLimit(1)
-                            }
-                            Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
-                        }
-                        .font(.subheadline.weight(.medium)).foregroundColor(.mdText)
-                        .padding(.horizontal, 14).frame(minHeight: 36)
-                        .background(Capsule().fill(Color.mdSurfaceHover))
-                        .fixedSize()
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
-                    }
-                    .disabled(lines.isEmpty)
-                    .accessibilityLabel(controller.text("通话线路", "Calling line"))
-                    .accessibilityValue(selectedLine?.displayName ?? "")
-                    Label {
-                        Text(draft.recordingInitialized
-                            ? controller.text(draft.recording ? "默认开启录音" : "默认关闭录音", draft.recording ? "Recording on by default" : "Recording off by default")
-                            : controller.text("正在读取录音设置…", "Loading recording setting…"))
-                    } icon: {
-                        Image(systemName: draft.recording ? "record.circle.fill" : "record.circle")
-                            .foregroundColor(draft.recording ? .mdDanger : .mdFaint)
-                    }
-                    .font(.caption).foregroundColor(.mdMuted)
-                    .accessibilityIdentifier("dial-recording-status")
-                }
+    /// Contacts whose number contains what has been typed, offered before the number is complete.
+    private var suggestedContact: (contact: ModemDeckContact, phone: String)? {
+        guard matchedContact == nil else { return nil }
+        let typed = draft.number.filter(\.isNumber)
+        guard typed.count >= 3 else { return nil }
+        for contact in contactsStore.contacts {
+            if let phone = contact.phones.first(where: { $0.displayNumber.filter(\.isNumber).contains(typed) }) {
+                return (contact, phone.displayNumber)
+            }
+        }
+        return nil
+    }
 
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(76), spacing: 24), count: 3), spacing: 12) {
+    /// One status line under the number: problems first, then who is being called, then guidance.
+    private var statusLine: (text: String, problem: Bool)? {
+        if !callController.errorMessage.isEmpty { return (callController.errorMessage, true) }
+        if !recordingError.isEmpty { return (recordingError, true) }
+        if lines.isEmpty || !controller.isOnline {
+            return (controller.text("无可用线路，请检查线路连接。", "No available line. Check your connection."), true)
+        }
+        if !draft.number.isEmpty && dialTarget.error != .none {
+            return (controller.text("请输入有效的电话号码", "Enter a valid phone number"), true)
+        }
+        if let matchedContact { return (matchedContact.displayName, false) }
+        if draft.number.isEmpty {
+            return (controller.text("选择联系人，或直接输入号码", "Choose a contact or enter a number"), false)
+        }
+        return nil
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let metrics = ModemDeckDialerMetrics(size: geometry.size)
+            VStack(spacing: 0) {
+                numberSection
+                optionsRow.padding(.top, 8)
+                Spacer(minLength: ModemDeckDialerMetrics.minimumGap)
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.fixed(metrics.key), spacing: metrics.columnSpacing), count: 3),
+                    spacing: metrics.rowSpacing
+                ) {
                     ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
-                        ModemDeckDialKeyButton(digit: key.0, letters: key.1,
+                        ModemDeckDialKeyButton(digit: key.0, letters: key.1, size: metrics.key,
                                                plusHint: controller.text("长按输入 +", "Long press to enter plus"),
                                                action: appendDigit)
                             .accessibilityIdentifier("dial-key-\(key.0)")
                     }
                 }
-                HStack(spacing: 14) {
-                    Button { showingContacts = true } label: {
-                        Image(systemName: "person.crop.circle.badge.plus")
-                            .font(.title3).frame(width: 44, height: 56)
-                    }
-                    .accessibilityLabel(controller.text("选择联系人", "Choose contact"))
-                    Spacer(minLength: 0)
-                    // Round green call key, as in the system Phone keypad.
-                    Button(action: startCall) {
-                        Group {
-                            if callController.busy { ProgressView().tint(.white) }
-                            else { Image(systemName: "phone.fill").font(.system(size: 28, weight: .semibold)) }
-                        }
-                        .foregroundColor(canDial ? .white : .mdFaint)
-                        .frame(width: 72, height: 72)
-                        .background(Circle().fill(canDial ? Color.mdCallAnswer : Color.mdSurfaceHover))
-                    }
-                    .disabled(!canDial)
-                    .accessibilityLabel(controller.text("拨打", "Call"))
-                    .accessibilityIdentifier("dial-call")
-                    Spacer(minLength: 0)
-                    Button(action: removeDigit) {
-                        Image(systemName: "delete.left")
-                            .font(.title3).frame(width: 44, height: 56)
-                    }
-                    .disabled(draft.number.isEmpty)
-                    .accessibilityLabel(controller.text("删除一位", "Delete digit"))
-                    .accessibilityIdentifier("dial-delete")
-                }
-                .buttonStyle(.plain).foregroundColor(.mdText)
-                if lines.isEmpty || !controller.isOnline {
-                    Text(controller.text("无可用线路，请检查线路连接。", "No available line. Check your connection."))
-                        .font(.footnote).foregroundColor(.mdMuted)
-                }
-                if !draft.number.isEmpty && dialTarget.error != .none {
-                    Text(controller.text("请输入有效的电话号码", "Enter a valid phone number"))
-                        .font(.footnote).foregroundColor(.mdDanger)
-                }
-                ModemDeckInlineError(message: recordingError)
-                ModemDeckInlineError(message: callController.errorMessage)
+                Spacer(minLength: ModemDeckDialerMetrics.minimumGap)
+                // The call key never scrolls out of reach: this row is pinned to the bottom.
+                actionRow(callSize: metrics.callKey)
             }
             .frame(maxWidth: 340)
-            .padding(.horizontal, 20).padding(.bottom, 20)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 20)
+            .padding(.bottom, ModemDeckDialerMetrics.bottomPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .scrollDismissesKeyboard(.interactively)
         .background(Color.mdSurface)
         .onAppear { chooseDefaultLine() }
         .onChange(of: lines.map(\.id)) { _ in chooseDefaultLine() }
@@ -464,6 +439,155 @@ struct ModemDeckDialerView: View {
             await loadRecordingPreference()
         }
         .sheet(isPresented: $showingContacts) { contactPicker }
+    }
+
+    private var numberSection: some View {
+        VStack(spacing: 3) {
+            ModemDeckDialNumberField(text: $draft.number,
+                placeholder: controller.text("输入号码", "Enter number"),
+                accessibilityLabel: controller.text("电话号码", "Phone number"))
+                .frame(height: ModemDeckDialerMetrics.numberHeight)
+            Group {
+                if let suggestedContact {
+                    Button {
+                        draft.number = suggestedContact.phone
+                        if !draft.lineSelectionOverridden {
+                            draft.selectedLineID = controller.voiceDialLine(
+                                preferredID: suggestedContact.contact.preferredLineId
+                            )?.id ?? ""
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.crop.circle")
+                            Text(suggestedContact.contact.displayName).fontWeight(.semibold)
+                            Text(suggestedContact.phone).foregroundColor(.mdMuted)
+                        }
+                        .lineLimit(1)
+                        .foregroundColor(.mdAccent)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(controller.text("填入此号码", "Fills in this number"))
+                    .accessibilityIdentifier("dial-suggestion")
+                } else if let statusLine {
+                    Text(statusLine.text)
+                        .foregroundColor(statusLine.problem ? .mdDanger : .mdMuted)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Text(" ").accessibilityHidden(true)
+                }
+            }
+            .font(.footnote)
+            .frame(minHeight: ModemDeckDialerMetrics.statusHeight)
+        }
+    }
+
+    /// Line and per-call recording sit side by side; narrow widths stack them.
+    private var optionsRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { linePicker; recordingToggle }
+            VStack(spacing: 6) { linePicker; recordingToggle }
+        }
+    }
+
+    private var linePicker: some View {
+        Menu {
+            ForEach(lines) { line in
+                Button {
+                    draft.selectedLineID = line.id
+                    draft.lineSelectionOverridden = true
+                } label: {
+                    if line.id == draft.selectedLineID {
+                        Label(line.displayName, systemImage: "checkmark")
+                    } else { Text(line.displayName) }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if let selectedLine {
+                    ModemDeckLineTag(line: selectedLine, compact: true)
+                } else {
+                    Text(controller.text("无可用线路", "No available line"))
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+            }
+            .font(.subheadline.weight(.medium)).foregroundColor(.mdText)
+            .padding(.horizontal, 14).frame(minHeight: 36)
+            .background(Capsule().fill(Color.mdSurfaceHover))
+            .fixedSize()
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .disabled(lines.isEmpty)
+        .accessibilityLabel(controller.text("通话线路", "Calling line"))
+        .accessibilityValue(selectedLine?.displayName ?? "")
+    }
+
+    /// Starts from the account default and applies to this call only.
+    private var recordingToggle: some View {
+        Button {
+            draft.recording.toggle()
+            UISelectionFeedbackGenerator().selectionChanged()
+        } label: {
+            HStack(spacing: 6) {
+                if draft.recordingInitialized {
+                    Image(systemName: draft.recording ? "record.circle.fill" : "record.circle")
+                } else {
+                    ProgressView().controlSize(.mini)
+                }
+                Text(controller.text("录音", "Record"))
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundColor(draft.recording ? .mdDanger : .mdMuted)
+            .padding(.horizontal, 14).frame(minHeight: 36)
+            .background(Capsule().fill(draft.recording ? Color.mdDangerSoft : Color.mdSurfaceHover))
+            .fixedSize()
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!draft.recordingInitialized)
+        .accessibilityLabel(controller.text("本次通话录音", "Record this call"))
+        .accessibilityValue(draft.recording ? controller.text("已开启", "On") : controller.text("已关闭", "Off"))
+        .accessibilityAddTraits(draft.recording ? .isSelected : [])
+        .accessibilityIdentifier("dial-recording-status")
+    }
+
+    private func actionRow(callSize: CGFloat) -> some View {
+        HStack(spacing: 14) {
+            Button { showingContacts = true } label: {
+                Image(systemName: "person.crop.circle")
+                    .font(.title2).frame(width: 44, height: 56)
+            }
+            .accessibilityLabel(controller.text("选择联系人", "Choose contact"))
+            Spacer(minLength: 0)
+            // Round green call key, as in the system Phone keypad.
+            Button(action: startCall) {
+                Group {
+                    if callController.busy { ProgressView().tint(.white) }
+                    else { Image(systemName: "phone.fill").font(.system(size: callSize * 0.39, weight: .semibold)) }
+                }
+                .foregroundColor(canDial ? .white : .mdFaint)
+                .frame(width: callSize, height: callSize)
+                .background(Circle().fill(canDial ? Color.mdCallAnswer : Color.mdSurfaceHover))
+            }
+            .disabled(!canDial)
+            .accessibilityLabel(controller.text("拨打", "Call"))
+            .accessibilityIdentifier("dial-call")
+            Spacer(minLength: 0)
+            Button(action: removeDigit) {
+                Image(systemName: "delete.left")
+                    .font(.title3).frame(width: 44, height: 56)
+            }
+            // Present only once there is something to delete, as in Phone.
+            .opacity(draft.number.isEmpty ? 0 : 1)
+            .disabled(draft.number.isEmpty)
+            .accessibilityHidden(draft.number.isEmpty)
+            .accessibilityLabel(controller.text("删除一位", "Delete digit"))
+            .accessibilityIdentifier("dial-delete")
+        }
+        .buttonStyle(.plain).foregroundColor(.mdText)
     }
 
     private var contactPicker: some View {
@@ -484,7 +608,7 @@ struct ModemDeckDialerView: View {
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(phone.displayNumber).foregroundColor(.mdText)
-                                    Text(phone.label).font(.footnote).foregroundColor(.mdMuted)
+                                    Text(controller.phoneLabelText(phone.label)).font(.footnote).foregroundColor(.mdMuted)
                                 }
                                 .frame(minHeight: 44)
                             }
@@ -931,18 +1055,18 @@ struct ModemDeckCallRecordRow: View {
                 size: ModemDeckLayout.listAvatarSize
             )
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
+                ModemDeckRowTitleLine {
                     Text(displayName)
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(call.missed ? .mdDanger : .mdText)
-                        .lineLimit(1)
-                    Spacer(minLength: 6)
+                } trailing: {
                     Text(controller.compactDateText(call.startedAt))
                         .font(.caption)
                         .foregroundColor(.mdFaint)
                 }
                 HStack(spacing: 7) {
-                    if let line {
+                    // Like Messages, the line tag only distinguishes calls when there is a choice.
+                    if let line, (controller.bootstrap?.lineCatalog.count ?? 0) > 1 {
                         ModemDeckLineTag(line: line, compact: true)
                             .font(.caption.weight(.medium))
                             .foregroundColor(.mdMuted)
@@ -950,7 +1074,8 @@ struct ModemDeckCallRecordRow: View {
                     Image(systemName: directionIcon)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(call.missed ? .mdDanger : .mdMuted)
-                    Text(call.remoteNumber)
+                    // An unknown caller's number is already the title; say what kind of call it was.
+                    Text(displayName == call.remoteNumber ? directionText : call.remoteNumber)
                         .font(.footnote)
                         .foregroundColor(.mdMuted)
                         .lineLimit(1)
@@ -958,7 +1083,7 @@ struct ModemDeckCallRecordRow: View {
                     if recorded {
                         Image(systemName: "waveform")
                             .font(.system(size: 12))
-                            .foregroundColor(.mdBlue)
+                            .foregroundColor(.mdAccent)
                     }
                     if call.favorite {
                         Image(systemName: "star.fill")
@@ -984,8 +1109,15 @@ struct ModemDeckCallRecordRow: View {
     }
 
     private var directionIcon: String {
-        if call.missed { return "phone.down.fill" }
+        if call.missed { return "phone.arrow.down.left" }
         return call.direction == "incoming" ? "arrow.down.left" : "arrow.up.right"
+    }
+
+    private var directionText: String {
+        if call.missed { return controller.text("未接来电", "Missed") }
+        return call.direction == "incoming"
+            ? controller.text("呼入", "Incoming")
+            : controller.text("呼出", "Outgoing")
     }
 }
 
@@ -1711,7 +1843,8 @@ struct ModemDeckCallDetailView: View {
             icon: "trash",
             title: controller.text("删除通话", "Delete call"),
             color: .mdDanger,
-            disabled: mutationBusy || !controller.isOnline
+            disabled: mutationBusy || !controller.isOnline,
+            destructive: true
         ) { confirmDelete = true })
         return items
     }
@@ -1724,7 +1857,7 @@ struct ModemDeckCallDetailView: View {
     }
 
     private var directionIcon: String {
-        if call.missed { return "phone.down.fill" }
+        if call.missed { return "phone.arrow.down.left" }
         return call.direction == "incoming" ? "arrow.down.left" : "arrow.up.right"
     }
 
@@ -2099,7 +2232,8 @@ struct ModemDeckRecordingDetailView: View {
                 icon: "trash",
                 title: controller.text("删除录音", "Delete recording"),
                 color: .mdDanger,
-                disabled: mutationBusy || !controller.isOnline
+                disabled: mutationBusy || !controller.isOnline,
+                destructive: true
             ) { confirmDelete = true }
         ]
     }
@@ -2321,6 +2455,15 @@ enum ModemDeckCallStageLayout {
     /// Four 84 pt control cells with 16 pt gaps.
     static let oneRowControlsWidth: CGFloat = 4 * 84 + 3 * 16
     static let widePanelMaximumHeight: CGFloat = 760
+
+    /// The DTMF keypad shows all twelve keys in the stage it is given instead of scrolling
+    /// its last row under the footer: room for the compact identity and pressed digits first.
+    static func keypadKey(for size: CGSize) -> CGFloat {
+        let identityAndDigits: CGFloat = 150
+        let byHeight = (size.height - identityAndDigits) / (4 + 3 * 0.16)
+        let byWidth = size.width / (3 + 2 * 0.32)
+        return max(48, min(76, byHeight, byWidth))
+    }
 }
 
 struct ModemDeckActiveCallView: View {
@@ -2493,23 +2636,25 @@ struct ModemDeckActiveCallView: View {
                 // Short stages (iPhone Duo's cover screen, iPhone SE) tighten the identity block
                 // so the controls fit without scrolling.
                 let compact = available.size.height < ModemDeckCallStageLayout.compactHeight
-                let controlsInOneRow = compact && available.size.width >= ModemDeckCallStageLayout.oneRowControlsWidth
+                let controlsInOneRow = available.size.width >= ModemDeckCallStageLayout.oneRowControlsWidth
+                let keypadKey = ModemDeckCallStageLayout.keypadKey(for: available.size)
                 ScrollView {
                     VStack(spacing: 0) {
                         Spacer(minLength: keypadVisible || compact ? ModemDeckSpacing.xs : ModemDeckSpacing.md)
                         callIdentity(compact: compact)
-                        Spacer(minLength: keypadVisible ? ModemDeckSpacing.lg : compact ? ModemDeckSpacing.md : ModemDeckSpacing.xxl)
+                        Spacer(minLength: keypadVisible ? ModemDeckSpacing.lg : compact ? ModemDeckSpacing.xs : ModemDeckSpacing.xxl)
                         VStack(spacing: ModemDeckSpacing.xl) {
                             if !isIncomingRinging && !isEnded {
                                 if call.testAudio && isActive { testAudioFeedback }
                                 if keypadVisible {
                                     ModemDeckInCallKeypad(
+                                        keySize: keypadKey,
                                         pressedDigits: dtmfDigits,
                                         pressedLabel: controller.text("已按按键", "Pressed keys"),
                                         action: sendDTMF
                                     )
                                 } else if !controlKinds.isEmpty {
-                                    auxiliaryControls(oneRow: controlsInOneRow)
+                                    auxiliaryControls(oneRow: controlsInOneRow, compact: compact)
                                 }
                             }
                             ModemDeckInlineError(message: callController.errorMessage)
@@ -2523,7 +2668,7 @@ struct ModemDeckActiveCallView: View {
                 }
             }
             callFooter
-                .padding(.top, ModemDeckSpacing.xxl)
+                .padding(.top, ModemDeckSpacing.xl)
                 .padding(.bottom, ModemDeckSpacing.xl)
         }
         .frame(maxWidth: 640)
@@ -2542,7 +2687,7 @@ struct ModemDeckActiveCallView: View {
     private func callIdentity(compact: Bool) -> some View {
         VStack(spacing: 0) {
             if !keypadVisible {
-                callAvatar(compact: compact).padding(.bottom, compact ? ModemDeckSpacing.sm : ModemDeckSpacing.md)
+                callAvatar(compact: compact).padding(.bottom, compact ? ModemDeckSpacing.xs : ModemDeckSpacing.md)
             }
             Text(displayName)
                 .font(keypadVisible ? .title3.weight(.semibold) : .title.weight(.semibold))
@@ -2655,23 +2800,29 @@ struct ModemDeckActiveCallView: View {
 
     private enum ControlKind: Hashable { case mute, keypad, audio, record }
 
-    /// Mute · Keypad · Audio / Record. Only actions this call supports.
+    /// Mute · Keypad · Audio · Record. Only actions this call supports. An outgoing call shows
+    /// the same grid while dialling, with what needs a connection disabled, so nothing jumps.
     private var controlKinds: [ControlKind] {
         if isActive {
             return call.testCall ? [.mute, .audio] : [.mute, .keypad, .audio, .record]
         }
-        return canRecordBeforeConnect ? [.record] : []
+        return canRecordBeforeConnect ? [.mute, .keypad, .audio, .record] : []
     }
 
-    private func auxiliaryControls(oneRow: Bool) -> some View {
-        let columns = dynamicTypeSize.isAccessibilitySize ? 2 : oneRow ? 4 : 3
+    private var availableOnceConnected: String {
+        controller.text("接通后可用", "Available once connected")
+    }
+
+    private func auxiliaryControls(oneRow: Bool, compact: Bool = false) -> some View {
         let kinds = controlKinds
+        // Four controls sit in one row when they fit, otherwise in a balanced 2×2 grid.
+        let columns = dynamicTypeSize.isAccessibilitySize ? 2 : oneRow ? 4 : (kinds.count == 4 ? 2 : 3)
         // Rows are centered, so a short last row (e.g. Record alone) sits under the middle.
         let rows: [[ControlKind]] = stride(from: 0, to: kinds.count, by: columns).map { start in
             Array(kinds[start..<min(start + columns, kinds.count)])
         }
         let cellWidth: CGFloat = dynamicTypeSize.isAccessibilitySize ? 128 : 84
-        return VStack(spacing: ModemDeckSpacing.lg) {
+        return VStack(spacing: compact ? ModemDeckSpacing.sm : ModemDeckSpacing.lg) {
             ForEach(rows.indices, id: \.self) { index in
                 HStack(alignment: .top, spacing: ModemDeckSpacing.md) {
                     ForEach(rows[index], id: \.self) { kind in
@@ -2693,7 +2844,8 @@ struct ModemDeckActiveCallView: View {
                 icon: "mic.slash.fill",
                 isOn: call.muted,
                 value: call.muted ? onValue : offValue,
-                busy: callController.muteBusy
+                busy: callController.muteBusy,
+                unavailableHint: isActive ? nil : availableOnceConnected
             ) {
                 Task { await callController.setMuted(!call.muted) }
             }
@@ -2702,7 +2854,8 @@ struct ModemDeckActiveCallView: View {
             ModemDeckCallControl(
                 title: controller.text("拨号盘", "Keypad"),
                 icon: "circle.grid.3x3.fill",
-                unavailableHint: canSendDTMF ? nil : controller.text("此线路不支持拨号音", "This line can't send keypad tones")
+                unavailableHint: !isActive ? availableOnceConnected
+                    : canSendDTMF ? nil : controller.text("此线路不支持拨号音", "This line can't send keypad tones")
             ) {
                 if reduceMotion { showingKeypad.toggle() }
                 else { withAnimation(.easeOut(duration: 0.18)) { showingKeypad.toggle() } }
@@ -3097,6 +3250,7 @@ private struct ModemDeckCallPrimaryAction: View {
 }
 
 private struct ModemDeckInCallKeypad: View {
+    var keySize: CGFloat = 76
     let pressedDigits: String
     let pressedLabel: String
     let action: (String) -> Void
@@ -3115,22 +3269,25 @@ private struct ModemDeckInCallKeypad: View {
                 .foregroundColor(.mdText)
                 .lineLimit(1)
                 .truncationMode(.head)
-                .frame(maxWidth: 276, minHeight: 40)
+                .frame(maxWidth: gridWidth, minHeight: 40)
                 .accessibilityLabel(pressedLabel)
                 .accessibilityValue(pressedDigits)
 
             LazyVGrid(
-                columns: Array(repeating: GridItem(.fixed(76), spacing: ModemDeckSpacing.xl), count: 3),
-                spacing: ModemDeckSpacing.sm
+                columns: Array(repeating: GridItem(.fixed(keySize), spacing: columnSpacing), count: 3),
+                spacing: (keySize * 0.16).rounded()
             ) {
                 ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
-                    ModemDeckDialKeyButton(digit: key.0, letters: key.1, allowsPlus: false, action: action)
+                    ModemDeckDialKeyButton(digit: key.0, letters: key.1, size: keySize, allowsPlus: false, action: action)
                         .accessibilityIdentifier("call-dtmf-\(key.0)")
                 }
             }
-            .frame(width: 276)
+            .frame(width: gridWidth)
         }
     }
+
+    private var columnSpacing: CGFloat { (keySize * 0.32).rounded() }
+    private var gridWidth: CGFloat { 3 * keySize + 2 * columnSpacing }
 }
 
 // iOS 17+ effects. Haptics are not motion; symbol effects are gated by callers on Reduce Motion.

@@ -317,10 +317,13 @@ struct ModemDeckContactRow: View {
                 size: ModemDeckLayout.listAvatarSize
             )
             VStack(alignment: .leading, spacing: 4) {
-                Text(contact.displayName)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.mdText)
-                    .lineLimit(1)
+                ModemDeckRowTitleLine {
+                    Text(contact.displayName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.mdText)
+                } trailing: {
+                    EmptyView()
+                }
                 Text(contact.primaryPhone?.displayNumber ?? "")
                     .font(.footnote)
                     .foregroundColor(.mdMuted)
@@ -625,6 +628,10 @@ struct ModemDeckHeaderAction: Identifiable {
     var color = Color.mdMuted
     var disabled = false
     var busy = false
+    /// The page's one primary action stays in the bar; everything else lives in the "…" menu.
+    var inline = false
+    /// Destructive actions are only ever offered from the menu, in their own section.
+    var destructive = false
     let action: () -> Void
 }
 
@@ -675,7 +682,7 @@ struct ModemDeckIdentityHeader: View {
                         .foregroundColor(.mdText)
                         .lineLimit(1)
                         .accessibilityAddTraits(.isHeader)
-                    if !subtitle.isEmpty {
+                    if showsSubtitle {
                         Text(subtitle)
                             .font(.subheadline.monospacedDigit())
                             .foregroundColor(.mdMuted)
@@ -686,30 +693,39 @@ struct ModemDeckIdentityHeader: View {
             .contentShape(Rectangle())
             .modemDeckCopyMenu(copyItems)
             .layoutPriority(1)
-            Spacer()
-            if actions.count > 3 {
-                ForEach(Array(actions.prefix(2))) { item in
-                    headerButton(item)
-                }
+            Spacer(minLength: 4)
+            // Identity comes first: one primary action at most, the rest behind "…".
+            ForEach(inlineActions) { item in
+                headerButton(item)
+            }
+            if !menuActions.isEmpty || !destructiveActions.isEmpty {
                 Menu {
-                    ForEach(Array(actions.dropFirst(2))) { item in
+                    ForEach(menuActions) { item in
                         Button(action: item.action) {
                             Label(item.title, systemImage: item.icon)
                         }
-                        .disabled(item.disabled)
+                        .disabled(item.disabled || item.busy)
+                    }
+                    if !destructiveActions.isEmpty {
+                        Section {
+                            ForEach(destructiveActions) { item in
+                                Button(role: .destructive, action: item.action) {
+                                    Label(item.title, systemImage: item.icon)
+                                }
+                                .disabled(item.disabled || item.busy)
+                            }
+                        }
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(.mdMuted)
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3.weight(.regular))
+                        .foregroundColor(.mdAccent)
+                        .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel(moreActionsTitle)
-            } else {
-                ForEach(actions) { item in
-                    headerButton(item)
-                }
+                .accessibilityIdentifier("detail-more-actions")
             }
         }
         .padding(.horizontal, 10)
@@ -723,6 +739,25 @@ struct ModemDeckIdentityHeader: View {
         }
     }
 
+    private var inlineActions: [ModemDeckHeaderAction] {
+        Array(actions.filter { $0.inline && !$0.destructive }.prefix(1))
+    }
+
+    private var menuActions: [ModemDeckHeaderAction] {
+        let inlineIDs = Set(inlineActions.map(\.id))
+        return actions.filter { !$0.destructive && !inlineIDs.contains($0.id) }
+    }
+
+    private var destructiveActions: [ModemDeckHeaderAction] {
+        actions.filter(\.destructive)
+    }
+
+    /// A number shown as both title and subtitle (an unknown caller) is said once.
+    private var showsSubtitle: Bool {
+        let compact = { (value: String) in value.filter { !" ()-.".contains($0) } }
+        return !subtitle.isEmpty && compact(subtitle) != compact(title)
+    }
+
     private func headerButton(_ item: ModemDeckHeaderAction) -> some View {
         Button(action: item.action) {
             Group {
@@ -732,6 +767,7 @@ struct ModemDeckIdentityHeader: View {
                     Image(systemName: item.icon)
                         .font(.body.weight(.semibold))
                         .foregroundColor(item.color)
+                        .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
                 }
             }
             .frame(width: 44, height: 44)
@@ -825,10 +861,10 @@ struct ModemDeckContactDetailView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(phone.displayNumber)
-                                    .font(.system(size: 17, weight: .semibold))
+                                    .font(.body.weight(.semibold))
                                     .foregroundColor(.mdText)
-                                Text(phone.label)
-                                    .font(.system(size: 12))
+                                Text(controller.phoneLabelText(phone.label))
+                                    .font(.caption)
                                     .foregroundColor(.mdMuted)
                             }
                             .contentShape(Rectangle())
@@ -913,7 +949,9 @@ struct ModemDeckContactDetailView: View {
                 id: "edit",
                 icon: "pencil",
                 title: controller.text("编辑联系人", "Edit contact"),
-                disabled: deleting || !controller.isOnline
+                color: .mdAccent,
+                disabled: deleting || !controller.isOnline,
+                inline: true
             ) { editorOpen = true },
             ModemDeckHeaderAction(
                 id: "favorite",
@@ -929,7 +967,8 @@ struct ModemDeckContactDetailView: View {
                 icon: "trash",
                 title: controller.text("删除联系人", "Delete contact"),
                 color: .mdDanger,
-                disabled: deleting || !controller.isOnline
+                disabled: deleting || !controller.isOnline,
+                destructive: true
             ) { confirmDelete = true }
         ]
     }
@@ -2228,12 +2267,11 @@ struct ModemDeckMessageThreadRow: View {
                 size: ModemDeckLayout.listAvatarSize
             )
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
+                ModemDeckRowTitleLine {
                     Text(displayName)
                         .font(.subheadline.weight(unread ? .semibold : .regular))
                         .foregroundColor(.mdText)
-                        .lineLimit(1)
-                    Spacer(minLength: 6)
+                } trailing: {
                     Text(controller.compactDateText(thread.lastTimestamp))
                         .font(.caption)
                         .foregroundColor(.mdFaint)
@@ -2842,7 +2880,8 @@ struct ModemDeckConversationView: View {
                 title: controller.text("呼叫", "Call"),
                 color: .mdAccent,
                 disabled: dialLine == nil || callController.busy || !controller.isOnline,
-                busy: callController.busy
+                busy: callController.busy,
+                inline: true
             ) { startCall() },
             ModemDeckHeaderAction(
                 id: "favorite",
@@ -2858,7 +2897,8 @@ struct ModemDeckConversationView: View {
                 icon: "trash",
                 title: controller.text("删除会话", "Delete conversation"),
                 color: .mdDanger,
-                disabled: mutationBusy || !controller.isOnline
+                disabled: mutationBusy || !controller.isOnline,
+                destructive: true
             ) { confirmDelete = true }
         ]
     }

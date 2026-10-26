@@ -685,10 +685,13 @@ test('native iPad communication workspaces mirror the Web list-detail geometry',
   assert.match(calls, /presentsAsPadPanel = horizontalSizeClass == \.regular && verticalSizeClass == \.regular/)
   // iPhone Duo's trailing status-bar column hosts section navigation instead of the tab bar or rail.
   assert.match(app, /insets\.trailing >= ModemDeckLayout\.statusColumnMinimumWidth && insets\.leading < 1/)
+  // Column items share the system clock's axis under the camera, not the inset's centre.
+  assert.match(app, /static let statusColumnAxisFromTrailingEdge: CGFloat = 48/)
+  assert.match(app, /\.padding\(\.trailing, 4 \+ axisInset\)/)
   assert.match(app, /if let statusColumnWidth \{[\s\S]*ModemDeckStatusColumnNavigation[\s\S]*\.ignoresSafeArea\(\.keyboard\)[\s\S]*\.ignoresSafeArea\(\.container, edges: \.trailing\)[\s\S]*\} else if usesSplitWorkspace \{/)
   // Short stages keep every call control visible without scrolling.
   assert.match(calls, /let compact = available\.size\.height < ModemDeckCallStageLayout\.compactHeight/)
-  assert.match(calls, /dynamicTypeSize\.isAccessibilitySize \? 2 : oneRow \? 4 : 3/)
+  assert.match(calls, /dynamicTypeSize\.isAccessibilitySize \? 2 : oneRow \? 4 : \(kinds\.count == 4 \? 2 : 3\)/)
   assert.match(app, /ModemDeckPadNavigationRail/)
   assert.match(communication, /selectedContactID/)
   assert.match(communication, /selectedThreadID/)
@@ -770,7 +773,7 @@ test('native dialer preserves its draft, line choice, recording preference and D
   assert.match(app, /\.presentationDragIndicator\(\.visible\)/)
   assert.match(calls, /pressedDigits: dtmfDigits/)
   // The in-call keypad reuses the dialer key without the dialer-only "+" long press.
-  assert.match(calls, /ModemDeckDialKeyButton\(digit: key\.0, letters: key\.1, allowsPlus: false/)
+  assert.match(calls, /ModemDeckDialKeyButton\(digit: key\.0, letters: key\.1, size: keySize, allowsPlus: false/)
 })
 
 test('CallKit foreground reconciliation opens the native active-call surface', async () => {
@@ -929,4 +932,47 @@ test('outgoing native calls require prepared media', async () => {
   assert.match(native, /preparation: ModemDeckCallPreparation,/)
   assert.doesNotMatch(native, /preparation: ModemDeckCallPreparation\? = nil/)
   assert.doesNotMatch(audio, /endLateCommittedCall/)
+})
+
+test('native layouts adapt to the space and text size instead of clipping', async () => {
+  const [app, calls, communication, home] = await Promise.all([
+    source('ios/App/App/ModemDeckApp.swift'),
+    source('ios/App/App/ModemDeckCallViews.swift'),
+    source('ios/App/App/ModemDeckCommunicationViews.swift'),
+    source('ios/App/App/ModemDeckHomeView.swift')
+  ])
+
+  // The dialer sizes its keys from the space it is given and pins the call row, so the call
+  // key is never clipped on short screens or iPad form sheets.
+  assert.match(calls, /struct ModemDeckDialerMetrics \{[\s\S]*let byHeight = \(size\.height - chrome - callKey\)/)
+  assert.match(calls, /GeometryReader \{ geometry in\s*let metrics = ModemDeckDialerMetrics\(size: geometry\.size\)/)
+  assert.match(calls, /actionRow\(callSize: metrics\.callKey\)/)
+  // Recording is a real per-call toggle beside the line picker, not a static label.
+  assert.match(calls, /private var recordingToggle: some View \{\s*Button \{\s*draft\.recording\.toggle\(\)/)
+  assert.match(calls, /private var suggestedContact:/)
+  // The in-call keypad shows all twelve keys, and one control grid spans dialling to connected.
+  assert.match(calls, /static func keypadKey\(for size: CGSize\) -> CGFloat/)
+  assert.match(calls, /return canRecordBeforeConnect \? \[\.mute, \.keypad, \.audio, \.record\] : \[\]/)
+  assert.match(calls, /oneRow \? 4 : \(kinds\.count == 4 \? 2 : 3\)/)
+
+  // Detail headers lead with identity: one inline action, the rest (Delete last) behind "…".
+  assert.match(communication, /Array\(actions\.filter \{ \$0\.inline && !\$0\.destructive \}\.prefix\(1\)\)/)
+  assert.match(communication, /Button\(role: \.destructive, action: item\.action\)/)
+  assert.match(communication, /compact\(subtitle\) != compact\(title\)/)
+  assert.doesNotMatch(communication, /if actions\.count > 3/)
+
+  // Accessibility sizes rearrange instead of truncating.
+  assert.match(app, /if dynamicTypeSize\.isAccessibilitySize \{\s*accessibilityMenu/)
+  assert.match(app, /struct ModemDeckRowTitleLine/)
+  assert.match(app, /static let headerGlyphMaximumSize = DynamicTypeSize\.xxxLarge/)
+  assert.match(home, /AnyLayout\(VStackLayout\(spacing: 8\)\)/)
+
+  // Dialing belongs to Recents and Calls, and never duplicates the iPad rail's Dial button.
+  assert.match(app, /section == \.home \|\| section == \.calls \? padDialerAction : nil/)
+  assert.match(app, /sectionTabs\(headerDialer: false\)/)
+
+  // Unknown callers are named once, missed calls use the missed glyph, labels are localized.
+  assert.match(calls, /displayName == call\.remoteNumber \? directionText : call\.remoteNumber/)
+  assert.doesNotMatch(calls, /if call\.missed \{ return "phone\.down\.fill" \}/)
+  assert.match(app, /func phoneLabelText\(_ label: String\) -> String/)
 })
