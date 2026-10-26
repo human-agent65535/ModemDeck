@@ -1659,9 +1659,24 @@ final class ModemDeckMessagesStore: ObservableObject {
     }
 }
 
+/// An SMS the user has sent that the server has not confirmed yet. It keeps its send attempt as
+/// its identity, so retrying a failed one resends the same SMS rather than a second copy.
+struct ModemDeckOutgoingMessage: Identifiable, Equatable {
+    enum State: Equatable {
+        case sending
+        case failed(reason: String)
+    }
+
+    let id: String
+    let content: String
+    var state: State
+}
+
 @MainActor
 final class ModemDeckConversationStore: ObservableObject {
     @Published private(set) var messages: [ModemDeckMessage] = []
+    /// Unconfirmed sends, shown as bubbles after the conversation until they land or are discarded.
+    @Published private(set) var outbox: [ModemDeckOutgoingMessage] = []
     @Published private(set) var loading = false
     @Published private(set) var sending = false
     @Published private(set) var loadingOlder = false
@@ -1793,6 +1808,11 @@ final class ModemDeckConversationStore: ObservableObject {
         guard !normalized.isEmpty, !sending else { return false }
         sending = true
         defer { sending = false }
+        if let index = outbox.firstIndex(where: { $0.id == attempt }) {
+            outbox[index].state = .sending
+        } else {
+            outbox.append(ModemDeckOutgoingMessage(id: attempt, content: normalized, state: .sending))
+        }
         do {
             let message = try await api.sendMessage(
                 lineID: thread.lineId,
@@ -1801,6 +1821,7 @@ final class ModemDeckConversationStore: ObservableObject {
                 attempt: attempt
             )
             revision += 1
+            outbox.removeAll { $0.id == attempt }
             messages.append(message)
             api.cacheMessages(messages, lineID: thread.lineId, peer: thread.peer)
             // A confirmed send must not wait for a separate history refresh.
@@ -1809,9 +1830,21 @@ final class ModemDeckConversationStore: ObservableObject {
             return true
         } catch {
             ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
-            errorMessage = error.localizedDescription
+            // The failed bubble carries the failure and its retry; no separate banner.
+            if let index = outbox.firstIndex(where: { $0.id == attempt }) {
+                outbox[index].state = .failed(reason: error.localizedDescription)
+            }
             return false
         }
+    }
+
+    /// Resends a failed SMS under its original attempt, so the server deduplicates it.
+    func retry(_ outgoing: ModemDeckOutgoingMessage) async -> Bool {
+        await send(outgoing.content, attempt: outgoing.id)
+    }
+
+    func discard(_ outgoing: ModemDeckOutgoingMessage) {
+        outbox.removeAll { $0.id == outgoing.id }
     }
 }
 

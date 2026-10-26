@@ -205,6 +205,16 @@ struct ModemDeckListRow<Content: View>: View {
                         .environment(\.modemDeckAllowsContextMenu, beginSelection == nil && !selecting)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Unread sits in the leading gutter, centred on the row, as in Messages and Mail.
+                .overlay(alignment: .leading) {
+                    if unread == true && !selecting {
+                        Circle()
+                            .fill(Color.mdAccent)
+                            .frame(width: ModemDeckLayout.listUnreadIndicatorSize, height: ModemDeckLayout.listUnreadIndicatorSize)
+                            .padding(.leading, (ModemDeckLayout.listHorizontalPadding - ModemDeckLayout.listUnreadIndicatorSize) / 2)
+                            .accessibilityHidden(true)
+                    }
+                }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

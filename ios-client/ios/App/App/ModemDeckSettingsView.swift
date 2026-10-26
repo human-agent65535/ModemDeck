@@ -55,7 +55,13 @@ struct ModemDeckSettingsView: View {
     private var settingsDirectory: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                // Who is signed in leads the page, as in the system Settings app.
+                profileRow
+                    .modemDeckSettingsGroup()
+                    .padding(.top, 8)
+
                 settingsGroupLabel(controller.text("个人", "Personal"))
+                VStack(spacing: 0) {
                 directoryItem(
                     .preferences,
                     icon: "slider.horizontal.3",
@@ -95,7 +101,7 @@ struct ModemDeckSettingsView: View {
                     .pairing,
                     icon: "qrcode",
                     title: controller.text("配对", "Pairing"),
-                    subtitle: controller.serverDisplayName
+                    subtitle: pairingSubtitle
                 )
                 ModemDeckListDivider(leading: 74)
                 directoryItem(
@@ -105,7 +111,11 @@ struct ModemDeckSettingsView: View {
                     subtitle: controller.text("从本机通讯录导入", "Import from this device")
                 )
 
+                }
+                .modemDeckSettingsGroup()
+
                 settingsGroupLabel(controller.text("管理", "Management"))
+                VStack(spacing: 0) {
                 if controller.session?.role == "admin" {
                     directoryItem(
                         .users,
@@ -140,7 +150,7 @@ struct ModemDeckSettingsView: View {
                     directoryItem(
                         .diagnostics,
                         icon: "stethoscope",
-                        title: controller.text("诊断", "Diagnostics"),
+                        title: controller.text("服务器诊断", "Server Diagnostics"),
                         subtitle: controller.text("数据库、硬件服务与通话运行状态", "Database, hardware service, and call runtime")
                     )
                     ModemDeckListDivider(leading: 74)
@@ -152,35 +162,59 @@ struct ModemDeckSettingsView: View {
                     )
                 }
 
-                settingsGroupLabel(controller.text("当前账户", "Current Account"))
-                HStack(spacing: 13) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(.mdMuted)
-                        .frame(
-                            width: ModemDeckLayout.controlVisualSize,
-                            height: ModemDeckLayout.controlVisualSize
-                        )
-                        .background(Color.mdSurfaceHover)
-                        .clipShape(Circle())
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(controller.session?.username ?? "—")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.mdText)
-                        Text(controller.session?.role == "admin"
-                             ? controller.text("管理员账户", "Administrator account")
-                             : controller.text("成员账户", "Member account"))
-                            .font(.footnote)
-                            .foregroundColor(.mdMuted)
-                    }
-                    Spacer()
                 }
-                .padding(.horizontal, ModemDeckLayout.listHorizontalPadding)
-                .frame(minHeight: ModemDeckLayout.listRowMinHeight)
-                .background(Color.mdSurface)
+                .modemDeckSettingsGroup()
+            }
+            .padding(.bottom, 24)
+        }
+        .background(Color.mdBackground)
+    }
+
+    private var profileRow: some View {
+        let label = HStack(spacing: 13) {
+            Image(systemName: "person.crop.circle.fill")
+                .font(.system(size: 44))
+                .foregroundColor(.mdMuted)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(controller.session?.username ?? "—")
+                    .font(.headline)
+                    .foregroundColor(.mdText)
+                Text(controller.session?.role == "admin"
+                     ? controller.text("管理员账户 · 账户与安全", "Administrator · Account & Security")
+                     : controller.text("成员账户 · 账户与安全", "Member · Account & Security"))
+                    .font(.footnote)
+                    .foregroundColor(.mdMuted)
+            }
+            Spacer(minLength: 10)
+            if !usesTwoColumns {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.mdFaint)
             }
         }
-        .background(Color.mdSurface)
+        .padding(.horizontal, ModemDeckLayout.listHorizontalPadding)
+        .frame(minHeight: ModemDeckLayout.listRowMinHeight)
+        .background(usesTwoColumns && selectedSection == .security ? Color.mdSelected : Color.clear)
+        .contentShape(Rectangle())
+        return Group {
+            if usesTwoColumns {
+                Button { selectedSection = .security } label: { label }
+                    .buttonStyle(.plain)
+            } else {
+                NavigationLink {
+                    settingsDestination(.security)
+                        .modemDeckTabBarClearance()
+                } label: { label }
+                .buttonStyle(.plain)
+            }
+        }
+        .accessibilityIdentifier("settings-profile")
+    }
+
+    private var pairingSubtitle: String {
+        let state = controller.isOnline ? controller.text("已连接", "Connected") : controller.text("离线", "Offline")
+        return "\(state) · \(controller.serverDisplayName)"
     }
 
     @ViewBuilder
@@ -196,7 +230,8 @@ struct ModemDeckSettingsView: View {
                     icon: icon,
                     title: title,
                     subtitle: subtitle,
-                    selected: selectedSection == section
+                    selected: selectedSection == section,
+                    showsChevron: false
                 )
             }
             .buttonStyle(.plain)
@@ -244,11 +279,10 @@ struct ModemDeckSettingsView: View {
             .font(.footnote.weight(.semibold))
             .foregroundColor(.mdMuted)
             .accessibilityAddTraits(.isHeader)
-            .padding(.horizontal, ModemDeckLayout.listHorizontalPadding)
-            .padding(.top, 16)
+            .padding(.horizontal, 16 + ModemDeckLayout.listHorizontalPadding)
+            .padding(.top, 20)
             .padding(.bottom, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.mdBackground)
     }
 }
 
@@ -257,6 +291,8 @@ private struct ModemDeckSettingsDirectoryRow: View {
     let title: String
     let subtitle: String
     var selected = false
+    /// Rows that push a page show a chevron; rows that fill the detail column beside them don't.
+    var showsChevron = true
 
     /// Settings-app style tiles: one stable color per destination so rows can be found by color.
     static func tileColor(for icon: String) -> Color {
@@ -296,23 +332,26 @@ private struct ModemDeckSettingsDirectoryRow: View {
                     .lineLimit(2)
             }
             Spacer(minLength: 10)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.mdFaint)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.mdFaint)
+            }
         }
         .padding(.horizontal, ModemDeckLayout.listHorizontalPadding)
         .padding(.vertical, 8)
         .frame(minHeight: ModemDeckLayout.settingsRowMinHeight)
         .background(selected ? Color.mdSelected : Color.clear)
-        .overlay(alignment: .leading) {
-            if selected {
-                Capsule()
-                    .fill(Color.mdAccent)
-                    .frame(width: 3, height: 34)
-                    .padding(.leading, 4)
-            }
-        }
         .contentShape(Rectangle())
+    }
+}
+
+private extension View {
+    /// An inset-grouped card on the page background, matching the settings detail pages.
+    func modemDeckSettingsGroup() -> some View {
+        background(Color.mdSurface)
+            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
+            .padding(.horizontal, 16)
     }
 }
 

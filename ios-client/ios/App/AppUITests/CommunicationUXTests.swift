@@ -594,9 +594,10 @@ final class CommunicationUXTests: XCTestCase {
         XCTAssertTrue(started)
         XCTAssertFalse(original.isEnabled)
         XCTAssertFalse(other.isEnabled, "Selection must be frozen during the submitted deletion")
-        app.buttons["section-settings"].tap()
-        app.buttons["section-contacts"].tap()
-        XCTAssertFalse(other.isEnabled, "Tab switches must not reset an in-flight batch operation")
+        // Selection replaces the tab bar with its toolbar, so a tab switch cannot interrupt it.
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCTAssertFalse(app.buttons["section-settings"].exists, "Selection must hide the tab bar")
+        }
         let gone = NSPredicate(format: "exists == false")
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: gone, object: original)], timeout: 12)
         XCTAssertTrue(other.exists)
@@ -730,11 +731,13 @@ final class CommunicationUXTests: XCTestCase {
         guard !back.exists else { return }
         XCTAssertTrue(row.isHittable, "Right swipe must return to the message list")
 
-        row.tap()
-        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        // A conversation hides the tab bar, so the retained tab is re-entered from the list
+        // before the conversation is opened again.
         app.buttons["section-home"].tap()
         app.buttons["section-messages"].tap()
+        row.tap()
         XCTAssertTrue(back.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["section-home"].exists, "A conversation owns the bottom edge")
         let edgeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.45))
         edgeStart.press(forDuration: 0.05, thenDragTo: contentEnd)
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: gone, object: back)], timeout: 5)

@@ -779,7 +779,10 @@ struct ModemDeckCallsView: View {
         }
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selecting { callBatchBar }
+            if selecting { callBatchBar() }
+        }
+        .overlay(alignment: .top) {
+            if selecting { callBatchBar(.header) }
         }
     }
 
@@ -900,7 +903,7 @@ struct ModemDeckCallsView: View {
         }
     }
 
-    private var callBatchBar: some View {
+    private func callBatchBar(_ part: ModemDeckBatchActionBarPart = .toolbar) -> some View {
         let selected = selectedCalls
         let missed = selected.filter(\.missed)
         // Any unread missed call makes "Mark Read" the primary action, as in Messages.
@@ -908,6 +911,8 @@ struct ModemDeckCallsView: View {
         let allFavorite = !selected.isEmpty && selected.allSatisfy(\.favorite)
 
         return ModemDeckBatchActionBar(
+            part: part,
+            controller: controller,
             selectedCount: selected.count,
             totalCount: filteredCalls.count,
             busy: batchBusy,
@@ -1031,6 +1036,7 @@ struct ModemDeckCallRecordRow: View {
     @ObservedObject var controller: ModemDeckSessionController
     var recorded = false
     var contextActions: [ModemDeckContextAction] = []
+    @Environment(\.modemDeckRowsShowTimeOnly) private var rowsShowTimeOnly
 
     private var line: ModemDeckLine? {
         controller.bootstrap?.lineCatalog.first(where: { $0.id == call.lineId })
@@ -1060,7 +1066,9 @@ struct ModemDeckCallRecordRow: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(call.missed ? .mdDanger : .mdText)
                 } trailing: {
-                    Text(controller.compactDateText(call.startedAt))
+                    Text(rowsShowTimeOnly
+                        ? controller.timeOfDayText(call.startedAt)
+                        : controller.compactDateText(call.startedAt))
                         .font(.caption)
                         .foregroundColor(.mdFaint)
                 }
@@ -1235,7 +1243,10 @@ struct ModemDeckRecordingsView: View {
         }
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selecting { recordingBatchBar }
+            if selecting { recordingBatchBar() }
+        }
+        .overlay(alignment: .top) {
+            if selecting { recordingBatchBar(.header) }
         }
     }
 
@@ -1325,11 +1336,13 @@ struct ModemDeckRecordingsView: View {
         }
     }
 
-    private var recordingBatchBar: some View {
+    private func recordingBatchBar(_ part: ModemDeckBatchActionBarPart = .toolbar) -> some View {
         let selected = selectedRecordings
         let allFavorite = !selected.isEmpty && selected.allSatisfy(\.favorite)
 
         return ModemDeckBatchActionBar(
+            part: part,
+            controller: controller,
             selectedCount: selected.count,
             totalCount: filteredRecordings.count,
             busy: batchBusy,
@@ -1801,6 +1814,10 @@ struct ModemDeckCallDetailView: View {
         .onChange(of: call) { value in
             favorite = value.favorite
             isRead = value.read
+        }
+        // Opening a missed call has seen it, as in Phone; the Calls badge clears with it.
+        .task(id: call.id) {
+            if call.missed && !isRead && controller.isOnline { mutateCall(.read) }
         }
         .alert(
             controller.text("删除通话记录？", "Delete Call Record?"),

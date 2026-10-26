@@ -238,6 +238,7 @@ struct ModemDeckHomeView: View {
                     Section {
                         ForEach(day.items) { item in
                             activityRow(item)
+                                .environment(\.modemDeckRowsShowTimeOnly, true)
                                 .listRowInsets(EdgeInsets())
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(Color.mdBackground)

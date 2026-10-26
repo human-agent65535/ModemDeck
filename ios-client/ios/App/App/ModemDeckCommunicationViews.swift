@@ -145,7 +145,10 @@ struct ModemDeckContactsView: View {
         }
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selecting { contactBatchBar }
+            if selecting { contactBatchBar() }
+        }
+        .overlay(alignment: .top) {
+            if selecting { contactBatchBar(.header) }
         }
     }
 
@@ -203,11 +206,13 @@ struct ModemDeckContactsView: View {
         }
     }
 
-    private var contactBatchBar: some View {
+    private func contactBatchBar(_ part: ModemDeckBatchActionBarPart = .toolbar) -> some View {
         let contacts = selectedContacts
         let allFavorite = !contacts.isEmpty && contacts.allSatisfy(\.favorite)
 
         return ModemDeckBatchActionBar(
+            part: part,
+            controller: controller,
             selectedCount: contacts.count,
             totalCount: filteredContacts.count,
             busy: batchBusy,
@@ -1076,7 +1081,7 @@ struct ModemDeckContactEditor: View {
         } ?? [
             ModemDeckContactPhoneEditorDraft(
                 serverID: nil,
-                label: controller.text("手机", "Mobile"),
+                label: "mobile",
                 number: "",
                 region: "",
                 primary: true
@@ -1091,243 +1096,157 @@ struct ModemDeckContactEditor: View {
             phones.filter(\.primary).count == 1
     }
 
+    /// Standard labels are stored as their English keys and shown localized, like Contacts.
+    private static let standardLabels = ["mobile", "home", "work", "main", "other"]
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text(contact == nil
-                     ? controller.text("新建联系人", "New Contact")
-                     : controller.text("编辑联系人", "Edit Contact"))
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(.mdText)
-                Spacer()
-                Button {
-                    presentationMode.wrappedValue.dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.mdMuted)
-                        .frame(width: 40, height: 40)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(controller.text("关闭", "Close"))
-            }
-            .padding(.horizontal, 18)
-            .frame(height: 58)
-            .background(Color.mdSurface)
-            .overlay(alignment: .bottom) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    editorField(controller.text("姓名", "Name")) {
-                        TextField(controller.text("联系人姓名", "Contact name"), text: $name)
-                            .textContentType(.name)
-                    }
-
+        NavigationStack {
+            Form {
+                Section {
+                    TextField(controller.text("姓名", "Name"), text: $name)
+                        .textContentType(.name)
+                        .font(.body.weight(.semibold))
                     Toggle(isOn: $favorite) {
-                        Label(
-                            controller.text("收藏联系人", "Favorite Contact"),
-                            systemImage: favorite ? "star.fill" : "star"
-                        )
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(favorite ? .mdFavorite : .mdText)
+                        Label(controller.text("收藏", "Favorite"), systemImage: favorite ? "star.fill" : "star")
+                            .foregroundColor(favorite ? .mdFavorite : .mdText)
                     }
                     .tint(.mdAccent)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 54)
-                    .background(Color.mdSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.mdBorder, lineWidth: 1)
-                    )
+                }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(controller.text("电话号码", "Phone Numbers"))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.mdMuted)
-                        ForEach($phones) { $phone in
-                            phoneEditor(phone: $phone)
-                        }
-                        Button { addPhone() } label: {
-                            Label(controller.text("添加号码", "Add Number"), systemImage: "plus")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.mdAccent)
-                                .frame(minHeight: 40)
-                        }
-                        .buttonStyle(.plain)
+                Section {
+                    ForEach($phones) { $phone in
+                        phoneEditor(phone: $phone)
                     }
+                    .onDelete { offsets in
+                        for index in offsets.sorted(by: >) { removePhone(phones[index].id) }
+                    }
+                    Button { addPhone() } label: {
+                        Label(controller.text("添加号码", "Add Number"), systemImage: "plus.circle.fill")
+                    }
+                } header: {
+                    Text(controller.text("电话号码", "Phone Numbers"))
+                } footer: {
+                    if phones.count > 1 {
+                        Text(controller.text("轻点圆圈设为主号码，左滑删除。", "Tap the circle to make a number primary; swipe to delete."))
+                    }
+                }
 
-                    if !(controller.bootstrap?.lineCatalog ?? []).isEmpty {
-                        editorField(controller.text("首选线路", "Preferred Line")) {
-                            Picker("", selection: $preferredLineID) {
-                                Text(controller.text("跟随默认线路", "Follow Default Line")).tag("")
-                                ForEach(controller.bootstrap?.lineCatalog ?? []) { line in
-                                    Text(line.displayName).tag(line.id)
-                                }
+                if !(controller.bootstrap?.lineCatalog ?? []).isEmpty {
+                    Section {
+                        Picker(controller.text("首选线路", "Preferred Line"), selection: $preferredLineID) {
+                            Text(controller.text("跟随默认线路", "Follow Default Line")).tag("")
+                            ForEach(controller.bootstrap?.lineCatalog ?? []) { line in
+                                Text(line.displayName).tag(line.id)
                             }
-                            .pickerStyle(.menu)
-                            .tint(.mdAccent)
                         }
-                    }
-
-                    editorField(controller.text("头像 URL", "Avatar URL")) {
-                        TextField(controller.text("可选", "Optional"), text: $avatar)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .disableAutocorrection(true)
-                    }
-
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(controller.text("备注", "Notes"))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.mdMuted)
-                        TextEditor(text: $notes)
-                            .font(.system(size: 15))
-                            .foregroundColor(.mdText)
-                            .frame(minHeight: 96)
-                            .padding(8)
-                            .background(Color.mdSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.mdBorder, lineWidth: 1)
-                            )
-                    }
-
-                    if !errorMessage.isEmpty {
-                        ModemDeckInlineError(message: errorMessage)
+                        .tint(.mdAccent)
                     }
                 }
-                .frame(maxWidth: 680)
-                .padding(18)
-                .frame(maxWidth: .infinity)
+
+                Section(controller.text("备注", "Notes")) {
+                    TextField(controller.text("添加备注", "Add notes"), text: $notes, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+
+                Section {
+                    TextField(controller.text("头像图片链接（可选）", "Avatar image link (optional)"), text: $avatar)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                } header: {
+                    Text(controller.text("头像", "Avatar"))
+                }
+
+                if !errorMessage.isEmpty {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.circle.fill")
+                            .foregroundColor(.mdDanger)
+                    }
+                }
             }
+            .scrollContentBackground(.hidden)
             .background(Color.mdBackground)
-
-            HStack(spacing: 10) {
-                Button {
-                    presentationMode.wrappedValue.dismiss()
-                } label: {
-                    Text(controller.text("取消", "Cancel"))
-                        .frame(maxWidth: .infinity, minHeight: 42)
-                }
-                .buttonStyle(.bordered)
-                .tint(.mdMuted)
-                .frame(maxWidth: .infinity)
-
-                Button {
-                    save()
-                } label: {
-                    Group {
-                        if saving {
-                            ProgressView().tint(.mdOnAccent)
-                        } else {
-                            Text(controller.text("保存", "Save"))
-                        }
+            .navigationTitle(contact == nil
+                             ? controller.text("新建联系人", "New Contact")
+                             : controller.text("编辑联系人", "Edit Contact"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(controller.text("取消", "Cancel")) {
+                        presentationMode.wrappedValue.dismiss()
                     }
-                    .frame(maxWidth: .infinity, minHeight: 42)
+                    .disabled(saving)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.mdAccent)
-                .frame(maxWidth: .infinity)
-                .disabled(!valid || saving)
+                ToolbarItem(placement: .confirmationAction) {
+                    if saving {
+                        ProgressView()
+                    } else {
+                        Button(controller.text("保存", "Save")) { save() }
+                            .fontWeight(.semibold)
+                            .disabled(!valid)
+                    }
+                }
             }
-            .padding(14)
-            .background(Color.mdSurface)
-            .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
         }
+        .tint(.mdAccent)
         .interactiveDismissDisabled(saving)
-    }
-
-    @ViewBuilder
-    private func editorField<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.mdMuted)
-            content()
-                .font(.system(size: 15))
-                .foregroundColor(.mdText)
-                .padding(.horizontal, 12)
-                .frame(minHeight: 44)
-                .background(Color.mdSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.mdBorder, lineWidth: 1)
-                )
-        }
     }
 
     private func phoneEditor(
         phone: Binding<ModemDeckContactPhoneEditorDraft>
     ) -> some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                TextField(controller.text("类型", "Label"), text: phone.label)
-                    .font(.system(size: 14, weight: .medium))
-                    .padding(.horizontal, 10)
-                    .frame(width: 94, height: 42)
-                    .background(Color.mdSurfaceHover)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                TextField(controller.text("电话号码", "Phone number"), text: phone.number)
-                    .font(.system(size: 15))
-                    .keyboardType(.phonePad)
-                    .padding(.horizontal, 10)
-                    .frame(height: 42)
-                    .background(Color.mdSurfaceHover)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-            HStack(spacing: 10) {
-                TextField(controller.text("地区", "Region"), text: phone.region)
-                    .font(.system(size: 13))
-                    .textInputAutocapitalization(.characters)
-                    .disableAutocorrection(true)
-                    .padding(.horizontal, 10)
-                    .frame(width: 94, height: 38)
-                    .background(Color.mdSurfaceHover)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        HStack(spacing: 10) {
+            if phones.count > 1 {
                 Button {
                     setPrimary(phone.wrappedValue.id)
                 } label: {
-                    Label(
-                        controller.text("主号码", "Primary"),
-                        systemImage: phone.wrappedValue.primary ? "checkmark.circle.fill" : "circle"
-                    )
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(phone.wrappedValue.primary ? .mdAccent : .mdMuted)
+                    Image(systemName: phone.wrappedValue.primary ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundColor(phone.wrappedValue.primary ? .mdAccent : .mdFaint)
                 }
-                .buttonStyle(.plain)
-                Spacer()
-                Button {
-                    removePhone(phone.wrappedValue.id)
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.mdDanger)
-                        .frame(width: 38, height: 38)
-                }
-                .buttonStyle(.plain)
-                .disabled(phones.count == 1)
-                .opacity(phones.count == 1 ? 0.4 : 1)
+                .buttonStyle(.borderless)
+                .accessibilityLabel(controller.text("主号码", "Primary"))
+                .accessibilityAddTraits(phone.wrappedValue.primary ? .isSelected : [])
             }
+            Menu {
+                Picker(selection: phone.label) {
+                    ForEach(labelOptions(current: phone.wrappedValue.label), id: \.self) { key in
+                        Text(controller.phoneLabelText(key)).tag(key)
+                    }
+                } label: { EmptyView() }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(controller.phoneLabelText(phone.wrappedValue.label))
+                    Image(systemName: "chevron.up.chevron.down").font(.caption2)
+                }
+                .foregroundColor(.mdAccent)
+                .frame(minWidth: 64, alignment: .leading)
+            }
+            .accessibilityLabel(controller.text("号码类型", "Number label"))
+            .accessibilityValue(controller.phoneLabelText(phone.wrappedValue.label))
+            TextField(controller.text("电话号码", "Phone number"), text: phone.number)
+                .keyboardType(.phonePad)
+                .textContentType(.telephoneNumber)
+            TextField(controller.text("地区", "Region"), text: phone.region)
+                .textInputAutocapitalization(.characters)
+                .disableAutocorrection(true)
+                .multilineTextAlignment(.trailing)
+                .foregroundColor(.mdMuted)
+                .frame(maxWidth: 52)
+                .accessibilityLabel(controller.text("地区代码", "Region code"))
         }
-        .padding(12)
-        .background(Color.mdSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.mdBorder, lineWidth: 1)
-        )
+    }
+
+    private func labelOptions(current: String) -> [String] {
+        let key = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isStandard = Self.standardLabels.contains(key.lowercased())
+        return isStandard || key.isEmpty ? Self.standardLabels : Self.standardLabels + [key]
     }
 
     private func addPhone() {
         phones.append(ModemDeckContactPhoneEditorDraft(
             serverID: nil,
-            label: controller.text("其他", "Other"),
+            label: "other",
             number: "",
             region: "",
             primary: phones.isEmpty
@@ -1358,7 +1277,7 @@ struct ModemDeckContactEditor: View {
             phones: phones.map {
                 ModemDeckContactDraft.Phone(
                     id: $0.serverID,
-                    label: nilIfEmpty($0.label) ?? controller.text("电话", "Phone"),
+                    label: nilIfEmpty($0.label) ?? "mobile",
                     number: $0.number.trimmingCharacters(in: .whitespacesAndNewlines),
                     region: nilIfEmpty($0.region)?.uppercased(),
                     primary: $0.primary
@@ -1940,7 +1859,10 @@ struct ModemDeckMessagesView: View {
         }
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selecting { messageBatchBar }
+            if selecting { messageBatchBar() }
+        }
+        .overlay(alignment: .top) {
+            if selecting { messageBatchBar(.header) }
         }
     }
 
@@ -2061,7 +1983,7 @@ struct ModemDeckMessagesView: View {
         }
     }
 
-    private var messageBatchBar: some View {
+    private func messageBatchBar(_ part: ModemDeckBatchActionBarPart = .toolbar) -> some View {
         let selected = selectedThreads
         let hasUnread = selected.contains {
             $0.unreadCount > 0 || $0.markedUnread
@@ -2069,6 +1991,8 @@ struct ModemDeckMessagesView: View {
         let allFavorite = !selected.isEmpty && selected.allSatisfy(\.favorite)
 
         return ModemDeckBatchActionBar(
+            part: part,
+            controller: controller,
             selectedCount: selected.count,
             totalCount: filteredThreads.count,
             busy: batchBusy,
@@ -2238,6 +2162,7 @@ struct ModemDeckMessageThreadRow: View {
     var contact: ModemDeckContact? = nil
     @ObservedObject var controller: ModemDeckSessionController
     var contextActions: [ModemDeckContextAction] = []
+    @Environment(\.modemDeckRowsShowTimeOnly) private var rowsShowTimeOnly
 
     private var line: ModemDeckLine? {
         controller.bootstrap?.lineCatalog.first(where: { $0.id == thread.lineId })
@@ -2263,7 +2188,6 @@ struct ModemDeckMessageThreadRow: View {
                 address: thread.peer,
                 avatarSource: contact?.avatar,
                 contactBound: contactBound,
-                unread: unread,
                 size: ModemDeckLayout.listAvatarSize
             )
             VStack(alignment: .leading, spacing: 4) {
@@ -2272,7 +2196,9 @@ struct ModemDeckMessageThreadRow: View {
                         .font(.subheadline.weight(unread ? .semibold : .regular))
                         .foregroundColor(.mdText)
                 } trailing: {
-                    Text(controller.compactDateText(thread.lastTimestamp))
+                    Text(rowsShowTimeOnly
+                        ? controller.timeOfDayText(thread.lastTimestamp)
+                        : controller.compactDateText(thread.lastTimestamp))
                         .font(.caption)
                         .foregroundColor(.mdFaint)
                         .monospacedDigit()
@@ -2326,6 +2252,23 @@ private extension View {
             defaultScrollAnchor(anchor, for: .initialOffset)
         } else if #available(iOS 17.0, *) {
             defaultScrollAnchor(anchor)
+        } else {
+            self
+        }
+    }
+
+    /// Focusing the composer means replying, so once the keyboard is up the newest message sits
+    /// just above it, as in Messages. iOS 18 also anchors composer growth to the bottom natively.
+    func modemDeckKeepsBottomOnResize(composerFocused: Bool, scrollToBottom: @escaping () -> Void) -> some View {
+        modemDeckBottomSizeAnchor()
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                if composerFocused { scrollToBottom() }
+            }
+    }
+
+    @ViewBuilder func modemDeckBottomSizeAnchor() -> some View {
+        if #available(iOS 18.0, *) {
+            defaultScrollAnchor(.bottom, for: .sizeChanges)
         } else {
             self
         }
@@ -2402,6 +2345,7 @@ struct ModemDeckConversationView: View {
     @State private var bottomVisible = false
     @State private var readAcknowledgementBusy = false
     @State private var scrollToBottomRequest = 0
+    @FocusState private var composerFocused: Bool
     @State private var hasNewMessagesBelow = false
     @State private var acknowledgedThroughID: Int64 = 0
     @State private var unreadDividerMessageID: Int64?
@@ -2546,6 +2490,20 @@ struct ModemDeckConversationView: View {
                                 .padding(.top, index == 0 ? 0 : (joinsPrevious ? 2 : 10))
                                 .id(message.id)
                             }
+                            ForEach(store.outbox) { outgoing in
+                                ModemDeckOutgoingBubble(
+                                    outgoing: outgoing,
+                                    controller: controller,
+                                    retry: { Task { _ = await store.retry(outgoing) } },
+                                    edit: {
+                                        store.discard(outgoing)
+                                        if draft.text.isEmpty { draft.text = outgoing.content }
+                                    },
+                                    discard: { store.discard(outgoing) }
+                                )
+                                .padding(.top, 10)
+                                .id("outgoing-\(outgoing.id)")
+                            }
                             Color.clear
                                 .frame(height: 1)
                                 .id(conversationBottomID)
@@ -2582,6 +2540,11 @@ struct ModemDeckConversationView: View {
                     }
                     .onChange(of: scrollToBottomRequest) { _ in
                         scrollToBottom(using: proxy, animated: true)
+                    }
+                    // The keyboard and a growing composer shrink the viewport; keep the newest
+                    // message pinned above them when the reader was already at the bottom.
+                    .modemDeckKeepsBottomOnResize(composerFocused: composerFocused) {
+                        scrollToBottomRequest += 1
                     }
                     .overlay(alignment: .bottomTrailing) {
                         if hasNewMessagesBelow {
@@ -2632,6 +2595,7 @@ struct ModemDeckConversationView: View {
                         text: $draft.text,
                         axis: .vertical
                     )
+                        .focused($composerFocused)
                         .lineLimit(1...5)
                         .padding(.leading, 14)
                         .padding(.vertical, 9)
@@ -2639,11 +2603,13 @@ struct ModemDeckConversationView: View {
                         let value = draft.text
                         let revision = draft.revision
                         let attempt = draft.sendAttempt
+                        // The text moves into a sending bubble at once, as in Messages; a failure
+                        // stays on that bubble with retry instead of returning to the composer.
+                        draft.clear(ifRevision: revision)
+                        scrollToBottomRequest += 1
                         Task {
-                            if await store.send(value, attempt: attempt) {
-                                draft.clear(ifRevision: revision)
-                                scrollToBottomRequest += 1
-                            }
+                            _ = await store.send(value, attempt: attempt)
+                            scrollToBottomRequest += 1
                         }
                     } label: {
                         Group {
@@ -2951,6 +2917,87 @@ struct ModemDeckConversationView: View {
                 mutationBusy = false
             }
         }
+    }
+}
+
+/// An unconfirmed outgoing SMS: faded while sending; when it fails it says so on the bubble and
+/// a tap retries, with edit and discard in its menu.
+private struct ModemDeckOutgoingBubble: View {
+    let outgoing: ModemDeckOutgoingMessage
+    @ObservedObject var controller: ModemDeckSessionController
+    let retry: () -> Void
+    let edit: () -> Void
+    let discard: () -> Void
+
+    private var failed: Bool {
+        if case .failed = outgoing.state { return true }
+        return false
+    }
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 48)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(outgoing.content)
+                    .font(.body)
+                    .foregroundColor(.mdOnAccent)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 9)
+                    .background(Color.mdAccent.opacity(failed ? 0.55 : 0.7))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .contextMenu {
+                        if failed {
+                            Button(action: retry) {
+                                Label(controller.text("重新发送", "Try Again"), systemImage: "arrow.clockwise")
+                            }
+                            Button(action: edit) {
+                                Label(controller.text("编辑", "Edit"), systemImage: "pencil")
+                            }
+                        }
+                        Button {
+                            UIPasteboard.general.string = outgoing.content
+                        } label: {
+                            Label(controller.text("复制短信", "Copy Message"), systemImage: "doc.on.doc")
+                        }
+                        if failed {
+                            Divider()
+                            Button(role: .destructive, action: discard) {
+                                Label(controller.text("删除", "Delete"), systemImage: "trash")
+                            }
+                        }
+                    }
+                if failed {
+                    Button(action: retry) {
+                        Label(
+                            controller.text("未送达 · 轻点重试", "Not Delivered · Tap to Retry"),
+                            systemImage: "exclamationmark.circle.fill"
+                        )
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.mdDanger)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("message-retry")
+                } else {
+                    Text(controller.text("发送中…", "Sending…"))
+                        .font(.caption2)
+                        .foregroundColor(.mdFaint)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel([
+            controller.text("发出", "Sent"),
+            outgoing.content,
+            failed ? controller.text("未送达", "Not delivered") : controller.text("发送中", "Sending")
+        ].joined(separator: ", "))
+        .accessibilityHint(failed ? failureReason : "")
+        .accessibilityAction(named: Text(controller.text("重新发送", "Try Again"))) { if failed { retry() } }
+    }
+
+    private var failureReason: String {
+        if case .failed(let reason) = outgoing.state { return reason }
+        return ""
     }
 }
 

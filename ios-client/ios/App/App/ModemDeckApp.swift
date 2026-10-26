@@ -336,6 +336,15 @@ extension ModemDeckSessionController {
         )
     }
 
+    /// Time of day only, for rows that already sit under a day heading.
+    func timeOfDayText(_ value: String) -> String {
+        guard let date = ModemDeckDateText.date(value) else { return value }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: usesChinese ? "zh_CN" : "en_US")
+        formatter.setLocalizedDateFormatFromTemplate("j:mm")
+        return formatter.string(from: date)
+    }
+
     func compactDateText(_ value: String) -> String {
         ModemDeckDateText.compact(
             value,
@@ -446,6 +455,10 @@ enum ModemDeckLayout {
     /// trailing edge on both screens, while the safe-area column is 84 pt wide. UIKit reports no
     /// side status-bar frame, so the column's items take that axis from this measured offset.
     static let statusColumnAxisFromTrailingEdge: CGFloat = 48
+    /// Room the clock and status icons take at the top of the Duo status column.
+    static let statusColumnStatusClearance: CGFloat = 132
+    /// The navigation items stop this far above the bottom edge, within thumb reach.
+    static let statusColumnBottomInset: CGFloat = 40
 
     /// Extra trailing inset that moves column content onto the status items' axis.
     static func statusColumnAxisInset(columnWidth: CGFloat) -> CGFloat {
@@ -473,6 +486,11 @@ enum ModemDeckLayout {
     static let headerGlyphMaximumSize = DynamicTypeSize.xxxLarge
 }
 
+/// Rows grouped under a day heading show only the time, so the date is not said twice.
+private struct ModemDeckRowsShowTimeOnlyKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 private struct ModemDeckUsesSplitWorkspaceKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -487,6 +505,11 @@ private struct ModemDeckPadDialerActionKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    var modemDeckRowsShowTimeOnly: Bool {
+        get { self[ModemDeckRowsShowTimeOnlyKey.self] }
+        set { self[ModemDeckRowsShowTimeOnlyKey.self] = newValue }
+    }
+
     var modemDeckUsesSplitWorkspace: Bool {
         get { self[ModemDeckUsesSplitWorkspaceKey.self] }
         set { self[ModemDeckUsesSplitWorkspaceKey.self] = newValue }
@@ -1204,6 +1227,8 @@ private struct ModemDeckStatusColumnNavigation: View {
     @Binding var selection: ModemDeckSection
     let axisInset: CGFloat
     private let badges: ModemDeckSectionBadgeSource
+    @State private var keyboardVisible = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(controller: ModemDeckSessionController, selection: Binding<ModemDeckSection>, axisInset: CGFloat) {
         _controller = ObservedObject(wrappedValue: controller)
@@ -1214,6 +1239,8 @@ private struct ModemDeckStatusColumnNavigation: View {
 
     var body: some View {
         VStack(spacing: 4) {
+            // Clear of the clock and status icons; the items then sit low for thumb reach.
+            Spacer(minLength: ModemDeckLayout.statusColumnStatusClearance)
             ForEach(ModemDeckSection.contentSections) { section in
                 let selected = selection == section
                 let badge = badges.count(for: section)
@@ -1233,6 +1260,11 @@ private struct ModemDeckStatusColumnNavigation: View {
                     }
                     .foregroundColor(selected ? .mdAccent : .mdMuted)
                     .frame(maxWidth: .infinity, minHeight: 60)
+                    // Selection reads by shape as well as colour, like the iPad rail.
+                    .background(
+                        RoundedRectangle.modemDeck(ModemDeckRadius.medium)
+                            .fill(selected ? Color.mdAccentSoft : Color.clear)
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1240,12 +1272,24 @@ private struct ModemDeckStatusColumnNavigation: View {
                 .accessibilityValue(badge > 0 ? "\(badge)" : "")
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
+            Spacer(minLength: 12).frame(maxHeight: ModemDeckLayout.statusColumnBottomInset)
         }
-        .padding(.leading, 4)
+        .padding(.leading, 6)
         // The system centres the clock and status icons under the camera, not on the whole inset.
-        .padding(.trailing, 4 + axisInset)
-        // Centered vertically, clear of the clock and status icons at the top of the column.
+        .padding(.trailing, 6 + axisInset)
         .frame(maxHeight: .infinity)
+        // While typing, the keyboard owns the bottom of the screen; the column steps aside
+        // instead of leaving a stub of items above it.
+        .opacity(keyboardVisible ? 0 : 1)
+        .allowsHitTesting(!keyboardVisible)
+        .accessibilityHidden(keyboardVisible)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: keyboardVisible)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardVisible = false
+        }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .modemDeckSelectionFeedback(selection)
         .background(.bar, ignoresSafeAreaEdges: .all)
@@ -2045,20 +2089,21 @@ struct ModemDeckBatchCopyMenu: View {
                 Button(item.label) { UIPasteboard.general.string = item.value }
             }
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: "doc.on.doc").font(.body.weight(.semibold))
-                Text(controller.text("复制", "Copy")).font(.caption.weight(.semibold))
-            }
-            .foregroundColor(.mdText)
-            .frame(maxWidth: .infinity, minHeight: 52)
-            .background(Color.mdSurfaceHover)
-            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
+            ModemDeckBatchToolbarLabel(title: controller.text("复制", "Copy"), icon: "doc.on.doc")
         }
         .accessibilityLabel(controller.text("复制", "Copy"))
     }
 }
 
+enum ModemDeckBatchActionBarPart {
+    /// "Select All · N selected · Done", laid over the page title while selecting.
+    case header
+    /// The selection's actions, in the tab bar's place as in Mail and Photos.
+    case toolbar
+}
+
 struct ModemDeckBatchActionBar<Actions: View>: View {
+    let part: ModemDeckBatchActionBarPart
     let selectedCount: Int
     let totalCount: Int
     let busy: Bool
@@ -2068,9 +2113,13 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
     let doneText: String
     let selectAll: () -> Void
     let done: () -> Void
+    private let controller: ModemDeckSessionController?
     private let actions: Actions
+    @Environment(\.modemDeckBottomChrome) private var chrome
 
     init(
+        part: ModemDeckBatchActionBarPart = .toolbar,
+        controller: ModemDeckSessionController? = nil,
         selectedCount: Int,
         totalCount: Int,
         busy: Bool,
@@ -2082,6 +2131,8 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
         done: @escaping () -> Void,
         @ViewBuilder actions: () -> Actions
     ) {
+        self.part = part
+        self.controller = controller
         self.selectedCount = selectedCount
         self.totalCount = totalCount
         self.busy = busy
@@ -2099,48 +2150,59 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
     }
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 12) {
-                HStack(spacing: 7) {
-                    if busy {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                    Text(String(format: selectedText, selectedCount))
-                        .font(.footnote.weight(.bold))
-                        .foregroundColor(.mdText)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 10)
-                .frame(minHeight: 30)
-                .background(Color.mdSelected)
-                .clipShape(Capsule())
-                Spacer(minLength: 8)
-                Button(allSelected ? clearAllText : selectAllText, action: selectAll)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(.mdAccent)
-                    .disabled(busy || totalCount == 0)
-                Button(doneText, action: done)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(.mdAccent)
-                    .disabled(busy)
-            }
-
-            HStack(spacing: 8) {
-                actions
-            }
+        switch part {
+        case .header: header
+        case .toolbar: toolbar
         }
-        .padding(12)
-        .background(Color.mdSurface)
-        .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
-        .overlay(
-            RoundedRectangle.modemDeck(ModemDeckRadius.large)
-                .stroke(Color.mdBorder, lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.10), radius: 14, y: 4)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Button(allSelected ? clearAllText : selectAllText, action: selectAll)
+                .disabled(busy || totalCount == 0)
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+            Spacer(minLength: 8)
+            HStack(spacing: 7) {
+                if busy { ProgressView().controlSize(.small) }
+                Text(String(format: selectedText, selectedCount))
+                    .font(.headline)
+                    .foregroundColor(.mdText)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            Spacer(minLength: 8)
+            Button(doneText, action: done)
+                .fontWeight(.semibold)
+                .disabled(busy)
+                .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                .accessibilityIdentifier("selection-done")
+        }
+        .font(.body)
+        .foregroundColor(.mdAccent)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .padding(.horizontal, ModemDeckLayout.pageHorizontalPadding)
+        .frame(minHeight: ModemDeckLayout.collectionHeaderHeight)
         .background(Color.mdBackground)
+        .overlay(alignment: .bottom) { ModemDeckHairline() }
+    }
+
+    /// On iPhone the toolbar takes the hidden tab bar's slot; it reserves no extra space,
+    /// because the page already keeps that slot clear.
+    private var toolbar: some View {
+        let slot = max(0, chrome.tabBar - chrome.miniCallBar)
+        return HStack(alignment: .top, spacing: 4) {
+            actions
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, slot > 0 ? 0 : 6)
+        .frame(minHeight: max(slot, 56), alignment: .top)
+        .frame(maxWidth: .infinity)
+        .background(.bar, ignoresSafeAreaEdges: .bottom)
+        .overlay(alignment: .top) { ModemDeckHairline() }
+        .padding(.bottom, -slot)
+        .onAppear { controller?.enterImmersiveScreen() }
+        .onDisappear { controller?.leaveImmersiveScreen() }
     }
 }
 
@@ -2153,26 +2215,34 @@ struct ModemDeckBatchActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.body.weight(.semibold))
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-            }
-            .foregroundColor(destructive ? .mdDanger : .mdText)
-            .frame(maxWidth: .infinity, minHeight: 52)
-            .background(destructive ? Color.mdDangerSoft : Color.mdSurfaceHover)
-            .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
-            .overlay(
-                RoundedRectangle.modemDeck(ModemDeckRadius.medium)
-                    .stroke(destructive ? Color.mdDanger.opacity(0.18) : Color.mdBorder, lineWidth: 1)
-            )
+            ModemDeckBatchToolbarLabel(title: title, icon: icon, destructive: destructive)
         }
         .buttonStyle(.plain)
         .disabled(disabled)
-        .opacity(disabled ? 0.5 : 1)
+        .opacity(disabled ? 0.4 : 1)
+    }
+}
+
+/// A toolbar item: glyph over a short caption, no tile behind it.
+struct ModemDeckBatchToolbarLabel: View {
+    let title: String
+    let icon: String
+    var destructive = false
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.title3)
+                .frame(height: 24)
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+        }
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .foregroundColor(destructive ? .mdDanger : .mdAccent)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .contentShape(Rectangle())
     }
 }
 

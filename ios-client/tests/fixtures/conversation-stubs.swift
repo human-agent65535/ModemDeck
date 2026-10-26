@@ -16,7 +16,13 @@ enum ModemDeckDateText { static func date(_ value: String) -> Date? { ISO8601Dat
  func messagePage(lineID: String, peer: String, cursor: String = "") async throws -> ModemDeckMessagesResponse { cursor.isEmpty ? response : (older ?? response) }
  func cacheMessages(_ messages: [ModemDeckMessage], lineID: String, peer: String) { cache = messages }
  func markThreadRead(lineID: String, peer: String, throughMessageID: Int64) async throws -> Summary { Summary() }
- func sendMessage(lineID: String, to: String, content: String, attempt: String) async throws -> ModemDeckMessage { fatalError() }
+ var sendFails = false
+ var sentAttempts: [String] = []
+ func sendMessage(lineID: String, to: String, content: String, attempt: String) async throws -> ModemDeckMessage {
+  sentAttempts.append(attempt)
+  if sendFails { throw ModemDeckAPIError.invalidResponse }
+  return ModemDeckMessage(id: 100, timestamp: "2026-09-05T02:00:00Z", incoming: false)
+ }
 }
 @MainActor final class ModemDeckMessagesStore {
  func apply(_ action: Action, to ids: Set<String>) {}
@@ -61,6 +67,20 @@ enum ModemDeckDateText { static func date(_ value: String) -> Date? { ISO8601Dat
   draft.text = "ok!"
   draft.text = "ok"
   precondition(draft.sendAttempt != firstAttempt, "the same words typed again are a new SMS")
+  // A failed send stays in the outbox with its attempt; retry reuses that attempt and lands it.
+  api.sendFails = true
+  let failed = await store.send("hello", attempt: "attempt-1")
+  precondition(!failed && store.outbox.count == 1, "a failed send must remain as a bubble")
+  if case .failed = store.outbox[0].state {} else { preconditionFailure("the bubble must show the failure") }
+  precondition(store.errorMessage.isEmpty, "a failed send is reported on its bubble, not a banner")
+  api.sendFails = false
+  let retried = await store.retry(store.outbox[0])
+  precondition(retried && store.outbox.isEmpty && store.messages.last?.id == 100, "retry must land the message")
+  precondition(api.sentAttempts == ["attempt-1", "attempt-1"], "retry must resend the same SMS attempt")
+  api.sendFails = true
+  _ = await store.send("again", attempt: "attempt-2")
+  store.discard(store.outbox[0])
+  precondition(store.outbox.isEmpty, "a discarded failure must disappear")
   print("authoritative cache reconciliation and draft revisions passed")
  }
 }

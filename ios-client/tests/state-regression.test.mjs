@@ -109,8 +109,11 @@ test('native drop accounting and server stats expose only enumerated numeric fac
 
 test('native conversation refresh removes deleted cache entries and send completion preserves newer drafts', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckSession.swift', import.meta.url), 'utf8')
-  await verify('conversation-stubs.swift', ['final class ModemDeckConversationStore:', 'final class ModemDeckMessageDraft:']
-    .map(marker => '@MainActor\n' + declaration(source, marker)))
+  await verify('conversation-stubs.swift', [
+    declaration(source, 'struct ModemDeckOutgoingMessage:'),
+    ...['final class ModemDeckConversationStore:', 'final class ModemDeckMessageDraft:']
+      .map(marker => '@MainActor\n' + declaration(source, marker))
+  ])
 })
 
 test('activity snapshot preserves all historical rows, date ordering and stable identities', { skip: process.platform !== 'darwin' }, async () => {

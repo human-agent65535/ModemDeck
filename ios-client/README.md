@@ -238,9 +238,11 @@ MODEMDECK_UAT_TOKEN=md_ios_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
 ```
 
 `--mutable` only changes synthetic in-memory fixtures on loopback. It allows
-read/favorite/delete tests and simulated service outages; it cannot send an
-SMS, place a call, or proxy requests to a real server. Without this flag the
-fixture server remains read-only. Each UI test resets the fixture; run devices
+read/favorite/delete tests, simulated service outages, synthetic SMS sends
+(appended to the fixture conversation; text containing `#fail` returns a
+delivery failure), contact create/edit and the language preference. It never
+reaches a modem, places a call, or proxies requests to a real server. Without
+this flag the fixture server remains read-only. Each UI test resets the fixture; run devices
 sequentially to avoid resetting another test's state.
 
 ```sh

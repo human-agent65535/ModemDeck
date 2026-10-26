@@ -687,7 +687,7 @@ test('native iPad communication workspaces mirror the Web list-detail geometry',
   assert.match(app, /insets\.trailing >= ModemDeckLayout\.statusColumnMinimumWidth && insets\.leading < 1/)
   // Column items share the system clock's axis under the camera, not the inset's centre.
   assert.match(app, /static let statusColumnAxisFromTrailingEdge: CGFloat = 48/)
-  assert.match(app, /\.padding\(\.trailing, 4 \+ axisInset\)/)
+  assert.match(app, /\.padding\(\.trailing, 6 \+ axisInset\)/)
   assert.match(app, /if let statusColumnWidth \{[\s\S]*ModemDeckStatusColumnNavigation[\s\S]*\.ignoresSafeArea\(\.keyboard\)[\s\S]*\.ignoresSafeArea\(\.container, edges: \.trailing\)[\s\S]*\} else if usesSplitWorkspace \{/)
   // Short stages keep every call control visible without scrolling.
   assert.match(calls, /let compact = available\.size\.height < ModemDeckCallStageLayout\.compactHeight/)
@@ -847,7 +847,7 @@ test('native communication lists expose Web-equivalent batch mutations', async (
 
   assert.match(communication, /struct ModemDeckNewMessageView/)
   assert.match(communication, /icon: "square\.and\.pencil"/)
-  assert.match(communication, /private var messageBatchBar/)
+  assert.match(communication, /private func messageBatchBar\(/)
   assert.match(communication, /mutateSelectedThreads\(hasUnread \? \.read : \.unread\)/)
   assert.match(communication, /mutateSelectedThreads\(allFavorite \? \.unfavorite : \.favorite\)/)
   // Select All with any unread missed call must offer Mark Read first, as in Messages.
@@ -862,8 +862,8 @@ test('native communication lists expose Web-equivalent batch mutations', async (
     communication,
     /private var selectedThreads:[\s\S]*?filteredThreads\.filter \{ selectedIDs\.contains\(\$0\.id\) \}/
   )
-  assert.match(calls, /private var callBatchBar/)
-  assert.match(calls, /private var recordingBatchBar/)
+  assert.match(calls, /private func callBatchBar\(/)
+  assert.match(calls, /private func recordingBatchBar\(/)
   assert.match(calls, /mutateSelectedCalls\(\.delete\)/)
   assert.match(calls, /mutateSelectedRecordings\(\.delete\)/)
   assert.match(
@@ -975,4 +975,63 @@ test('native layouts adapt to the space and text size instead of clipping', asyn
   assert.match(calls, /displayName == call\.remoteNumber \? directionText : call\.remoteNumber/)
   assert.doesNotMatch(calls, /if call\.missed \{ return "phone\.down\.fill" \}/)
   assert.match(app, /func phoneLabelText\(_ label: String\) -> String/)
+})
+
+test('native interaction feedback follows platform conventions', async () => {
+  const [app, calls, communication, home, settings, list, session, mock] = await Promise.all([
+    source('ios/App/App/ModemDeckApp.swift'),
+    source('ios/App/App/ModemDeckCallViews.swift'),
+    source('ios/App/App/ModemDeckCommunicationViews.swift'),
+    source('ios/App/App/ModemDeckHomeView.swift'),
+    source('ios/App/App/ModemDeckSettingsView.swift'),
+    source('ios/App/App/ModemDeckListInteraction.swift'),
+    source('ios/App/App/ModemDeckSession.swift'),
+    source('scripts/uat-mock-server.mjs')
+  ])
+
+  // A sent SMS becomes a bubble at once; a failure stays on it with retry, not a banner.
+  assert.match(session, /struct ModemDeckOutgoingMessage: Identifiable, Equatable/)
+  assert.match(session, /outbox\[index\]\.state = \.failed\(reason: error\.localizedDescription\)/)
+  assert.match(session, /func retry\(_ outgoing: ModemDeckOutgoingMessage\) async -> Bool \{\s*await send\(outgoing\.content, attempt: outgoing\.id\)/)
+  assert.match(communication, /private struct ModemDeckOutgoingBubble: View/)
+  assert.match(communication, /"未送达 · 轻点重试", "Not Delivered · Tap to Retry"/)
+  // Replying keeps the newest message above the keyboard and a growing composer.
+  assert.match(communication, /defaultScrollAnchor\(\.bottom, for: \.sizeChanges\)/)
+  assert.match(communication, /keyboardDidShowNotification[\s\S]{0,120}if composerFocused \{ scrollToBottom\(\) \}/)
+
+  // Unread sits in the leading gutter for every list; rows under a day heading show the time.
+  assert.match(list, /if unread == true && !selecting \{\s*Circle\(\)/)
+  assert.doesNotMatch(communication, /contactBound: contactBound,\s*unread: unread,/)
+  assert.match(home, /\.environment\(\\\.modemDeckRowsShowTimeOnly, true\)/)
+
+  // Selection: a title-row header and a toolbar in the tab bar's place, which hides.
+  assert.match(app, /enum ModemDeckBatchActionBarPart \{\s*\/\/\/[^\n]*\n\s*case header/)
+  assert.match(app, /\.onAppear \{ controller\?\.enterImmersiveScreen\(\) \}/)
+  for (const bar of ['contactBatchBar', 'messageBatchBar']) {
+    assert.match(communication, new RegExp(`if selecting \\{ ${bar}\\(\\.header\\) \\}`))
+  }
+  for (const bar of ['callBatchBar', 'recordingBatchBar']) {
+    assert.match(calls, new RegExp(`if selecting \\{ ${bar}\\(\\.header\\) \\}`))
+  }
+
+  // The Duo column shows selection by shape and steps aside for the keyboard.
+  assert.match(app, /\.fill\(selected \? Color\.mdAccentSoft : Color\.clear\)/)
+  assert.match(app, /\.opacity\(keyboardVisible \? 0 : 1\)/)
+
+  // Settings: inset-grouped, account first, distinct diagnostics, status-first pairing.
+  assert.match(settings, /func modemDeckSettingsGroup\(\) -> some View/)
+  assert.match(settings, /profileRow\s*\.modemDeckSettingsGroup\(\)/)
+  assert.match(settings, /"服务器诊断", "Server Diagnostics"/)
+  assert.doesNotMatch(settings, /"当前账户", "Current Account"/)
+
+  // Contact editing is a native grouped form with localized standard labels.
+  assert.match(communication, /private static let standardLabels = \["mobile", "home", "work", "main", "other"\]/)
+  assert.match(communication, /ToolbarItem\(placement: \.confirmationAction\)/)
+
+  // Opening a missed call marks it seen, so the Calls badge clears.
+  assert.match(calls, /\.task\(id: call\.id\) \{\s*if call\.missed && !isRead && controller\.isOnline \{ mutateCall\(\.read\) \}/)
+
+  // The mutable UAT fixture accepts the writes design reviews exercise.
+  assert.match(mock, /pathname === '\/api\/v1\/messages'\) \{[\s\S]*#fail/)
+  assert.match(mock, /pathname === '\/api\/v1\/settings\/system'/)
 })

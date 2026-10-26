@@ -334,7 +334,7 @@ function readOnlyBody(pathname) {
       role: 'admin',
       profile_contact_id: 'uat-contact-example',
       ios_pairing_enabled: true,
-      language: 'zh-CN',
+      language: bootstrap.system_settings.language,
       allowed_line_ids: ['uat-line-a']
     }
   case '/api/v1/bootstrap':
@@ -430,7 +430,7 @@ function readOnlyBody(pathname) {
 
 // Mutable mode is explicitly opt-in and only edits these in-memory fixtures.
 // It never proxies to a real server, device, messaging or call service.
-const initial = structuredClone({ contacts, threads, calls, recordings })
+const initial = structuredClone({ contacts, threads, messages, calls, recordings, systemSettings: bootstrap.system_settings })
 const operations = []
 async function readJSON(request) {
   let body = ''
@@ -479,9 +479,10 @@ let historyReadsCompleted = 0
 async function fixtureWrite(request, response, pathname) {
   const body = await readJSON(request)
   if (pathname === '/__uat/reset') {
-    for (const [name, items] of Object.entries({ contacts, threads, calls, recordings })) {
+    for (const [name, items] of Object.entries({ contacts, threads, messages, calls, recordings })) {
       items.splice(0, items.length, ...structuredClone(initial[name]))
     }
+    bootstrap.system_settings = structuredClone(initial.systemSettings)
     online = true
     fixtureRecordingEnabled = false
     contactDeleteDelayMS = 0
@@ -538,6 +539,64 @@ async function fixtureWrite(request, response, pathname) {
     if (body.action === 'delete') applyState(recordings, item => body.ids?.includes(item.call.id), 'delete')
   } else if (pathname === '/api/v1/recordings/batch') {
     applyState(recordings, item => body.recordings?.some(target => target.id === item.segment.id && target.call_id === item.call.id), body.action)
+  } else if (pathname === '/api/v1/messages') {
+    // Mutable UAT sends append an outgoing message; "#fail" in the text simulates a modem refusal.
+    if (String(body.content || '').includes('#fail')) {
+      send(response, 502, { code: 'message_send_failed', message: 'The modem rejected the message' })
+      return
+    }
+    const message = {
+      id: Math.max(0, ...messages.map(item => item.id), ...threads.map(item => item.last_message_id || 0)) + 1,
+      line_id: body.line_id,
+      peer: body.to,
+      direction: 'outgoing',
+      content: String(body.content || ''),
+      timestamp: new Date().toISOString(),
+      type: 2,
+      status: 0,
+      delivery_status: 'sent',
+      revision: 1
+    }
+    messages.push(message)
+    const thread = threads.find(item => item.line_id === message.line_id && item.peer === message.peer)
+    if (thread) Object.assign(thread, { last_message_id: message.id, last_timestamp: message.timestamp, last_content: message.content })
+    else threads.unshift({ key: `${message.line_id}:${message.peer}`, line_id: message.line_id, peer: message.peer,
+      last_message_id: message.id, last_timestamp: message.timestamp, last_content: message.content,
+      unread_count: 0, first_unread_message_id: null, marked_unread: false, favorite: false })
+    operations.push({ pathname, action: 'send' })
+    send(response, 201, { message })
+    return
+  } else if (pathname === '/api/v1/contacts' ||
+    (/^\/api\/v1\/contacts\/[^/]+$/.test(pathname) && pathname !== '/api/v1/contacts/batch')) {
+    const existing = pathname === '/api/v1/contacts' ? null
+      : contacts.find(item => item.id === decodeURIComponent(pathname.split('/')[4]))
+    const now = new Date().toISOString()
+    const contact = {
+      ...(existing || { id: `uat-contact-${Date.now()}`, created_at: now, revision: 0 }),
+      display_name: body.display_name,
+      avatar: body.avatar || '',
+      notes: body.notes || '',
+      preferred_line_id: body.preferred_line_id || null,
+      favorite: body.favorite === true,
+      updated_at: now,
+      phones: (body.phones || []).map((phone, index) => ({
+        id: phone.id || `uat-phone-${Date.now()}-${index}`,
+        label: phone.label || 'mobile',
+        original_number: phone.number,
+        canonical_e164: String(phone.number || '').replace(/[^+0-9]/g, ''),
+        region: phone.region || '',
+        primary: phone.primary === true
+      }))
+    }
+    contact.revision = (existing?.revision || 0) + 1
+    if (existing) contacts.splice(contacts.indexOf(existing), 1, contact)
+    else contacts.push(contact)
+    send(response, existing ? 200 : 201, { contact })
+    return
+  } else if (pathname === '/api/v1/settings/system') {
+    bootstrap.system_settings = { language: body.language || 'auto', revision: bootstrap.system_settings.revision + 1 }
+    send(response, 200, { settings: bootstrap.system_settings })
+    return
   } else if (pathname === '/api/v1/contacts/batch' && body.action === 'delete') {
     operations.push({ pathname, phase: 'started' })
     if (contactDeleteDelayMS) await new Promise(resolve => setTimeout(resolve, contactDeleteDelayMS))
@@ -616,7 +675,8 @@ const server = https.createServer(
       }
     } else if (mutable && (request.method === 'PATCH' || request.method === 'DELETE' ||
       (request.method === 'PUT' && /^\/api\/v1\/calls\/[^/]+\/recording$/.test(url.pathname)) ||
-      (request.method === 'POST' && url.pathname === '/api/v1/mobile/diagnostics'))) {
+      (request.method === 'PUT' && /^\/api\/v1\/contacts\/[^/]+$/.test(url.pathname)) ||
+      (request.method === 'POST' && ['/api/v1/mobile/diagnostics', '/api/v1/messages', '/api/v1/contacts'].includes(url.pathname)))) {
       try { await fixtureWrite(request, response, url.pathname) } catch { send(response, 400, { code: 'invalid_fixture_request' }) }
     } else {
       status = 409
