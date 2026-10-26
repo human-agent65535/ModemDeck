@@ -22,6 +22,7 @@ import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
 import ListSkeleton from '../components/ListSkeleton.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
+import RecentActivitySection from '../components/RecentActivitySection.vue'
 import RecordingList from '../components/RecordingList.vue'
 import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
@@ -231,6 +232,14 @@ function setFilter(value: CallFilter): void {
       ...callFilterQuery(value)
     }
   })
+}
+
+// An empty result offers the way back instead of a dead end.
+function clearFilters(): void {
+  search.value = ''
+  lineFilterKey.value = 'all'
+  setFilter('all')
+  setFavoriteFilter(false)
 }
 
 function setFavoriteFilter(value: boolean): void {
@@ -635,7 +644,7 @@ onBeforeUnmount(() => {
         compact-mode="hidden"
         :count="
           !initialLoading && callsResource.status === 'ready'
-            ? callsResource.data.length
+            ? filteredCalls.length
             : undefined
         "
       />
@@ -744,7 +753,16 @@ onBeforeUnmount(() => {
               ? t('calls.noMatches')
               : t('calls.empty')
           "
-        />
+        >
+          <template
+            v-if="search || filter !== 'all' || favoriteOnly || lineFilterKey !== 'all'"
+            #actions
+          >
+            <button class="secondary-button" type="button" @click="clearFilters">
+              {{ t('common.clearFilters') }}
+            </button>
+          </template>
+        </StatePanel>
         <template v-else>
           <SelectableListRow
             v-for="call in filteredCalls"
@@ -902,7 +920,7 @@ onBeforeUnmount(() => {
                   @click="sendMessage(selected)"
                 >
                   <MessageSquareText :size="17" />
-                  <span>{{ t('shell.messages') }}</span>
+                  <span>{{ t('dashboard.message') }}</span>
                 </button>
               </template>
               <template #secondary>
@@ -919,7 +937,10 @@ onBeforeUnmount(() => {
                   @click="removeCall(selected)"
                 >
                   <Trash2 :size="18" />
+                  <span class="workspace-detail-action__label">{{ t('calls.delete') }}</span>
                 </button>
+              </template>
+              <template #trailing>
                 <FavoriteActionButton
                   :active="selected.favorite"
                   :disabled="Boolean(favoritePendingCallID)"
@@ -972,6 +993,11 @@ onBeforeUnmount(() => {
 
           <RecordingList :call-id="selected.id" />
 
+          <RecentActivitySection
+            :numbers="[selected.remote_number]"
+            :exclude-call-id="selected.id"
+          />
+
           <p v-if="dialUnavailable || messageUnavailable" class="unavailable-note">
             {{ dialUnavailable || messageUnavailable }}
           </p>
@@ -1014,11 +1040,5 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-/* Touch devices delete by swiping the row; pointer users keep the button. */
-@media (max-width: 1100px) and (pointer: coarse) {
-  .desktop-delete-action {
-    display: none;
-  }
-}
 
 </style>

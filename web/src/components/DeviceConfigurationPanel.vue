@@ -3995,7 +3995,7 @@ pre {
 
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .device-configuration {
     --device-workspace-gutter: 16px;
   }

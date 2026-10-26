@@ -33,13 +33,14 @@ import {
   capabilityReason,
   contactsResource,
   lineCanPlaceVoiceCall,
+  lineForKey,
   lineKey,
   loadContacts,
   resolveLine
 } from '../state/workspace'
 import { playDTMFTone } from '../state/dtmfAudio'
 import { normalizeDialTarget } from '../utils/dialTarget'
-import { phoneDestination } from '../utils/format'
+import { formatDialInput, phoneDestination, stripDialFormatting } from '../utils/format'
 import { phoneKeypad } from '../utils/phoneKeypad'
 import BaseAvatar from './BaseAvatar.vue'
 import ContactSuggestInput from './ContactSuggestInput.vue'
@@ -62,6 +63,10 @@ const props = withDefaults(
 const number = ref('')
 const contactLabel = ref('')
 const selectedLineId = ref('')
+// The draft stays raw for dialing; the field shows it grouped for reading.
+const formattedNumber = computed(() =>
+  formatDialInput(number.value, lineForKey(selectedLineId.value)?.home_country_iso)
+)
 const selectedContactPreferredLineID = ref('')
 const inputAutofocus = ref(false)
 const draftContextLineKey = ref('')
@@ -380,7 +385,12 @@ function removeDigit(): void {
 }
 
 function editNumber(value: string): void {
-  number.value = value
+  const stripped = stripDialFormatting(value)
+  // Backspace over a grouping space or bracket removes the digit before it instead of doing nothing.
+  number.value =
+    stripped === number.value && value.length < formattedNumber.value.length
+      ? Array.from(stripped).slice(0, -1).join('')
+      : stripped
   contactLabel.value = ''
   selectedContactPreferredLineID.value = ''
 }
@@ -590,7 +600,7 @@ onBeforeUnmount(() => {
                   }"
                 >
                   <ContactSuggestInput
-                    :model-value="number"
+                    :model-value="formattedNumber"
                     :contacts="contactsResource.data"
                     :autofocus="inputAutofocus"
                     :invalid="validationVisible"
@@ -832,9 +842,15 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
+/* A call in progress is live, not an error: red stays reserved for missed calls and failures. */
 .dialer-active-calls--busy {
-  color: var(--danger);
-  background: var(--danger-soft);
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.dialer-active-calls--busy.dialer-active-calls--static {
+  color: var(--muted-strong);
+  background: var(--control-muted);
 }
 
 .dialer-toolbar {
@@ -1112,7 +1128,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .drawer-backdrop {
     align-items: flex-end;
     justify-content: flex-end;
@@ -1135,7 +1151,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   /* The phone call sheet covers the whole screen; AppShell hides the tab bar. */
   .drawer-backdrop.drawer-backdrop--call {
     padding: 0;
@@ -1149,7 +1165,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (min-width: 861px) and (max-width: 1479px) {
+@media (min-width: 641px) and (max-width: 1479px) {
   .drawer-backdrop--nonmodal {
     z-index: 65;
     align-items: flex-end;

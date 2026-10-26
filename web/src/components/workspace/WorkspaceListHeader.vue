@@ -28,13 +28,14 @@ withDefaults(
 .workspace-list-header {
   justify-content: flex-start;
   gap: var(--detail-action-gap);
+  container-type: inline-size;
 }
 
 .workspace-list-header__title {
   margin-right: auto;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .workspace-list-header.workspace-list-header--compact-hidden {
     display: none;
   }

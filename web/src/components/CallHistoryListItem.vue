@@ -3,6 +3,9 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   AudioLines,
+  PhoneIncoming,
+  PhoneMissed,
+  PhoneOutgoing,
   Star
 } from '@lucide/vue'
 import type { CallRecord } from '../api/types'
@@ -89,6 +92,15 @@ const showNumber = computed(
       </span>
       <span class="call-list-item__meta">
         <LineTag :line="line" :fallback="lineFallback" variant="dot" />
+        <!-- Direction reads at a glance, as the arrows in iOS and Android call logs. -->
+        <PhoneMissed v-if="call.missed" class="call-list-item__direction" :size="13" aria-hidden="true" />
+        <PhoneIncoming
+          v-else-if="call.direction === 'incoming'"
+          class="call-list-item__direction"
+          :size="13"
+          aria-hidden="true"
+        />
+        <PhoneOutgoing v-else class="call-list-item__direction" :size="13" aria-hidden="true" />
         <small>
           {{ directionLabel }}<template v-if="showNumber"> · {{ number }}</template>
         </small>
@@ -128,6 +140,15 @@ const showNumber = computed(
   align-items: center;
   gap: 6px;
   overflow: hidden;
+}
+
+.call-list-item__direction {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.call-list-item.is-missed .call-list-item__direction {
+  color: var(--danger);
 }
 
 .call-list-item__meta small {

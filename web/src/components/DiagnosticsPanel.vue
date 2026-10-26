@@ -2288,7 +2288,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .section-heading,
   .log-heading {
     align-items: flex-start;

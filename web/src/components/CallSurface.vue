@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
+  AlertTriangle,
   Circle,
   CircleDot,
   Grip,
@@ -10,8 +11,6 @@ import {
   MicOff,
   PhoneCall,
   PhoneOff,
-  RefreshCw,
-  Volume2,
   X
 } from '@lucide/vue'
 import {
@@ -213,7 +212,6 @@ const dtmfUnavailable = computed(() =>
 )
 const mediaLabel = computed(() => {
   if (isTestCall.value || terminal.value || !owned.value) return ''
-  if (callMediaState.status === 'unavailable') return t('calls.serverAudioUnavailable')
   if (callMediaState.status === 'requesting') return t('calls.requestingMicrophone')
   if (callMediaState.status === 'connecting') return t('calls.connectingBrowserAudio')
   if (callMediaState.status === 'recovering') return t('calls.reconnectingBrowserAudio')
@@ -227,18 +225,25 @@ const mediaControllable = computed(
     callMediaState.status === 'active'
 )
 const keypadAvailable = computed(() => active.value && !isTestCall.value)
+// One fixed set of controls from dialing to connected: unavailable ones are disabled, not
+// removed, so nothing moves under the pointer as the call progresses.
 const showMediaControls = computed(
   () =>
     !terminal.value &&
     owned.value &&
+    !incoming.value &&
+    !occupied.value &&
     !dtmfOpen.value &&
-    !devicesOpen.value &&
-    (mediaControllable.value ||
-      keypadAvailable.value ||
-      recordingAdjustable.value ||
-      callMediaState.playbackBlocked ||
-      callMediaState.status === 'error')
+    !devicesOpen.value
 )
+// Audio problems decide whether the call can be heard, so they are a banner with the fix.
+const audioNotice = computed<{ message: string; action?: 'resume' | 'retry' } | null>(() => {
+  if (isTestCall.value || terminal.value || !owned.value) return null
+  if (callMediaState.playbackBlocked) return { message: t('calls.audioBlockedNotice'), action: 'resume' }
+  if (callMediaState.status === 'error') return { message: t('calls.audioFailedNotice'), action: 'retry' }
+  if (callMediaState.status === 'unavailable') return { message: t('calls.serverAudioUnavailable') }
+  return null
+})
 const statusTone = computed(() => {
   if (terminal.value || occupied.value) return 'is-idle'
   if (incoming.value) return 'is-incoming'
@@ -425,6 +430,27 @@ onBeforeUnmount(() => {
           <strong v-if="duration" class="call-surface__timer" aria-live="off">{{ duration }}</strong>
         </div>
 
+        <div v-if="audioNotice" class="call-surface__audio-notice" role="alert">
+          <AlertTriangle :size="18" aria-hidden="true" />
+          <span>{{ audioNotice.message }}</span>
+          <button
+            v-if="audioNotice.action === 'resume'"
+            class="secondary-button"
+            type="button"
+            @click="resumeCallAudio"
+          >
+            {{ t('calls.enableCallAudio') }}
+          </button>
+          <button
+            v-else-if="audioNotice.action === 'retry'"
+            class="secondary-button"
+            type="button"
+            @click="retryActiveCallMedia(session)"
+          >
+            {{ t('calls.retryAudio') }}
+          </button>
+        </div>
+
         <div
           v-if="
             occupied ||
@@ -461,45 +487,45 @@ onBeforeUnmount(() => {
           :aria-label="t('calls.controls')"
         >
           <button
-            v-if="mediaControllable"
             class="call-control"
             :class="{ 'is-active': callMediaState.muted }"
             type="button"
             :title="callMediaState.muted ? t('calls.unmute') : t('calls.mute')"
             :aria-label="t('calls.muteMicrophone')"
             :aria-pressed="callMediaState.muted"
+            :disabled="!mediaControllable"
             @click="toggleCallMute"
           >
             <span class="call-control__icon"><MicOff :size="22" /></span>
             <span class="call-control__label">{{ t('calls.mute') }}</span>
           </button>
           <button
-            v-if="keypadAvailable"
+            v-if="!isTestCall"
             class="call-control"
             type="button"
             :title="dtmfUnavailable || t('calls.keypad')"
             :aria-label="t('calls.keypad')"
             :aria-expanded="dtmfOpen"
-            :disabled="callState.busy || Boolean(dtmfUnavailable)"
+            :disabled="!keypadAvailable || callState.busy || Boolean(dtmfUnavailable)"
             @click="devicesOpen = false; dtmfOpen = true"
           >
             <span class="call-control__icon"><Grip :size="22" /></span>
             <span class="call-control__label">{{ t('calls.keypadShort') }}</span>
           </button>
           <button
-            v-if="mediaControllable"
             class="call-control"
             type="button"
             :title="t('calls.audioDevices')"
             :aria-label="t('calls.audioDevices')"
             :aria-expanded="devicesOpen"
+            :disabled="!mediaControllable"
             @click="dtmfOpen = false; devicesOpen = true"
           >
             <span class="call-control__icon"><Headphones :size="22" /></span>
             <span class="call-control__label">{{ t('calls.audioDevices') }}</span>
           </button>
           <button
-            v-if="recordingAdjustable"
+            v-if="!isTestCall"
             class="call-control call-control--recording"
             :class="{ 'is-active': callRecordingState.enabled }"
             type="button"
@@ -511,6 +537,7 @@ onBeforeUnmount(() => {
             :aria-label="t('calls.record')"
             :aria-pressed="callRecordingState.enabled"
             :disabled="
+              !recordingAdjustable ||
               busy ||
               callRecordingState.busy ||
               !recordingControlReady
@@ -522,28 +549,6 @@ onBeforeUnmount(() => {
               <Circle v-else :size="20" fill="currentColor" />
             </span>
             <span class="call-control__label">{{ t('calls.record') }}</span>
-          </button>
-          <button
-            v-if="callMediaState.playbackBlocked"
-            class="call-control"
-            type="button"
-            :title="t('calls.enableSpeaker')"
-            :aria-label="t('calls.enableCallAudio')"
-            @click="resumeCallAudio"
-          >
-            <span class="call-control__icon"><Volume2 :size="22" /></span>
-            <span class="call-control__label">{{ t('calls.speaker') }}</span>
-          </button>
-          <button
-            v-if="callMediaState.status === 'error'"
-            class="call-control"
-            type="button"
-            :title="t('calls.retryBrowserAudio')"
-            :aria-label="t('calls.retryBrowserAudio')"
-            @click="retryActiveCallMedia(session)"
-          >
-            <span class="call-control__icon"><RefreshCw :size="21" /></span>
-            <span class="call-control__label">{{ t('calls.retryAudio') }}</span>
           </button>
         </div>
 
@@ -899,6 +904,27 @@ onBeforeUnmount(() => {
   line-height: 1.15;
 }
 
+.call-surface__audio-notice {
+  display: flex;
+  width: min(100%, 368px);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  color: var(--warning-strong);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+}
+
+.call-surface__audio-notice > span {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
 .call-surface__notices {
   display: flex;
   min-height: 24px;
@@ -925,13 +951,13 @@ onBeforeUnmount(() => {
   color: var(--danger);
 }
 
-/* Three per row; a short last row is centered rather than left in column one. */
+/* A fixed grid: Mute, Keypad, Audio and Record keep their places for the whole call. */
 .call-surface__controls {
-  display: flex;
-  width: min(100%, 264px);
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-4) var(--space-3);
+  display: grid;
+  width: min(100%, 368px);
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  justify-items: center;
+  gap: var(--space-4) var(--space-2);
   margin-top: auto;
   padding-top: var(--space-6);
 }
@@ -1140,7 +1166,7 @@ onBeforeUnmount(() => {
   transform: translateY(calc(var(--space-2) * -1));
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .call-surface__content {
     padding-top: max(32px, env(safe-area-inset-top));
   }

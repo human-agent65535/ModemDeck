@@ -23,6 +23,8 @@ const props = withDefaults(
     /** Ask before an Escape or backdrop dismissal throws away unsaved input. */
     guardClose?: boolean
     surfaceClass?: string
+    /** alertdialog for confirmations that interrupt the user's task. */
+    role?: 'dialog' | 'alertdialog'
   }>(),
   {
     label: '',
@@ -35,7 +37,8 @@ const props = withDefaults(
     closeOnBackdrop: true,
     closeOnEscape: true,
     guardClose: false,
-    surfaceClass: ''
+    surfaceClass: '',
+    role: 'dialog'
   }
 )
 
@@ -175,7 +178,7 @@ onBeforeUnmount(() => {
             `overlay-dialog--${placement}`,
             surfaceClass
           ]"
-          role="dialog"
+          :role="role"
           aria-modal="true"
           :aria-label="label || undefined"
           :aria-labelledby="labelledby || undefined"

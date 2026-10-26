@@ -45,6 +45,11 @@ onBeforeUnmount(() => {
     <div class="workspace-detail-actions__primary">
       <slot name="primary" />
     </div>
+    <!-- Favorite-style toggles stay visible beside the primary action on every page. -->
+    <div v-if="$slots.trailing" class="workspace-detail-actions__primary">
+      <slot name="trailing" />
+    </div>
+    <!-- Everything else, Delete last, sits behind one More menu, as in Gmail and iOS. -->
     <button
       v-if="$slots.secondary"
       class="icon-button workspace-detail-actions__more"
@@ -64,10 +69,6 @@ onBeforeUnmount(() => {
     >
       <slot name="secondary" />
     </div>
-    <!-- Favorite-style toggles stay visible and close the row on every page. -->
-    <div v-if="$slots.trailing" class="workspace-detail-actions__primary">
-      <slot name="trailing" />
-    </div>
   </div>
 </template>
 
@@ -86,47 +87,40 @@ onBeforeUnmount(() => {
 }
 
 .workspace-detail-actions__more {
-  display: none;
+  display: inline-grid;
 }
 
-@media (max-width: 560px) {
-  .workspace-detail-actions__more {
-    display: inline-grid;
-  }
+.workspace-detail-actions__secondary {
+  position: absolute;
+  z-index: var(--layer-popover);
+  top: calc(100% + var(--space-2));
+  right: 0;
+  display: flex;
+  min-width: 190px;
+  align-items: stretch;
+  flex-direction: column;
+  padding: var(--space-2);
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow);
+  transform: translateY(calc(var(--space-1) * -1)) scale(0.985);
+  transform-origin: top right;
+  transition:
+    opacity var(--motion-fast) var(--ease-standard),
+    transform var(--motion-base) var(--ease-emphasized),
+    visibility 0s linear var(--motion-base);
+}
 
-  .workspace-detail-actions__secondary {
-    position: absolute;
-    z-index: var(--layer-popover);
-    top: calc(100% + var(--space-2));
-    right: 0;
-    display: flex;
-    min-width: 190px;
-    align-items: stretch;
-    flex-direction: column;
-    padding: var(--space-2);
-    visibility: hidden;
-    opacity: 0;
-    pointer-events: none;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-    box-shadow: var(--shadow);
-    transform: translateY(calc(var(--space-1) * -1)) scale(0.985);
-    transform-origin: top right;
-    transition:
-      opacity var(--motion-fast) var(--ease-standard),
-      transform var(--motion-base) var(--ease-emphasized),
-      visibility 0s linear var(--motion-base);
-  }
-
-  .workspace-detail-actions__secondary.is-open {
-    visibility: visible;
-    opacity: 1;
-    pointer-events: auto;
-    transform: none;
-    transition-delay: 0s;
-  }
-
+.workspace-detail-actions__secondary.is-open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+  transition-delay: 0s;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -184,74 +178,102 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 560px) {
-  .workspace-detail-actions
-    .workspace-detail-actions__secondary.is-open
-    .contact-number-actions {
-    width: 100%;
-    align-items: stretch;
-    flex-direction: column;
-  }
+/* Items inside the More menu read as a list of labelled commands. */
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  .contact-number-actions {
+  width: 100%;
+  align-items: stretch;
+  flex-direction: column;
+}
 
-  .workspace-detail-actions
-    .workspace-detail-actions__secondary.is-open
-    .contact-number-actions.is-compact
-    .secondary-button {
-    width: 100%;
-    min-width: 0;
-    justify-content: flex-start;
-    gap: var(--space-2);
-    padding-inline: var(--space-3);
-    background: transparent;
-    border-color: transparent;
-    border-radius: var(--radius-control);
-  }
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  .contact-number-actions.is-compact
+  .secondary-button {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  background: transparent;
+  border-color: transparent;
+  border-radius: var(--radius-control);
+}
 
-  .workspace-detail-actions
-    .workspace-detail-actions__secondary.is-open
-    .contact-number-actions.is-compact
-    .secondary-button:hover:not(:disabled) {
-    background: var(--surface-hover);
-  }
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  .contact-number-actions.is-compact
+  .secondary-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
 
-  .workspace-detail-actions
-    .workspace-detail-actions__secondary.is-open
-    .contact-number-actions.is-compact
-    .contact-number-action__label {
-    display: inline;
-  }
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  .contact-number-actions.is-compact
+  .contact-number-action__label {
+  display: inline;
+}
 
-  .workspace-detail-actions
-    .workspace-detail-actions__secondary.is-open
-    :is(
-      .secondary-button,
-      .workspace-detail-command,
-      .workspace-favorite-action
-    ) {
-    width: 100%;
-    min-width: 0;
-    min-height: var(--touch-target);
-    justify-content: flex-start;
-    gap: var(--space-2);
-    padding-inline: var(--space-3);
-    border-radius: var(--radius-control);
-  }
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  :is(
+    .secondary-button,
+    .workspace-detail-command,
+    .workspace-favorite-action,
+    .icon-button
+  ) {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--touch-target);
+  justify-content: flex-start;
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-control);
+}
 
-  .workspace-detail-actions
-    .workspace-detail-actions__secondary.is-open
-    .workspace-favorite-action {
-    display: flex;
-    align-items: center;
-  }
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  .workspace-favorite-action {
+  display: flex;
+  align-items: center;
+}
 
-  .workspace-detail-actions
-    .workspace-detail-actions__secondary.is-open
-    :is(
-      .contact-number-action__label,
-      .workspace-detail-command span,
-      .workspace-favorite-action__label
-    ) {
-    display: inline;
-  }
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  :is(
+    .contact-number-action__label,
+    .workspace-detail-command span,
+    .workspace-favorite-action__label,
+    .workspace-detail-action__label
+  ) {
+  display: inline;
+}
+
+.workspace-detail-action__label {
+  display: none;
+}
+
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  .icon-button {
+  display: flex;
+  height: auto;
+  align-items: center;
+  color: var(--text);
+  font-size: var(--text-base);
+  background: transparent;
+}
+
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  .icon-button--danger {
+  color: var(--danger);
+}
+
+.workspace-detail-actions
+  .workspace-detail-actions__secondary
+  :is(.secondary-button, .icon-button):hover:not(:disabled) {
+  background: var(--surface-hover);
 }
 </style>

@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import {
   dismissFeedback,
   feedbackState,
+  pauseFeedback,
+  resumeFeedback,
   type FeedbackTone
 } from '../state/feedback'
 
@@ -18,7 +20,15 @@ function iconFor(tone: FeedbackTone): typeof CircleCheck {
 
 <template>
   <Teleport to="body">
-    <div class="feedback-host" aria-live="polite" aria-relevant="additions">
+    <div
+      class="feedback-host"
+      aria-live="polite"
+      aria-relevant="additions"
+      @pointerenter="pauseFeedback"
+      @pointerleave="resumeFeedback"
+      @focusin="pauseFeedback"
+      @focusout="resumeFeedback"
+    >
       <TransitionGroup name="feedback">
         <article
           v-for="item in feedbackState.items"
@@ -61,13 +71,12 @@ function iconFor(tone: FeedbackTone): typeof CircleCheck {
   display: grid;
   min-height: 52px;
   align-items: center;
-  gap: 10px;
-  padding: 10px 10px 10px 14px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
   color: var(--text);
   background: color-mix(in srgb, var(--surface) 98%, transparent);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--accent);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   grid-template-columns: auto minmax(0, 1fr) auto;
   pointer-events: auto;
@@ -77,16 +86,8 @@ function iconFor(tone: FeedbackTone): typeof CircleCheck {
   color: var(--success);
 }
 
-.feedback-toast.is-error {
-  border-left-color: var(--danger);
-}
-
 .feedback-toast.is-error > svg {
   color: var(--danger);
-}
-
-.feedback-toast.is-info {
-  border-left-color: var(--blue);
 }
 
 .feedback-toast.is-info > svg {
@@ -94,9 +95,13 @@ function iconFor(tone: FeedbackTone): typeof CircleCheck {
 }
 
 .feedback-toast p {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: 500;
   line-height: 1.4;
+}
+
+.feedback-toast.is-error {
+  border-color: var(--danger-border);
 }
 
 .feedback-toast button {
@@ -131,7 +136,7 @@ function iconFor(tone: FeedbackTone): typeof CircleCheck {
   transition: transform var(--motion-base) var(--ease-standard);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .feedback-host {
     top: auto;
     right: 50%;

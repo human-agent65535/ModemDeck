@@ -43,7 +43,8 @@ const { t } = useI18n()
   <div
     class="list-item list-item--thread"
     :class="{
-      'is-selected': selected
+      'is-selected': selected,
+      'is-unread': thread.unread_count > 0 || thread.marked_unread
     }"
     role="button"
     tabindex="0"

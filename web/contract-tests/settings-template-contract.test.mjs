@@ -67,7 +67,7 @@ test('settings navigation groups personal and managed surfaces behind one visibi
   assert.match(view, /settingsSectionGroup\(section\.id\)/)
 })
 
-test('settings landing remains a directory and mobile preference rows keep balanced spacing', async () => {
+test('settings opens on its first section side by side and keeps sign-out in the rail account menu', async () => {
   const [shell, view, account, row] = await Promise.all([
     source('../src/components/AppShell.vue'),
     source('../src/views/SettingsView.vue'),
@@ -85,10 +85,16 @@ test('settings landing remains a directory and mobile preference rows keep balan
     /<div class="item-list settings-list">[\s\S]*<footer class="settings-account">[\s\S]*<\/footer>\s*<\/div>\s*<\/aside>/
   )
   assert.match(view, /:disabled="fixtureMode \|\| logoutPending"/)
+  // Side by side there is no empty landing pane; drill-in layouts keep the directory.
+  assert.match(view, /window\.matchMedia\('\(min-width: 1101px\)'\)/)
+  assert.match(view, /if \(section \|\| !wide \|\| !first\) return/)
+  // With the rail present, identity and sign-out move to its account menu.
+  assert.match(view, /@media \(min-width: 641px\) \{\s*\.settings-account \{\s*display: none;/)
+  assert.match(shell, /<AccountMenu class="rail__account" \/>/)
   assert.doesNotMatch(account, /class="account-preferences"/)
   assert.match(
     row,
-    /@media \(max-width: 860px\)[\s\S]*\.settings-preference-row:not\(:first-child\) \{\s*padding-top: 22px;/
+    /@media \(max-width: 640px\)[\s\S]*\.settings-preference-row:not\(:first-child\) \{\s*padding-top: 22px;/
   )
 })
 
@@ -439,7 +445,7 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
     telegram,
     devices
   ]) {
-    assert.match(component, /@media \(max-width: 860px\)/)
+    assert.match(component, /@media \(max-width: 640px\)/)
   }
 
   assert.match(
@@ -456,7 +462,7 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
   )
   assert.match(
     deviceWorkspace,
-    /@media \(max-width: 860px\)[\s\S]*\.device-workspace \{[\s\S]*display: grid;[\s\S]*grid-template-rows: minmax\(0, 1fr\);[\s\S]*\.device-workspace__selector,[\s\S]*\.device-workspace__detail \{[\s\S]*overflow-y: auto;/
+    /@media \(max-width: 640px\)[\s\S]*\.device-workspace \{[\s\S]*display: grid;[\s\S]*grid-template-rows: minmax\(0, 1fr\);[\s\S]*\.device-workspace__selector,[\s\S]*\.device-workspace__detail \{[\s\S]*overflow-y: auto;/
   )
   assert.match(masterDetail, /mobile-drilldown__list/)
   assert.match(masterDetail, /mobile-drilldown__detail/)
@@ -480,7 +486,7 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
   assert.match(view, /selectedSection\.value === 'telegram'/)
   assert.match(
     view,
-    /@media \(min-width: 861px\) and \(max-width: 1100px\)[\s\S]*\.settings-workspace\.has-selection > \.settings-list-pane,[\s\S]*display: none;/
+    /@media \(min-width: 641px\) and \(max-width: 1100px\)[\s\S]*\.settings-workspace\.has-selection > \.settings-list-pane,[\s\S]*display: none;/
   )
 })
 
@@ -494,7 +500,7 @@ test('settings sections animate while resource and communication entities switch
   ])
 
   assert.match(view, /<SettingsContentTransition :content-key="selectedSection">/)
-  assert.match(transition, /@media \(min-width: 861px\)/)
+  assert.match(transition, /@media \(min-width: 641px\)/)
   assert.match(transition, /animation: settings-content-in var\(--motion-base\)/)
   assert.match(masterDetail, /detailKey\?: string \| number \| null/)
   assert.match(masterDetail, /settings-master-detail__detail-content/)

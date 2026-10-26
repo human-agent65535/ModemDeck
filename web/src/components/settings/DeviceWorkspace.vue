@@ -52,7 +52,7 @@ withDefaults(
   overflow: visible;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .device-workspace {
     display: grid;
     overflow: hidden;

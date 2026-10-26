@@ -9,7 +9,7 @@ import {
   watch
 } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { CardSim, ChevronDown, ListFilter, Star } from '@lucide/vue'
+import { CardSim, ChevronDown, Star } from '@lucide/vue'
 import type { CommunicationCapabilityName, LineSummary } from '../api/types'
 import { lineKey, lineLabel, lineSupports } from '../state/workspace'
 import { lineTone } from '../utils/lineTone'
@@ -404,7 +404,7 @@ onBeforeUnmount(() => {
             aria-hidden="true"
           >
             <CardSim v-if="option.line" :size="17" />
-            <ListFilter v-else :size="17" />
+            <CardSim v-else :size="17" />
           </span>
           <span class="line-selector__option-copy">
             <strong>{{ option.name }}</strong>

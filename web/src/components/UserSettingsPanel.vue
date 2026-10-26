@@ -322,7 +322,7 @@ async function revokeSelectedPairing(): Promise<void> {
   const user = selectedUser.value
   if (!user?.ios_pairing_has_credential || pairingRevoking.value) return
   const confirmed = await requestConfirmation({
-    title: t('iosPairing.revokeTitle'),
+    title: t('iosPairing.revokeUserTitle', { user: user.username }),
     message: t('iosPairing.revokeMessage'),
     confirmLabel: t('iosPairing.revokeConfirm'),
     tone: 'danger'
@@ -1088,7 +1088,7 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .user-password-set > div {
     align-items: stretch;
     grid-template-columns: 1fr;

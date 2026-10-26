@@ -207,7 +207,7 @@ async function addToContact(): Promise<void> {
         @click="openCreate"
       >
         <UserPlus :size="17" />
-        <span class="contact-number-action__label">{{ t('contacts.newShort') }}</span>
+        <span class="contact-number-action__label">{{ compact ? t('contacts.new') : t('contacts.newShort') }}</span>
       </button>
       <button
         class="secondary-button"
@@ -217,7 +217,7 @@ async function addToContact(): Promise<void> {
         @click="openAdd"
       >
         <Link2 :size="17" />
-        <span class="contact-number-action__label">{{ t('contacts.addExistingShort') }}</span>
+        <span class="contact-number-action__label">{{ compact ? t('contacts.addExisting') : t('contacts.addExistingShort') }}</span>
       </button>
     </template>
   </div>
@@ -434,7 +434,7 @@ async function addToContact(): Promise<void> {
   text-align: center;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .contact-number-actions.is-compact .secondary-button {
     width: var(--detail-action-size);
     min-width: var(--detail-action-size);

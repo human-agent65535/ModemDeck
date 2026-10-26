@@ -133,9 +133,7 @@ const defaultLineID = computed(
 const selectionKey = computed(() =>
   typeof route.query.item === 'string' ? route.query.item : ''
 )
-const backLabel = computed(() =>
-  route.query.from === 'settings' ? t('settings.back') : t('dashboard.backHome')
-)
+const backLabel = computed(() => t('dashboard.backHome'))
 const hasSelection = computed(() => Boolean(selectionKey.value) || composingMessage.value)
 const overviewSelected = computed(
   () =>
@@ -621,10 +619,6 @@ function selectActivity(activity: CommunicationActivity): void {
 }
 
 function backToList(): void {
-  if (route.query.from === 'settings') {
-    void router.push({ name: 'settings' })
-    return
-  }
   void router.push({ name: 'dashboard' })
 }
 
@@ -1004,7 +998,6 @@ onBeforeUnmount(() => {
             <div class="dashboard-detail-scroll">
           <button
             class="icon-button mobile-back dashboard-overview-back"
-            :class="{ 'is-shell-managed': route.query.from === 'settings' }"
             type="button"
             :title="backLabel"
             :aria-label="backLabel"
@@ -1560,14 +1553,22 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .dashboard-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .dashboard-overview-row,
   .dashboard-list-label {
     display: none;
+  }
+
+  /* On phones the overview is a drill-in row, not the current selection. */
+  .dashboard-overview-row.is-selected {
+    background: transparent;
+  }
+
+  .dashboard-overview-row.is-selected::before {
+    content: none;
   }
 
   .dashboard-workspace > :deep(.workspace) {

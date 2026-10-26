@@ -161,7 +161,7 @@ function onLineChange(id: string, event: Event): void {
   border-color: var(--accent);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .settings-line-scope-list {
     grid-template-columns: minmax(0, 1fr);
   }

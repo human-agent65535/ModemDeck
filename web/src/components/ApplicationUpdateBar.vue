@@ -117,7 +117,7 @@ const message = computed(() =>
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .application-update-bar {
     top: calc(var(--header-height) + var(--space-2));
     bottom: auto;

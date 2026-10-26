@@ -527,7 +527,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .contact-sync-status {
     margin-left: 51px;
   }

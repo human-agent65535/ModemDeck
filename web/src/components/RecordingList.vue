@@ -94,7 +94,12 @@ watch(
 </script>
 
 <template>
-  <section class="recording-list" aria-labelledby="call-recordings-title">
+  <!-- A call without recordings shows no empty Recordings block. -->
+  <section
+    v-if="current.status !== 'ready' || current.data.length > 0 || deleteError"
+    class="recording-list"
+    aria-labelledby="call-recordings-title"
+  >
     <header>
       <h3 id="call-recordings-title">{{ t('recordings.title') }}</h3>
       <span v-if="current.status === 'ready'">{{ current.data.length }}</span>
@@ -183,8 +188,8 @@ watch(
 
 <style scoped>
 .recording-list {
+  max-width: 760px;
   container-type: inline-size;
-  border-top: 1px solid var(--border);
 }
 
 .recording-list > header {
@@ -197,9 +202,8 @@ watch(
 
 .recording-list h3 {
   color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0;
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
 }
 
 .recording-list header span {

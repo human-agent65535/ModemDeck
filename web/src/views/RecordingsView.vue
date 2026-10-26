@@ -199,6 +199,13 @@ function selectRecording(recording: RecordingEntry): void {
   })
 }
 
+// An empty result offers the way back instead of a dead end.
+function clearFilters(): void {
+  search.value = ''
+  lineFilterKey.value = 'all'
+  setFavoriteFilter(false)
+}
+
 function setFavoriteFilter(value: boolean): void {
   favoriteOnly.value = value
   void router.replace({
@@ -392,7 +399,7 @@ onBeforeUnmount(() => {
         compact-mode="hidden"
         :count="
           !initialLoading && recordingCatalogState.status === 'ready'
-            ? recordingCatalogState.data.length
+            ? filteredRecordings.length
             : undefined
         "
       />
@@ -471,7 +478,13 @@ onBeforeUnmount(() => {
               ? t('recordings.noMatches')
               : t('recordings.empty')
           "
-        />
+        >
+          <template v-if="search || favoriteOnly || lineFilterKey !== 'all'" #actions>
+            <button class="secondary-button" type="button" @click="clearFilters">
+              {{ t('common.clearFilters') }}
+            </button>
+          </template>
+        </StatePanel>
         <template v-else>
           <SelectableListRow
             v-for="recording in filteredRecordings"
@@ -640,6 +653,7 @@ onBeforeUnmount(() => {
                   @click="removeRecording(selected)"
                 >
                   <Trash2 :size="18" />
+                  <span class="workspace-detail-action__label">{{ t('recordings.delete') }}</span>
                 </button>
               </template>
               <template #trailing>
@@ -821,12 +835,6 @@ onBeforeUnmount(() => {
   margin: 0 16px 8px;
 }
 
-/* Touch devices delete by swiping the row; pointer users keep the button. */
-@media (max-width: 1100px) and (pointer: coarse) {
-  .desktop-delete-action {
-    display: none;
-  }
-}
 
 @media (max-width: 560px) {
   .recording-detail {

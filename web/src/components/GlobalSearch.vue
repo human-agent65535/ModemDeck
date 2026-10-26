@@ -91,8 +91,48 @@ function onDocumentPointerDown(event: PointerEvent): void {
   if (root.value && !root.value.contains(event.target as Node)) close()
 }
 
-onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointerDown))
+const applePlatform = /mac|iphone|ipad/i.test(globalThis.navigator?.platform || '')
+const shortcutHint = applePlatform ? '⌘K' : 'Ctrl K'
+
+function editableTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null
+  return Boolean(
+    element?.isContentEditable ||
+    element?.closest?.('input, textarea, select, [contenteditable="true"]')
+  )
+}
+
+// ⌘K / Ctrl+K from anywhere, and "/" outside text entry, as in Linear, GitHub and Gmail.
+function onDocumentKeydown(event: KeyboardEvent): void {
+  if (event.defaultPrevented || event.isComposing) return
+  const commandK =
+    event.key.toLowerCase() === 'k' &&
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey
+  const slash =
+    event.key === '/' &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !editableTarget(event.target)
+  if (!commandK && !slash) return
+  const input = root.value?.querySelector<HTMLInputElement>('input')
+  // Hidden on phones, where the search field is not part of the header.
+  if (!input || !input.offsetParent) return
+  event.preventDefault()
+  input.focus()
+  input.select()
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointerDown)
+  document.addEventListener('keydown', onDocumentKeydown)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown)
+  document.removeEventListener('keydown', onDocumentKeydown)
+})
 </script>
 
 <template>
@@ -101,6 +141,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
       v-model="query"
       :placeholder="t('shell.globalSearchPlaceholder')"
       :label="t('shell.globalSearch')"
+      :shortcut="shortcutHint"
+      keyshortcuts="Meta+K Control+K /"
       @focus="activate"
     />
     <div v-if="open && normalized" class="global-search__panel">

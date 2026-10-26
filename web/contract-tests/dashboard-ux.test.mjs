@@ -63,11 +63,12 @@ test('dashboard keeps creation actions with activity and omits the duplicate ove
   )
 })
 
-test('mobile dashboard starts directly with activity while overview remains in settings', () => {
-  assert.match(
-    dashboard,
-    /@media \(max-width: 860px\)[\s\S]*\.dashboard-overview-row,\s*\.dashboard-list-label \{\s*display: none;/
-  )
+test('mobile home reaches the overview from its own list, not from settings', () => {
+  assert.match(dashboard, /@media \(max-width: 640px\)[\s\S]*\.dashboard-list-label \{\s*display: none;/)
+  assert.doesNotMatch(dashboard, /\.dashboard-overview-row,\s*\.dashboard-list-label \{\s*display: none;/)
+  // On phones the overview row drills in; it is never shown as the current selection.
+  assert.match(dashboard, /\.dashboard-overview-row\.is-selected::before \{\s*content: none;/)
+  assert.doesNotMatch(dashboard, /route\.query\.from === 'settings'/)
 })
 
 test('dashboard new-contact action opens the shared editor in place', () => {
@@ -120,7 +121,7 @@ test('dashboard reuses message and call detail surfaces in the middle pane', () 
 test('dashboard embedded communication details overlap the mobile activity pane', () => {
   assert.match(
     dashboard,
-    /@media \(max-width: 860px\)[\s\S]*\.dashboard-workspace > :deep\(\.workspace\) \{[\s\S]*grid-area: 1 \/ 1;[\s\S]*min-height: 0;/
+    /@media \(max-width: 640px\)[\s\S]*\.dashboard-workspace > :deep\(\.workspace\) \{[\s\S]*grid-area: 1 \/ 1;[\s\S]*min-height: 0;/
   )
 })
 
@@ -237,11 +238,11 @@ test('dashboard summary cards may fill their grid while entity cards fill only n
   assert.doesNotMatch(summaryGridBlock, /max-width: 420px/)
   assert.match(
     dashboard,
-    /@media \(max-width: 860px\) \{[\s\S]*?\.dashboard-module-grid,\s*\.dashboard-detail-list\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/
+    /@media \(max-width: 640px\) \{[\s\S]*?\.dashboard-module-grid,\s*\.dashboard-detail-list\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/
   )
   assert.match(
     dashboard,
-    /@media \(max-width: 860px\) \{[\s\S]*?\.dashboard-module-grid > :deep\(\.module-card\),\s*\.dashboard-detail-list > \.dashboard-contact-row\s*\{[\s\S]*?max-width: none/
+    /@media \(max-width: 640px\) \{[\s\S]*?\.dashboard-module-grid > :deep\(\.module-card\),\s*\.dashboard-detail-list > \.dashboard-contact-row\s*\{[\s\S]*?max-width: none/
   )
 })
 

@@ -740,7 +740,7 @@ defineProps<{
   width: 82%;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .settings-skeleton__preference-rows,
   .settings-skeleton__preferences,
   .settings-skeleton__form {

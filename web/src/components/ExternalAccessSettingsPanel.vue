@@ -433,14 +433,16 @@ function statusWithoutCredential(
   }
 }
 
-async function revokePairing(credentialID: string): Promise<void> {
+async function revokePairing(credentialID: string, deviceName = ''): Promise<void> {
   if (
     !pairing.value?.has_credential ||
     pairingPending.value ||
     revokingCredentialID.value
   ) return
   const confirmed = await requestConfirmation({
-    title: t('iosPairing.revokeTitle'),
+    title: deviceName
+      ? t('iosPairing.revokeDeviceTitle', { device: deviceName })
+      : t('iosPairing.revokeTitle'),
     message: t('iosPairing.revokeMessage'),
     confirmLabel: t('iosPairing.revokeConfirm'),
     tone: 'danger'
@@ -689,7 +691,7 @@ onBeforeUnmount(() => {
                   Boolean(revokingCredentialID) ||
                   testCallMutation.saving.value
                 "
-                @click="revokePairing(device.id)"
+                @click="revokePairing(device.id, pairingDeviceTitle(device))"
               >
                 <LoaderCircle
                   v-if="revokingCredentialID === device.id"
@@ -1042,7 +1044,7 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .ios-device-list :deep(.settings-control-row__identity) {
     width: 100%;
   }

@@ -22,6 +22,7 @@ import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger.vue'
 import FavoriteFilterButton from '../components/FavoriteFilterButton.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
 import LineSelector from '../components/LineSelector.vue'
+import LineTag from '../components/LineTag.vue'
 import ListSkeleton from '../components/ListSkeleton.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import MessageThreadListItem from '../components/MessageThreadListItem.vue'
@@ -106,6 +107,7 @@ import {
   messageViewportIsAtBottom
 } from './messages/messageReadVisibility'
 import { userErrorMessage } from '../utils/errorMessage'
+import { smsLength } from '../utils/smsSegments'
 
 type MessageReadFilter = 'all' | 'unread' | 'read'
 
@@ -153,6 +155,11 @@ const selectedRecipientPreferredLineID = ref('')
 const composeContextLineKey = ref(props.contextLineKey)
 const lineFilterKey = ref('all')
 const draft = composer.text
+// Long or Unicode replies are billed per SMS part, so the count appears as the draft nears a split.
+const draftLength = computed(() => smsLength(draft.value))
+const draftLengthVisible = computed(
+  () => draftLength.value.segments > 1 || draftLength.value.units >= draftLength.value.limit - 40
+)
 const sending = composer.sending
 const sendError = composer.error
 const threadDeleteError = ref('')
@@ -322,6 +329,14 @@ function setMessageFilter(value: MessageReadFilter): void {
   if (value === 'all') delete query.filter
   else query.filter = value
   void router.replace({ name: 'messages', params: route.params, query })
+}
+
+// An empty result offers the way back instead of a dead end.
+function clearFilters(): void {
+  search.value = ''
+  lineFilterKey.value = 'all'
+  setMessageFilter('all')
+  setFavoriteFilter(false)
 }
 
 function setFavoriteFilter(value: boolean): void {
@@ -955,7 +970,7 @@ onBeforeUnmount(() => {
         compact-mode="floating-action"
         :count="
           !initialLoading && threadsResource.status === 'ready'
-            ? threadsResource.data.length
+            ? filteredThreads.length
             : undefined
         "
       >
@@ -1065,7 +1080,16 @@ onBeforeUnmount(() => {
                 ? t('messages.noMatches')
                 : t('messages.empty')
             "
-          />
+          >
+            <template
+              v-if="search || messageFilter !== 'all' || favoriteOnly || lineFilterKey !== 'all'"
+              #actions
+            >
+              <button class="secondary-button" type="button" @click="clearFilters">
+                {{ t('common.clearFilters') }}
+              </button>
+            </template>
+          </StatePanel>
           <button
             v-if="!search && !messageWriteUnavailable"
             class="secondary-button"
@@ -1287,7 +1311,10 @@ onBeforeUnmount(() => {
                   @click="removeThread(selectedThread)"
                 >
                   <Trash2 :size="18" />
+                  <span class="workspace-detail-action__label">{{ t('messages.delete') }}</span>
                 </button>
+              </template>
+              <template #trailing>
                 <FavoriteActionButton
                   :active="selectedThread.favorite"
                   :disabled="Boolean(favoritePendingKey)"
@@ -1401,6 +1428,8 @@ onBeforeUnmount(() => {
               v-model="draft"
               rows="1"
               :placeholder="t('messages.enterMessage')"
+              :aria-label="t('messages.enterMessage')"
+              aria-describedby="message-composer-meta"
               :disabled="Boolean(messageWriteUnavailable)"
               @input="resizeComposer"
               @keydown="handleComposerKeydown"
@@ -1410,11 +1439,40 @@ onBeforeUnmount(() => {
               type="button"
               :disabled="Boolean(sendDisabledReason) || sending"
               :title="sendDisabledReason || t('messages.send')"
+              :aria-label="t('messages.send')"
               @click="submit"
             >
               <LoaderCircle v-if="sending" class="spin" :size="19" />
               <Send v-else :size="19" />
             </button>
+          </div>
+          <div
+            v-if="(selectedThread && !composingNew && lines.length > 1) || draftLengthVisible"
+            id="message-composer-meta"
+            class="composer-meta"
+          >
+            <span v-if="selectedThread && !composingNew && lines.length > 1" class="composer-meta__line">
+              {{ t('messages.sendingFrom') }}
+              <LineTag
+                :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id)"
+                :fallback="threadLineFallback(selectedThread)"
+                variant="dot"
+              />
+            </span>
+            <span
+              v-if="draftLengthVisible"
+              class="composer-meta__length"
+              :class="{ 'is-split': draftLength.segments > 1 }"
+              aria-live="polite"
+            >
+              {{
+                t('messages.smsLength', {
+                  used: draftLength.units,
+                  limit: draftLength.limit,
+                  count: draftLength.segments
+                })
+              }}
+            </span>
           </div>
           <p v-if="messageWriteUnavailable" class="unavailable-note">
             {{ messageWriteUnavailable }}
@@ -1494,7 +1552,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .mobile-compose-cancel {
     display: none;
   }
@@ -1554,11 +1612,5 @@ onBeforeUnmount(() => {
   margin: 0 16px 8px;
 }
 
-/* Touch devices delete by swiping the row; pointer users keep the button. */
-@media (max-width: 1100px) and (pointer: coarse) {
-  .desktop-delete-action {
-    display: none;
-  }
-}
 
 </style>

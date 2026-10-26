@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Activity,
   ArrowLeft,
-  ChartNoAxesCombined,
   ContactRound,
   Globe2,
-  House,
   Info,
   KeyRound,
   LoaderCircle,
@@ -38,14 +36,7 @@ import {
 } from '../components/settings/settingsSkeleton'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
-import {
-  bootstrapResource,
-  devicesResource,
-  loadBootstrap,
-  loadDevices,
-  presentModuleLines
-} from '../state/workspace'
-import { isRegisteredNetwork } from '../utils/operatorNetwork'
+import { loadBootstrap, loadDevices } from '../state/workspace'
 import { userErrorMessage } from '../utils/errorMessage'
 
 type SettingsSectionDefinition = {
@@ -94,19 +85,6 @@ const logoutError = ref('')
 const isAdmin = computed(() => sessionState.role === 'admin')
 const canManageExternalAccess = isAdmin
 const canPairIOS = computed(() => sessionState.iosPairingEnabled)
-const lines = computed(() => bootstrapResource.data?.lines || [])
-const presentModules = computed(() =>
-  presentModuleLines(lines.value, devicesResource.data)
-)
-const onlineModules = computed(
-  () => presentModules.value.filter(line => isRegisteredNetwork(line)).length
-)
-const overviewSummary = computed(() =>
-  t('dashboard.modulesOnline', {
-    online: onlineModules.value,
-    total: presentModules.value.length
-  })
-)
 const sectionCatalog = computed<SettingsSectionDefinition[]>(() => [
   {
     id: 'preferences',
@@ -249,6 +227,25 @@ watch(
   { immediate: true }
 )
 
+// Side by side, Settings opens on its first section, as System Settings and GitHub do,
+// rather than an empty "select a setting" pane. Drill-in layouts keep the directory.
+const sideBySideSettings =
+  typeof window !== 'undefined' ? window.matchMedia('(min-width: 1101px)') : undefined
+const sideBySide = ref(sideBySideSettings?.matches ?? false)
+
+function syncSideBySide(): void {
+  sideBySide.value = sideBySideSettings?.matches ?? false
+}
+
+watch(
+  [() => route.params.section, sideBySide, () => sections.value[0]?.id],
+  ([section, wide, first]) => {
+    if (section || !wide || !first) return
+    void router.replace({ name: 'settings', params: { section: first }, query: route.query })
+  },
+  { immediate: true }
+)
+
 function openSection(section: SettingsSection): void {
   void router.push({ name: 'settings', params: { section } })
 }
@@ -309,20 +306,6 @@ function backToSettings(): void {
   void router.push({ name: 'settings', params: { section: '' } })
 }
 
-function openDashboard(): void {
-  void router.push({
-    name: 'dashboard',
-    query: { item: 'overview', from: 'settings' }
-  })
-}
-
-function openTraffic(): void {
-  void router.push({
-    name: 'traffic',
-    query: { from: 'settings' }
-  })
-}
-
 async function logout(): Promise<void> {
   if (logoutPending.value) return
   logoutPending.value = true
@@ -339,7 +322,12 @@ async function logout(): Promise<void> {
 }
 
 onMounted(() => {
+  sideBySideSettings?.addEventListener('change', syncSideBySide)
   void Promise.all([loadBootstrap(), loadDevices()])
+})
+
+onBeforeUnmount(() => {
+  sideBySideSettings?.removeEventListener('change', syncSideBySide)
 })
 </script>
 
@@ -348,28 +336,6 @@ onMounted(() => {
     <aside class="list-pane settings-list-pane">
       <header class="pane-header"><h1>{{ t('settings.title') }}</h1></header>
       <div class="item-list settings-list">
-        <button
-          class="list-item settings-overview-link"
-          type="button"
-          @click="openDashboard"
-        >
-          <span class="settings-icon"><House :size="19" /></span>
-          <span class="list-item__content">
-            <strong>{{ t('dashboard.mobileOverview') }}</strong>
-            <small>{{ overviewSummary }}</small>
-          </span>
-        </button>
-        <button
-          class="list-item settings-overview-link settings-traffic-link"
-          type="button"
-          @click="openTraffic"
-        >
-          <span class="settings-icon"><ChartNoAxesCombined :size="19" /></span>
-          <span class="list-item__content">
-            <strong>{{ t('shell.traffic') }}</strong>
-            <small>{{ t('traffic.overview') }}</small>
-          </span>
-        </button>
         <section
           v-for="group in sectionGroups"
           :key="group.id"
@@ -563,7 +529,14 @@ onMounted(() => {
  * rail, and editor at once. Keep the desktop shell, but make the settings
  * directory and selected section separate steps until the workspace widens.
  */
-@media (min-width: 861px) and (max-width: 1100px) {
+/* With the rail present, identity and sign-out live in its account menu. */
+@media (min-width: 641px) {
+  .settings-account {
+    display: none;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1100px) {
   .settings-workspace {
     grid-template-columns: minmax(0, 1fr);
   }

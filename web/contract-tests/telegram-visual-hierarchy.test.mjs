@@ -87,7 +87,7 @@ test('Telegram uses the shared resource rail and owns only resource-specific lay
   assert.match(style, /text-overflow: ellipsis/)
   assert.match(
     masterDetail,
-    /@media \(max-width: 860px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/
+    /@media \(max-width: 640px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/
   )
   assert.match(style, /\.telegram-event-options[\s\S]*grid-template-columns: minmax\(0, 1fr\)/)
   assert.match(

@@ -251,6 +251,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 650;
   background: var(--surface);
+  white-space: nowrap;
   border: 1px solid var(--border);
   border-radius: 6px;
 }

@@ -8,6 +8,7 @@ export function initials(name: string): string {
 }
 
 import {
+  AsYouType,
   parsePhoneNumberFromString,
   type CountryCode
 } from 'libphonenumber-js/min'
@@ -121,4 +122,20 @@ export function formatPhoneNumber(value: string, homeRegion = ''): string {
   return region && parsed.country === region
     ? parsed.formatNational()
     : parsed.formatInternational()
+}
+
+/**
+ * Groups a dial-pad number as it is typed (202 555 0107, +1 202 555 0107), as phone apps do.
+ * Only plain numbers are grouped; service codes with * or # stay exactly as entered.
+ */
+export function formatDialInput(value: string, homeRegion = ''): string {
+  if (!/^\+?\d{4,}$/.test(value)) return value
+  const normalizedRegion = homeRegion.trim().toUpperCase()
+  const region = /^[A-Z]{2}$/.test(normalizedRegion) ? (normalizedRegion as CountryCode) : undefined
+  return new AsYouType(region).input(value)
+}
+
+/** Removes the grouping that formatDialInput adds, so the draft keeps only what is dialed. */
+export function stripDialFormatting(value: string): string {
+  return value.replace(/[\s().-]/g, '')
 }

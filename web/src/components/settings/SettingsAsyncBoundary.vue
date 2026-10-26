@@ -107,7 +107,7 @@ function markResolved(): void {
   visibility: hidden;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .settings-async-boundary__fallback {
     padding: 18px 16px;
   }

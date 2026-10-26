@@ -19,7 +19,7 @@ defineProps<{
   flex-direction: column;
 }
 
-@media (min-width: 861px) {
+@media (min-width: 641px) {
   .settings-content-transition {
     animation: settings-content-in var(--motion-base) var(--ease-standard) both;
   }

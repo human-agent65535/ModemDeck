@@ -124,7 +124,7 @@ withDefaults(
   font-size: var(--text-2xs);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .settings-preference-row:not(:first-child) {
     padding-top: 22px;
   }

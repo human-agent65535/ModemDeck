@@ -127,7 +127,7 @@ function formatBytes(bytes: number): string {
   white-space: nowrap;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .traffic-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

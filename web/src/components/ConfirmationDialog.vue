@@ -14,6 +14,7 @@ const messageID = `confirmation-message-${useId()}`
     size="small"
     placement="center"
     layer="critical"
+    role="alertdialog"
     :labelledby="titleID"
     :describedby="confirmationState.request?.message ? messageID : undefined"
     initial-focus="[data-overlay-initial]"

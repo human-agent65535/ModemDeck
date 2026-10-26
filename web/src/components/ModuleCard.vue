@@ -691,7 +691,7 @@ const accessTechnology = computed(() => {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .module-card__capabilities {
     gap: 4px;
   }

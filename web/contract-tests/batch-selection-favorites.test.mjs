@@ -143,8 +143,9 @@ test('all communication list panes expose selection and their eligible batch act
     assert.match(view, /import FavoriteActionButton from/)
     assert.match(view, /<WorkspaceDetailHeader[\s\S]*?<template[^>]*#actions>/)
     assert.match(view, /<WorkspaceDetailActions>/)
-    assert.match(view, /class="icon-button icon-button--danger desktop-delete-action"/)
-    assert.match(view, /<FavoriteActionButton/)
+    assert.match(view, /class="icon-button icon-button--danger[^"]*"/)
+    assert.match(view, /<span class="workspace-detail-action__label">\{\{ t\('[a-z]+\.delete'\) \}\}<\/span>/)
+    assert.match(view, /<template[^>]*#trailing>\s*<FavoriteActionButton/)
   }
 
   assert.match(dashboard, /const batchMessageActivities = computed/)

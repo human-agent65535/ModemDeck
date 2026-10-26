@@ -206,7 +206,7 @@ const emit = defineEmits<{
   overscroll-behavior: contain;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .settings-master-detail {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);

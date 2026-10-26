@@ -9,10 +9,15 @@ const props = withDefaults(
     modelValue: string
     placeholder?: string
     label?: string
+    /** Keyboard shortcut shown while empty and announced through aria-keyshortcuts. */
+    shortcut?: string
+    keyshortcuts?: string
   }>(),
   {
     placeholder: '',
-    label: ''
+    label: '',
+    shortcut: '',
+    keyshortcuts: ''
   }
 )
 const resolvedPlaceholder = computed(() => props.placeholder || t('common.search'))
@@ -32,9 +37,13 @@ const emit = defineEmits<{
       :value="modelValue"
       type="search"
       :placeholder="resolvedPlaceholder"
+      :aria-keyshortcuts="keyshortcuts || undefined"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
       @focus="emit('focus')"
     />
+    <kbd v-if="shortcut && !modelValue" class="search-field__shortcut" aria-hidden="true">
+      {{ shortcut }}
+    </kbd>
     <button
       v-if="modelValue"
       class="icon-button icon-button--quiet"

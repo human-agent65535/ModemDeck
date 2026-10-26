@@ -505,7 +505,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .audio-preferences {
     gap: 28px;
   }

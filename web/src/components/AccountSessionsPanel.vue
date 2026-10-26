@@ -154,6 +154,8 @@ function sessionDescription(session: AccountSession): string {
 <style scoped>
 .account-sessions {
   display: grid;
+  /* Long session details wrap inside the column instead of widening the page. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .account-sessions__current {
@@ -176,7 +178,7 @@ function sessionDescription(session: AccountSession): string {
   padding-top: 18px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .account-sessions__logout,
   .account-sessions__actions .danger-button {
     width: 100%;

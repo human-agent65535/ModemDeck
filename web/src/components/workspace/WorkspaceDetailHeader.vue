@@ -22,6 +22,10 @@
   padding: 7px 20px;
   border-bottom: 1px solid var(--border);
   container-type: inline-size;
+  /* Containment makes the header its own stacking context; keep it, and its More menu,
+     above the scrolling body that follows it. */
+  position: relative;
+  z-index: 2;
 }
 
 .workspace-detail-header__actions {

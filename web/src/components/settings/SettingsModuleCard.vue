@@ -137,7 +137,7 @@ const headingTag = computed(() => `h${props.headingLevel}`)
   margin-top: 16px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .settings-module-card__header {
     align-items: flex-start;
     flex-wrap: wrap;

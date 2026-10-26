@@ -78,7 +78,8 @@ test('recording is a default status note, and native call actions remain accessi
   const call = await source('../src/components/CallSurface.vue')
   assert.match(dialer, /class="dialer-recording-note"/)
   assert.doesNotMatch(dialer, /dialer-recording-action|changeRecording/)
-  assert.match(call, /v-if="recordingAdjustable"[\s\S]*@click="toggleRecording"/)
+  // The record control keeps its place for the whole call and is disabled until it applies.
+  assert.match(call, /v-if="!isTestCall"\s*class="call-control call-control--recording"[\s\S]*!recordingAdjustable \|\|[\s\S]*@click="toggleRecording"/)
   assert.match(call, /<template v-if="incoming">[\s\S]*call-primary-action--start[\s\S]*@click="rejectCall"[\s\S]*call-primary-action--end[\s\S]*@click="answerCall"/)
 })
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CardSim, ListFilter, Star } from '@lucide/vue'
+import { CardSim, Star } from '@lucide/vue'
 import type { LineSummary } from '../api/types'
 import { lineTone } from '../utils/lineTone'
 
@@ -49,8 +49,8 @@ const toneStyle = computed<Record<string, string> | undefined>(() => {
     :style="toneStyle"
   >
     <span class="line-identity__icon" aria-hidden="true">
-      <ListFilter v-if="all" :size="variant === 'control' ? 20 : 17" />
-      <CardSim v-else :size="variant === 'control' ? 20 : 17" />
+      <!-- Lines are SIMs: the filter reads as "which line", not a generic funnel. -->
+      <CardSim :size="variant === 'control' ? 20 : 17" />
     </span>
     <span class="line-identity__copy">
       <span class="line-identity__name-row">

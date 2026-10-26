@@ -20,7 +20,7 @@ test('calls replace the desktop dialer and share the mobile dialer height', asyn
   assert.match(styles, /--dialer-width: clamp\(360px, 28vw, 420px\);/)
   assert.match(
     dialer,
-    /@media \(max-width: 860px\)[\s\S]*\.drawer-backdrop \.dialer-panel \{[\s\S]*height: min\(720px, calc\(100dvh - var\(--mobile-nav-height\) - 8px\)\);/
+    /@media \(max-width: 640px\)[\s\S]*\.drawer-backdrop \.dialer-panel \{[\s\S]*height: min\(720px, calc\(100dvh - var\(--mobile-nav-height\) - 8px\)\);/
   )
 })
 
@@ -28,7 +28,7 @@ test('desktop dialer is a non-blocking side panel below the permanent breakpoint
   const shell = await source('../src/components/AppShell.vue')
   const dialer = await source('../src/components/DialerPanel.vue')
 
-  assert.match(shell, /window\.matchMedia\('\(min-width: 861px\)'\)/)
+  assert.match(shell, /window\.matchMedia\('\(min-width: 641px\)'\)/)
   assert.match(dialer, /nonModal\?: boolean/)
   assert.match(
     dialer,
@@ -40,7 +40,7 @@ test('desktop dialer is a non-blocking side panel below the permanent breakpoint
   )
   assert.match(
     dialer,
-    /@media \(min-width: 861px\) and \(max-width: 1479px\)[\s\S]*\.drawer-backdrop--nonmodal \{[\s\S]*pointer-events: none;[\s\S]*background: transparent;/
+    /@media \(min-width: 641px\) and \(max-width: 1479px\)[\s\S]*\.drawer-backdrop--nonmodal \{[\s\S]*pointer-events: none;[\s\S]*background: transparent;/
   )
   assert.match(
     dialer,

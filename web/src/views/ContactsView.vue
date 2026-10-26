@@ -13,6 +13,7 @@ import {
 } from '@lucide/vue'
 import type { Contact, ContactInput } from '../api/types'
 import LineTag from '../components/LineTag.vue'
+import RecentActivitySection from '../components/RecentActivitySection.vue'
 import BatchActionBar from '../components/BatchActionBar.vue'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactEditor from '../components/ContactEditor.vue'
@@ -60,7 +61,7 @@ import {
   refreshContacts,
   saveContact
 } from '../state/workspace'
-import { phoneDestination, primaryPhone } from '../utils/format'
+import { phoneDestination, primaryPhone, primaryPhoneDestination } from '../utils/format'
 import { userErrorMessage } from '../utils/errorMessage'
 
 const route = useRoute()
@@ -112,6 +113,9 @@ const selectedId = computed(() => String(route.params.contactId || ''))
 const selected = computed(() => contactsResource.data.find(contact => contact.id === selectedId.value))
 const messageUnavailable = computed(() => capabilityReason('message'))
 const dialUnavailable = computed(() => capabilityReason('dial'))
+const selectedPrimaryNumber = computed(() =>
+  selected.value ? primaryPhoneDestination(selected.value.phones) : ''
+)
 const searchedPhone = computed(() => {
   const value = search.value.trim()
   const digits = value.replace(/\D/g, '')
@@ -313,7 +317,7 @@ onBeforeUnmount(() => {
         compact-mode="floating-action"
         :count="
           !initialLoading && contactsResource.status === 'ready'
-            ? contactsResource.data.length
+            ? filteredContacts.length
             : undefined
         "
       >
@@ -379,7 +383,13 @@ onBeforeUnmount(() => {
           <StatePanel
             state="empty"
             :title="search ? t('contacts.noMatches') : t('contacts.empty')"
-          />
+          >
+            <template v-if="search && !searchedPhone" #actions>
+              <button class="secondary-button" type="button" @click="search = ''">
+                {{ t('common.clearSearch') }}
+              </button>
+            </template>
+          </StatePanel>
           <ContactNumberActions
             v-if="searchedPhone"
             :number="searchedPhone"
@@ -480,29 +490,36 @@ onBeforeUnmount(() => {
             />
             <div class="workspace-detail-identity">
               <h2>{{ selected.display_name }}</h2>
-              <span v-if="selected.notes">{{ selected.notes }}</span>
+              <span v-if="selectedPrimaryNumber">{{ primaryPhone(selected.phones) }}</span>
             </div>
           </template>
-          <template v-if="contactEditingAvailable" #actions>
+          <template #actions>
             <WorkspaceDetailActions>
-              <template #primary>
+              <template v-if="selectedPrimaryNumber" #primary>
                 <button
-                  class="icon-button"
+                  class="workspace-detail-command workspace-detail-command--primary"
                   type="button"
-                  :title="t('contacts.edit')"
-                  @click="openEdit(selected)"
+                  :disabled="Boolean(dialUnavailable)"
+                  :title="dialUnavailable || t('calls.dial')"
+                  :aria-label="t('dashboard.callContact', { name: selected.display_name })"
+                  @click="call(selected, selectedPrimaryNumber)"
                 >
-                  <Pencil :size="18" />
+                  <Phone :size="17" />
+                  <span>{{ t('calls.dial') }}</span>
                 </button>
                 <button
-                  class="icon-button icon-button--danger desktop-delete-action"
+                  class="workspace-detail-command"
                   type="button"
-                  :title="t('contacts.delete')"
-                  :disabled="deleting"
-                  @click="remove(selected)"
+                  :disabled="Boolean(messageUnavailable)"
+                  :title="messageUnavailable || t('dashboard.message')"
+                  :aria-label="t('dashboard.messageContact', { name: selected.display_name })"
+                  @click="message(selected, selectedPrimaryNumber)"
                 >
-                  <Trash2 :size="18" />
+                  <MessageSquareText :size="17" />
+                  <span>{{ t('dashboard.message') }}</span>
                 </button>
+              </template>
+              <template v-if="contactEditingAvailable" #trailing>
                 <FavoriteActionButton
                   :active="selected.favorite"
                   :disabled="favoritePending"
@@ -510,6 +527,27 @@ onBeforeUnmount(() => {
                   :deactivate-label="t('contacts.unfavorite')"
                   @toggle="toggleFavorite(selected)"
                 />
+              </template>
+              <template v-if="contactEditingAvailable" #secondary>
+                <button
+                  class="icon-button"
+                  type="button"
+                  :title="t('contacts.edit')"
+                  @click="openEdit(selected)"
+                >
+                  <Pencil :size="18" />
+                  <span class="workspace-detail-action__label">{{ t('contacts.edit') }}</span>
+                </button>
+                <button
+                  class="icon-button icon-button--danger"
+                  type="button"
+                  :title="t('contacts.delete')"
+                  :disabled="deleting"
+                  @click="remove(selected)"
+                >
+                  <Trash2 :size="18" />
+                  <span class="workspace-detail-action__label">{{ t('contacts.delete') }}</span>
+                </button>
               </template>
             </WorkspaceDetailActions>
           </template>
@@ -558,6 +596,13 @@ onBeforeUnmount(() => {
               <strong v-else>{{ preferredLineName(selected) }}</strong>
             </p>
           </section>
+          <section v-if="selected.notes" class="detail-section contact-notes">
+            <h3>{{ t('contacts.notes') }}</h3>
+            <p>{{ selected.notes }}</p>
+          </section>
+          <RecentActivitySection
+            :numbers="selected.phones.map(phone => phoneDestination(phone))"
+          />
           <p v-if="dialUnavailable || messageUnavailable" class="unavailable-note">
             {{ dialUnavailable || messageUnavailable }}
           </p>
@@ -617,10 +662,4 @@ onBeforeUnmount(() => {
   margin: 0 16px 8px;
 }
 
-/* Touch devices delete by swiping the row; pointer users keep the button. */
-@media (max-width: 1100px) and (pointer: coarse) {
-  .desktop-delete-action {
-    display: none;
-  }
-}
 </style>

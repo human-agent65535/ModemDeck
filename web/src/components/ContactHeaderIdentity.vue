@@ -82,7 +82,7 @@ const showNumber = computed(
   white-space: nowrap;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .contact-header-identity h2 {
     font-size: 16px;
   }

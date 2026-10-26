@@ -28,7 +28,7 @@ test('phone and tablet list rows expose native-style swipe actions', async () =>
   )
 })
 
-test('touch details defer deletion to the swipe action while pointer users keep the button', async () => {
+test('detail deletion is a labelled item in the More menu for pointer and touch alike', async () => {
   const views = await Promise.all([
     source('../src/views/MessagesView.vue'),
     source('../src/views/CallsView.vue'),
@@ -37,11 +37,8 @@ test('touch details defer deletion to the swipe action while pointer users keep 
   ])
 
   for (const view of views) {
-    assert.match(view, /class="icon-button icon-button--danger desktop-delete-action"/)
-    assert.match(
-      view,
-      /@media \(max-width: 1100px\) and \(pointer: coarse\)[\s\S]*?\.desktop-delete-action \{\s*display: none;/
-    )
+    assert.match(view, /<template[^>]*#secondary>[\s\S]*class="icon-button icon-button--danger[\s\S]*workspace-detail-action__label/)
+    assert.doesNotMatch(view, /\.desktop-delete-action \{\s*display: none;/)
   }
 })
 

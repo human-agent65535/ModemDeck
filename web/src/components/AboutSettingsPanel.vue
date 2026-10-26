@@ -934,7 +934,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .about-facts,
   .about-legal__links {
     grid-template-columns: 1fr;

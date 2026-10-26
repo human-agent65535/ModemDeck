@@ -19,7 +19,7 @@ async function sourceFiles(directory = sourceRoot) {
 }
 
 test('responsive media queries use the shared viewport bands', async () => {
-  const allowedWidths = new Set([420, 560, 860, 861, 1100, 1479, 1480])
+  const allowedWidths = new Set([420, 560, 640, 641, 1100, 1479, 1480])
   const files = await sourceFiles()
 
   for (const file of files) {

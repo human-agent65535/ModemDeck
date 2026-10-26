@@ -6,7 +6,7 @@ async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
 }
 
-test('text-entry focus keeps the resting field border and geometry', async () => {
+test('text-entry focus is visible without changing field geometry', async () => {
   const styles = await source('../src/style.css')
   const textarea = await source('../src/components/TextareaControl.vue')
   const resourceEditor = await source('../src/components/settings/SettingsMasterDetail.vue')
@@ -14,8 +14,17 @@ test('text-entry focus keeps the resting field border and geometry', async () =>
 
   assert.match(styles, /button:focus-visible,\s*a:focus-visible\s*\{/)
   assert.doesNotMatch(styles, /a:focus-visible,\s*input:focus-visible/)
-  assert.doesNotMatch(styles, /\.search-field:focus-within\s*\{[^}]*border-color:/)
-  assert.doesNotMatch(styles, /\.suggest-input__field:focus-within\s*\{[^}]*box-shadow:/)
+  // WCAG 2.4.7: fields recolour their own border and add a soft halo; width and outline stay put.
+  assert.match(styles, /--focus-ring: 0 0 0 3px color-mix\(in srgb, var\(--accent\) 24%, transparent\);/)
+  assert.match(
+    styles,
+    /:where\(\s*input:not\(\[type="checkbox"\], \[type="radio"\], \[type="range"\], \[type="color"\]\),\s*textarea,\s*select\s*\):focus-visible \{\s*border-color: var\(--accent\);\s*box-shadow: var\(--focus-ring\);\s*\}/
+  )
+  assert.match(styles, /\.search-field:focus-within \{[^}]*border-color: var\(--accent\);\s*box-shadow: var\(--focus-ring\);/)
+  assert.match(styles, /\.suggest-input__field:focus-within \{[^}]*border-color: var\(--accent\);\s*box-shadow: var\(--focus-ring\);/)
+  assert.doesNotMatch(styles, /:focus(?:-visible|-within)?\s*\{[^}]*border-width/)
+  assert.match(styles, /\.ui-switch:focus-visible \{\s*outline: 2px solid var\(--accent\);/)
+  assert.match(styles, /\.ui-range:focus-visible \{\s*box-shadow: none;\s*outline: 2px solid var\(--accent\);/)
   assert.doesNotMatch(textarea, /\.textarea-control:focus-within/)
   assert.doesNotMatch(resourceEditor, /\.settings-master-detail__search:focus-within\s*\{[^}]*box-shadow:/)
   assert.doesNotMatch(proxyEditor, /\.proxy-field (?:input|select):focus/)

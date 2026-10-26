@@ -1168,7 +1168,7 @@ onMounted(() => {
   margin-top: 0;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .telegram-unit-row {
     min-height: 78px;
   }

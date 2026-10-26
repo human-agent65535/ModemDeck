@@ -128,6 +128,8 @@
   --radius-surface: var(--radius-md);
   --radius-dialog: var(--radius-md);
   --touch-target: 44px;
+  /* Field focus: the accent border carries the 3:1 indicator; the halo only softens it. */
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
   --layer-popover: 80;
   --layer-drawer: 100;
   --layer-dialog: 120;
@@ -170,7 +172,7 @@
 
 /*
  * Responsive bands: compact handset <= 420px, handset <= 560px,
- * mobile/tablet drilldown <= 860px, compact workspace <= 1100px,
+ * phone drilldown <= 640px (tablets keep the rail and two columns), compact workspace <= 1100px,
  * and persistent dialer >= 1480px. CSS custom properties are not valid in
  * media-query conditions, so these literal boundaries are contract-tested.
  */
@@ -279,6 +281,38 @@ a:focus-visible {
 [role="option"]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+/* Text entry shows focus on its own border; container-styled fields (search, suggest) opt out. */
+:where(
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]),
+  textarea,
+  select
+):focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+:where(.search-field, .suggest-input__field) :where(input):focus-visible {
+  box-shadow: none;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: var(--layer-feedback);
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  color: var(--on-accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+  transform: translateY(calc(-100% - var(--space-4)));
+}
+
+.skip-link:focus-visible {
+  transform: none;
 }
 
 a {
@@ -486,8 +520,12 @@ strong {
 
 .rail__secondary {
   margin-top: auto;
-  padding-bottom: 18px;
+  padding-bottom: var(--space-2);
   border-top: 1px solid var(--border);
+}
+
+.rail__account {
+  padding-bottom: var(--space-4);
 }
 
 .rail-link {
@@ -580,12 +618,14 @@ strong {
 .shell-header__controls {
   display: flex;
   min-width: 0;
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
   margin-left: auto;
 }
 
-.shell-header .shell-dialer-toggle {
+.shell-header .shell-dialer-toggle,
+.shell-header .active-call-pill {
   display: none;
 }
 
@@ -656,6 +696,10 @@ strong {
   color: var(--danger-strong);
   font-weight: 650;
   background: transparent;
+}
+
+.route-stage:focus {
+  outline: none;
 }
 
 .route-stage {
@@ -1071,6 +1115,8 @@ strong {
 
 .search-field:focus-within {
   color: var(--text);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
 }
 
 .search-field input {
@@ -1091,10 +1137,24 @@ textarea::placeholder {
 .global-search {
   position: relative;
   width: min(680px, 66vw);
+  /* Gives way to the header controls (call pill, receive-calls menu) before they wrap. */
+  min-width: 200px;
 }
 
 .global-search .search-field {
   background: var(--background);
+}
+
+.search-field__shortcut {
+  flex: 0 0 auto;
+  padding: 1px var(--space-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
 }
 
 .global-search__panel {
@@ -1223,6 +1283,26 @@ textarea::placeholder {
 
 .list-item.is-selected {
   background: var(--surface-selected);
+}
+
+/* Rows with a read state: read rows step back, unread rows carry the weight, as in Gmail
+   and Google Messages, so unread is visible without relying on the dot alone. */
+:is(.list-item--thread, .call-list-item) .list-item__content strong {
+  font-weight: 500;
+}
+
+:is(.list-item--thread, .call-list-item).is-unread .list-item__content strong {
+  font-weight: var(--weight-strong);
+}
+
+:is(.list-item--thread, .call-list-item).is-unread .list-item__content small {
+  color: var(--text);
+  font-weight: 500;
+}
+
+:is(.list-item--thread, .call-list-item).is-unread .list-item-status-rail time {
+  color: var(--accent-strong);
+  font-weight: var(--weight-strong);
 }
 
 .list-item.is-selected::before {
@@ -1483,6 +1563,25 @@ textarea::placeholder {
     transform var(--motion-fast) var(--ease-standard);
 }
 
+/* In a narrow list column the create action keeps its icon; the label stays for assistive tech. */
+@media (min-width: 641px) {
+  @container (max-width: 300px) {
+    .workspace-list-header .pane-create-button {
+      width: 36px;
+      padding: 0;
+    }
+
+    .workspace-list-header .pane-create-button > span {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+}
+
 .pane-create-button:hover:not(:disabled) {
   background: var(--accent-border);
 }
@@ -1677,6 +1776,18 @@ textarea::placeholder {
 
 .detail-section {
   max-width: 760px;
+}
+
+/* Detail pages read as stacked sections with one rhythm between them. */
+:is(.contact-detail, .call-detail) > :is(.detail-section, .recording-list):not(:first-child) {
+  margin-top: var(--space-6);
+}
+
+.contact-notes p {
+  color: var(--text);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  white-space: pre-line;
 }
 
 .detail-section h3,
@@ -1986,6 +2097,33 @@ dd {
   gap: 9px;
 }
 
+.composer-meta {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-1) 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.composer-meta__line {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.composer-meta__length {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-meta__length.is-split {
+  color: var(--warning-strong);
+}
+
 .composer-row textarea {
   height: 42px;
   min-height: 42px;
@@ -2073,6 +2211,8 @@ dd {
 
 .suggest-input__field:focus-within {
   color: var(--text);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
 }
 
 .suggest-input__field input {
@@ -2441,10 +2581,6 @@ dd {
   margin-bottom: 3px;
   border-bottom: 0;
   border-radius: 8px;
-}
-
-.settings-overview-link {
-  display: none;
 }
 
 .settings-icon {
@@ -2906,7 +3042,7 @@ dd {
 
 .ui-range:focus-visible {
   box-shadow: none;
-  outline: 3px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -2988,7 +3124,8 @@ dd {
 
 .ui-check:focus-visible,
 .ui-radio:focus-visible {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .ui-check:disabled,
@@ -3062,7 +3199,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
 }
 
 .ui-switch:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -3254,13 +3391,45 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
 
 }
 
+/* Tablet and narrow desktop: the rail stays, two columns share the width and the header
+   keeps every control by dropping secondary labels (each control keeps its accessible name). */
+@media (min-width: 641px) and (max-width: 1100px) {
+  .shell-header {
+    gap: var(--space-2);
+    padding: 0 var(--space-4);
+  }
+
+  .global-search {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .fixture-badge {
+    padding: 0 var(--space-2);
+  }
+
+  .fixture-badge__label,
+  .shell-header .incoming-call-mode__trigger > span {
+    display: none;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(300px, min(42%, 360px)) minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 1479px) {
   .shell-header .shell-dialer-toggle {
     display: inline-grid;
   }
+
+  .shell-header .active-call-pill {
+    display: inline-flex;
+  }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   :root {
     --detail-action-size: var(--touch-target);
   }
@@ -3319,7 +3488,8 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
   }
 
   .fixture-badge,
-  .shell-header .shell-dialer-toggle {
+  .shell-header .shell-dialer-toggle,
+  .shell-header .active-call-pill {
     display: none;
   }
 
@@ -3567,15 +3737,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     }
   }
 
-  .settings-overview-link {
-    display: flex;
-  }
-
   .settings-detail-header {
-    display: none;
-  }
-
-  .dashboard-overview-back.is-shell-managed {
     display: none;
   }
 
@@ -3657,6 +3819,16 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     display: none;
   }
 
+  /* A conversation or record gets the whole screen, as in Messages and WhatsApp;
+     the shell's back button returns to the list and its tab bar. */
+  .app-shell.is-communication-detail {
+    grid-template-rows: minmax(0, 1fr) env(safe-area-inset-bottom, 0px);
+  }
+
+  .app-shell.is-communication-detail .mobile-nav {
+    display: none;
+  }
+
   .dialer-panel {
     width: 100%;
     max-height: calc(100dvh - var(--mobile-nav-height) - 8px);
@@ -3685,7 +3857,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .mobile-nav :is(a, button) {
     grid-template-rows: minmax(0, 1fr) 14px;
     padding: 4px 0 5px;

@@ -77,12 +77,21 @@ withDefaults(
   gap: 8px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .settings-control-row {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;
     padding: 13px 0;
+  }
+
+  .settings-control-row__identity {
+    width: 100%;
+  }
+
+  /* Stacked rows have the full width, so details wrap instead of running off the screen. */
+  .settings-control-row small {
+    white-space: normal;
   }
 
   .settings-control-row__control {

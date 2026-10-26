@@ -108,13 +108,14 @@ withDefaults(
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-@media (max-width: 560px) {
+/* Phones: 44px touch targets (HIG) and the shell's 16px side gutter. */
+@media (max-width: 640px) {
   .communication-list-toolbar {
-    --communication-toolbar-primary-height: 38px;
-    --communication-toolbar-filter-height: 38px;
+    --communication-toolbar-primary-height: var(--touch-target);
+    --communication-toolbar-filter-height: var(--touch-target);
 
     gap: 6px;
-    padding: 6px 10px 8px;
+    padding: 6px var(--space-4) 8px;
   }
 
   .communication-list-toolbar__primary,

@@ -64,7 +64,7 @@ test('mobile navigation exposes routes that fit and falls back to More on narrow
   assert.match(styles, /\.mobile-nav \.mobile-nav__more \{\s*display: grid;/)
   assert.match(
     styles,
-    /@media \(max-width: 860px\) \{[\s\S]*?\.mobile-nav__label \{\s*display: block;/
+    /@media \(max-width: 640px\) \{[\s\S]*?\.mobile-nav__label \{\s*display: block;/
   )
   assert.match(english, /mobileCall: 'Dial'/)
   assert.match(english, /more: 'More'/)
@@ -82,15 +82,15 @@ test('mobile shell keeps navigation inside the structural viewport on iOS', asyn
   )
   assert.match(
     styles,
-    /@media \(max-width: 860px\)[\s\S]*?\.app-shell \{[\s\S]*?display: grid;[\s\S]*?grid-template-rows: minmax\(0, 1fr\) var\(--mobile-nav-height\);[\s\S]*?overflow: hidden;/
+    /@media \(max-width: 640px\)[\s\S]*?\.app-shell \{[\s\S]*?display: grid;[\s\S]*?grid-template-rows: minmax\(0, 1fr\) var\(--mobile-nav-height\);[\s\S]*?overflow: hidden;/
   )
   assert.match(
     styles,
-    /@media \(max-width: 860px\)[\s\S]*?\.route-view \{\s*bottom: 0;/
+    /@media \(max-width: 640px\)[\s\S]*?\.route-view \{\s*bottom: 0;/
   )
   assert.match(
     styles,
-    /@media \(max-width: 860px\)[\s\S]*?\.mobile-nav \{[\s\S]*?position: relative;[\s\S]*?grid-row: 2;/
+    /@media \(max-width: 640px\)[\s\S]*?\.mobile-nav \{[\s\S]*?position: relative;[\s\S]*?grid-row: 2;/
   )
   assert.match(
     styles,
@@ -117,7 +117,7 @@ test('ringing calls animate the central call action and remain restorable when m
   assert.match(dialer, /showingCall \? minimizeCallSurface\(\) : closeDialer\(\)/)
   assert.match(dialer, /<Minus v-if="showingCall"/)
   assert.match(callSurface, /recordingAdjustable = computed\(\(\) => !isTestCall\.value && active\.value/)
-  assert.match(callSurface, /v-if="recordingAdjustable"/)
+  assert.match(callSurface, /:disabled="\s*!recordingAdjustable \|\|/)
 })
 
 test('a minimized connected call animates the existing phone audio waves', async () => {
@@ -142,16 +142,16 @@ test('mobile shell removes duplicate global search and compacts page toolbars', 
 
   assert.match(
     styles,
-    /@media \(max-width: 860px\)[\s\S]*\.global-search \{\s*display: none;/
+    /@media \(max-width: 640px\)[\s\S]*\.global-search \{\s*display: none;/
   )
   assert.match(
     listHeader,
-    /@media \(max-width: 860px\)[\s\S]*\.workspace-list-header\.workspace-list-header--compact-hidden \{\s*display: none;/
+    /@media \(max-width: 640px\)[\s\S]*\.workspace-list-header\.workspace-list-header--compact-hidden \{\s*display: none;/
   )
   assert.doesNotMatch(styles, /\.pane-header:not\(:has/)
   assert.match(
     styles,
-    /@media \(max-width: 860px\)[\s\S]*\.search-field input \{\s*font-size: 15px;/
+    /@media \(max-width: 640px\)[\s\S]*\.search-field input \{\s*font-size: 15px;/
   )
 })
 
@@ -185,7 +185,7 @@ test('mobile list creation actions share one bottom-right floating treatment', a
   assert.match(messages, /class="pane-create-button mobile-list-fab"/)
   assert.match(
     styles,
-    /@media \(max-width: 860px\)[\s\S]*\.mobile-list-fab,[\s\S]*position: fixed;[\s\S]*right: 16px;[\s\S]*bottom: calc\(var\(--mobile-nav-height\) \+ 16px\);/
+    /@media \(max-width: 640px\)[\s\S]*\.mobile-list-fab,[\s\S]*position: fixed;[\s\S]*right: 16px;[\s\S]*bottom: calc\(var\(--mobile-nav-height\) \+ 16px\);/
   )
   assert.match(styles, /\.mobile-list-fab > span \{\s*display: none;/)
   assert.match(
@@ -201,26 +201,18 @@ test('mobile list creation actions share one bottom-right floating treatment', a
   )
 })
 
-test('mobile settings starts with a live communication overview entry', async () => {
+test('mobile navigation keeps every destination out of settings and hides tabs in details', async () => {
   const settings = await source('../src/views/SettingsView.vue')
   const dashboard = await source('../src/views/DashboardView.vue')
   const shell = await source('../src/components/AppShell.vue')
   const styles = await source('../src/style.css')
 
-  assert.match(settings, /const overviewSummary = computed/)
-  assert.doesNotMatch(settings, /attentionCount|dashboard\.attention/)
-  assert.match(settings, /class="list-item settings-overview-link"/)
-  assert.match(settings, /\{\{ t\('dashboard\.mobileOverview'\) \}\}/)
-  assert.match(settings, /\{\{ overviewSummary \}\}/)
-  assert.match(settings, /query: \{ item: 'overview', from: 'settings' \}/)
-  assert.match(settings, /class="list-item settings-overview-link settings-traffic-link"/)
-  assert.match(settings, /name: 'traffic',[\s\S]*query: \{ from: 'settings' \}/)
-  assert.match(dashboard, /if \(route\.query\.from === 'settings'\)/)
-  assert.match(dashboard, /route\.query\.from === 'settings' \? t\('settings\.back'\)/)
-  assert.match(dashboard, /router\.push\(\{ name: 'settings' \}\)/)
-  assert.doesNotMatch(settings, /<ChevronRight/)
-  assert.match(shell, /const mobileOverviewFromSettings = computed/)
-  assert.match(shell, /const mobileTrafficFromSettings = computed/)
+  // Settings holds settings; Home and Traffic are reached from the tab bar and More.
+  assert.doesNotMatch(settings, /settings-overview-link|settings-traffic-link|from: 'settings'|overviewSummary/)
+  assert.doesNotMatch(dashboard, /from === 'settings'/)
+  assert.doesNotMatch(shell, /FromSettings|dashboard\.mobileOverview/)
+  assert.match(shell, /\.filter\(item => \['contacts', 'recordings', 'traffic'\]\.includes\(item\.name\)\)/)
+  assert.match(shell, /function mobileNavItemCurrent\(name: string\): boolean \{\s*return route\.name === name\s*\}/)
   assert.match(shell, /const mobileDrilldownControlsHidden = computed/)
   assert.match(shell, /mobileShellBackVisible\.value/)
   assert.match(shell, /'is-hidden-on-mobile': mobileDrilldownControlsHidden/)
@@ -237,20 +229,18 @@ test('mobile settings starts with a live communication overview entry', async ()
     shell,
     /case 'messages':[\s\S]*delete query\.compose;?[\s\S]*name: 'messages', query/
   )
+  // A conversation or record takes the whole phone screen, as in Messages and WhatsApp.
+  assert.match(shell, /'is-communication-detail': mobileCommunicationDetailOpen/)
+  assert.match(
+    styles,
+    /@media \(max-width: 640px\)[\s\S]*\.app-shell\.is-communication-detail \.mobile-nav \{\s*display: none;/
+  )
   assert.doesNotMatch(
     styles,
-    /@media \(max-width: 860px\)[\s\S]*?\.mobile-back \{\s*display: inline-grid;/
+    /@media \(max-width: 640px\)[\s\S]*?\.mobile-back \{\s*display: inline-grid;/
   )
   assert.match(
     styles,
-    /@media \(max-width: 860px\)[\s\S]*\.settings-overview-link \{\s*display: flex;/
-  )
-  assert.match(
-    styles,
-    /@media \(max-width: 860px\)[\s\S]*\.settings-detail-header \{\s*display: none;/
-  )
-  assert.match(
-    styles,
-    /@media \(max-width: 860px\)[\s\S]*\.dashboard-overview-back\.is-shell-managed \{\s*display: none;/
+    /@media \(max-width: 640px\)[\s\S]*\.settings-detail-header \{\s*display: none;/
   )
 })

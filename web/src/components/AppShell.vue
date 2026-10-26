@@ -8,13 +8,13 @@ import {
   BellOff,
   BellRing,
   ChartNoAxesCombined,
+  FlaskConical,
   House,
   Menu,
   MessageSquareText,
   Phone,
   PhoneCall,
   Settings,
-  TestTube2,
   UsersRound,
   X
 } from '@lucide/vue'
@@ -55,14 +55,19 @@ import {
   initializeApplicationVersionChecks
 } from '../state/staleAssetRecovery'
 import { openDialer, showCallSurface, uiState } from '../state/ui'
+import { messageComposeRoute } from '../router/messageRoute'
 import {
   bootstrapResource,
+  capabilityReason,
   loadBootstrap,
   loadContacts
 } from '../state/workspace'
+import AccountMenu from './AccountMenu.vue'
+import ActiveCallPill from './ActiveCallPill.vue'
 import AudioSettingsMenu from './AudioSettingsMenu.vue'
 import DialerPanel from './DialerPanel.vue'
 import GlobalSearch from './GlobalSearch.vue'
+import KeyboardShortcutsDialog from './KeyboardShortcutsDialog.vue'
 import IncomingCallModeControl from './IncomingCallModeControl.vue'
 import OverlayDialog from './OverlayDialog.vue'
 
@@ -151,9 +156,11 @@ const mobileNavAfterDial = computed(() =>
     mobileSettingsNavItem.value
   ]
 )
+// Every destination the rail offers stays one tap away on phones: what the tab bar
+// cannot hold goes into More, never into Settings.
 const mobileSecondaryNav = computed(() => [
   ...primaryNav.value
-    .filter(item => ['contacts', 'recordings'].includes(item.name))
+    .filter(item => ['contacts', 'recordings', 'traffic'].includes(item.name))
     .map(item => ({ ...item, to: { name: item.name } })),
   mobileSettingsNavItem.value
 ])
@@ -178,12 +185,6 @@ const mobileSettingsSection = computed(() => {
   }
   return labels[section] || ''
 })
-const mobileOverviewFromSettings = computed(
-  () => route.name === 'dashboard' && route.query.from === 'settings'
-)
-const mobileTrafficFromSettings = computed(
-  () => route.name === 'traffic' && route.query.from === 'settings'
-)
 const settingsUserDetailOpen = computed(
   () =>
     route.name === 'settings' &&
@@ -223,16 +224,11 @@ const mobileCommunicationDetailOpen = computed(() => {
 const mobileShellBackVisible = computed(
   () =>
     Boolean(mobileSettingsSection.value) ||
-    mobileOverviewFromSettings.value ||
-    mobileTrafficFromSettings.value ||
     mobileCommunicationDetailOpen.value
 )
 const mobileDrilldownControlsHidden = computed(() => mobileShellBackVisible.value)
 const mobileBackTitle = computed(() => {
   if (settingsUserDetailOpen.value) return t('users.backToUsers')
-  if (mobileOverviewFromSettings.value || mobileTrafficFromSettings.value) {
-    return t('settings.back')
-  }
   switch (route.name) {
     case 'dashboard':
       return t('dashboard.backHome')
@@ -248,17 +244,80 @@ const mobileBackTitle = computed(() => {
       return t('settings.back')
   }
 })
+// Tabs, history and bookmarks name the page, the way Gmail and Linear titles do.
+const documentTitle = computed(() => {
+  const page =
+    route.name === 'settings'
+      ? [mobileSettingsSection.value, t('shell.settings')].filter(Boolean).join(' · ')
+      : primaryNav.value.find(item => item.name === route.name)?.label || ''
+  return page ? `${page} · ModemDeck` : 'ModemDeck'
+})
+
+watch(documentTitle, title => { document.title = title }, { immediate: true })
+
+const mainContent = ref<HTMLElement | null>(null)
+
+function skipToContent(): void {
+  mainContent.value?.focus()
+}
+
+const shortcutsOpen = ref(false)
+
+function editableTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null
+  return Boolean(
+    element?.isContentEditable ||
+    element?.closest?.('input, textarea, select, [contenteditable="true"]')
+  )
+}
+
+// Arrow keys walk the rows of whichever list has focus, as in Mail and Gmail;
+// Enter and Space already open a row.
+function moveInList(event: KeyboardEvent): boolean {
+  const row = (event.target as HTMLElement | null)?.closest?.<HTMLElement>('.list-item')
+  const list = row?.closest<HTMLElement>('.item-list')
+  if (!row || !list) return false
+  const rows = Array.from(list.querySelectorAll<HTMLElement>('.list-item')).filter(
+    item => item.offsetParent !== null && (item.tabIndex >= 0 || item.tagName === 'BUTTON')
+  )
+  const index = rows.indexOf(row)
+  let next = -1
+  if (event.key === 'ArrowDown') next = Math.min(rows.length - 1, index + 1)
+  else if (event.key === 'ArrowUp') next = Math.max(0, index - 1)
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = rows.length - 1
+  if (next < 0 || index < 0) return false
+  rows[next]?.focus()
+  rows[next]?.scrollIntoView({ block: 'nearest' })
+  return true
+}
+
+function onShellKeydown(event: KeyboardEvent): void {
+  if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return
+  if (moveInList(event)) {
+    event.preventDefault()
+    return
+  }
+  if (editableTarget(event.target) || document.querySelector('[aria-modal="true"]')) return
+  if (event.key === '?') {
+    shortcutsOpen.value = true
+  } else if (event.key.toLowerCase() === 'c' && !event.shiftKey && !capabilityReason('message')) {
+    void router.push(messageComposeRoute({ recipient: '', name: '', lineKey: '' }))
+  } else if (event.key.toLowerCase() === 'd' && !event.shiftKey && !capabilityReason('dial')) {
+    openDialer()
+  } else {
+    return
+  }
+  event.preventDefault()
+}
+
 const mobilePageTitle = computed(() => {
-  if (route.name === 'dashboard') return t('dashboard.mobileOverview')
   if (route.name === 'settings') return mobileSettingsSection.value || t('shell.settings')
   return primaryNav.value.find(item => item.name === route.name)?.label || ''
 })
 
 function mobileNavItemCurrent(name: string): boolean {
-  return (
-    route.name === name ||
-    (name === 'settings' && route.name === 'traffic')
-  )
+  return route.name === name
 }
 
 function toggleMobileMore(): void {
@@ -334,11 +393,6 @@ function handleMobileBack(): void {
     })
     return
   }
-  if (mobileOverviewFromSettings.value || mobileTrafficFromSettings.value) {
-    void router.push({ name: 'settings' })
-    return
-  }
-
   const query = { ...route.query }
   switch (route.name) {
     case 'dashboard':
@@ -377,8 +431,9 @@ onMounted(() => {
   stopForegroundCommunicationRefresh = initializeForegroundCommunicationRefresh()
   void initializeWorkspaceRuntime(currentGeneration)
   void loadContacts()
+  document.addEventListener('keydown', onShellKeydown)
   dialerMediaQuery = window.matchMedia('(min-width: 1480px)')
-  nonModalDialerMediaQuery = window.matchMedia('(min-width: 861px)')
+  nonModalDialerMediaQuery = window.matchMedia('(min-width: 641px)')
   dialerMediaQuery.addEventListener('change', syncDialerMode)
   nonModalDialerMediaQuery.addEventListener('change', syncDialerMode)
   syncDialerMode()
@@ -386,6 +441,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   mountGeneration += 1
+  document.removeEventListener('keydown', onShellKeydown)
   dialerMediaQuery?.removeEventListener('change', syncDialerMode)
   nonModalDialerMediaQuery?.removeEventListener('change', syncDialerMode)
   stopApplicationVersionChecks?.()
@@ -400,12 +456,22 @@ onBeforeUnmount(() => {
   shutdownDTMFAudio()
   shutdownBrowserNotifications()
   shutdownAudioDevices()
+  document.title = 'ModemDeck'
 })
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'has-call-sheet': callSheetOpen }">
-    <aside class="rail" :aria-label="t('shell.primaryNavigation')">
+  <div
+    class="app-shell"
+    :class="{
+      'has-call-sheet': callSheetOpen,
+      'is-communication-detail': mobileCommunicationDetailOpen
+    }"
+  >
+    <a class="skip-link" href="#main-content" @click.prevent="skipToContent">
+      {{ t('shell.skipToContent') }}
+    </a>
+    <aside class="rail">
       <RouterLink
         class="brand-mark"
         :to="{ name: 'dashboard' }"
@@ -415,7 +481,7 @@ onBeforeUnmount(() => {
         <strong>Modem<br />Deck</strong>
       </RouterLink>
 
-      <nav class="rail__primary">
+      <nav class="rail__primary" :aria-label="t('shell.primaryNavigation')">
         <RouterLink
           v-for="item in primaryNav"
           :key="item.name"
@@ -423,23 +489,26 @@ onBeforeUnmount(() => {
           :class="{ 'is-current': route.name === item.name }"
           :to="{ name: item.name }"
           :title="item.label"
+          :aria-current="route.name === item.name ? 'page' : undefined"
         >
           <component :is="item.icon" :size="22" />
           <span>{{ item.label }}</span>
         </RouterLink>
       </nav>
 
-      <nav class="rail__secondary">
+      <nav class="rail__secondary" :aria-label="t('shell.secondaryNavigation')">
         <RouterLink
           class="rail-link"
           :class="{ 'is-current': route.name === 'settings' }"
           :to="{ name: 'settings' }"
           :title="t('shell.settings')"
+          :aria-current="route.name === 'settings' ? 'page' : undefined"
         >
           <Settings :size="22" />
           <span>{{ t('shell.settings') }}</span>
         </RouterLink>
       </nav>
+      <AccountMenu class="rail__account" />
     </aside>
 
     <main class="shell-main">
@@ -461,8 +530,8 @@ onBeforeUnmount(() => {
           class="fixture-badge"
           :title="t('shell.fixtureDataHint')"
         >
-          <TestTube2 :size="15" />
-          {{ t('shell.fixtureData') }}
+          <FlaskConical :size="15" aria-hidden="true" />
+          <span class="fixture-badge__label">{{ t('shell.fixtureData') }}</span>
         </div>
         <div
           class="shell-header__controls"
@@ -489,7 +558,12 @@ onBeforeUnmount(() => {
             <BellOff v-else :size="19" />
           </button>
           <AudioSettingsMenu />
+          <ActiveCallPill
+            v-if="activeCallPresent && uiState.callMinimized"
+            :ringing="incomingCallRinging"
+          />
           <button
+            v-else
             class="icon-button shell-dialer-toggle"
             type="button"
             :title="t('shell.openDialer')"
@@ -512,7 +586,12 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div class="route-stage">
+      <div
+        id="main-content"
+        ref="mainContent"
+        class="route-stage"
+        tabindex="-1"
+      >
         <RouterView v-slot="{ Component }">
           <Transition name="route-view">
             <div :key="String(route.name || route.path)" class="route-view">
@@ -569,6 +648,7 @@ onBeforeUnmount(() => {
         :to="item.to"
         :title="item.label"
         :aria-label="item.label"
+        :aria-current="mobileNavItemCurrent(item.name) ? 'page' : undefined"
       >
         <component :is="item.icon" :size="21" />
         <span class="mobile-nav__label">{{ item.label }}</span>
@@ -618,6 +698,7 @@ onBeforeUnmount(() => {
         :to="item.to"
         :title="item.label"
         :aria-label="item.label"
+        :aria-current="mobileNavItemCurrent(item.name) ? 'page' : undefined"
       >
         <component :is="item.icon" :size="21" />
         <span class="mobile-nav__label">{{ item.label }}</span>
@@ -636,6 +717,8 @@ onBeforeUnmount(() => {
         <span class="mobile-nav__label">{{ t('common.more') }}</span>
       </button>
     </nav>
+
+    <KeyboardShortcutsDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
 
     <DialerPanel :permanent="permanentDialer"
       :non-modal="nonModalDialer"
@@ -667,7 +750,7 @@ onBeforeUnmount(() => {
   border-radius: 9px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .mobile-more-sheet {
     width: 100%;
     max-height: min(480px, calc(100dvh - var(--mobile-nav-height) - 20px));

@@ -91,7 +91,7 @@ test('workspace primitives own action sizing, priority, and transition timing', 
   )
   assert.match(
     listHeader,
-    /@media \(max-width: 860px\)[\s\S]*\.workspace-list-header\.workspace-list-header--compact-hidden \{[\s\S]*display: none;/
+    /@media \(max-width: 640px\)[\s\S]*\.workspace-list-header\.workspace-list-header--compact-hidden \{[\s\S]*display: none;/
   )
   assert.doesNotMatch(detailHeader, /density\?:/)
   assert.match(
@@ -112,9 +112,8 @@ test('workspace primitives own action sizing, priority, and transition timing', 
   assert.match(listToolbar, /padding: 6px var\(--space-3\) 9px;/)
   assert.match(
     listToolbar,
-    /@media \(max-width: 560px\)[\s\S]*--communication-toolbar-primary-height: 38px;[\s\S]*--communication-toolbar-filter-height: 38px;/
+    /@media \(max-width: 640px\)[\s\S]*--communication-toolbar-primary-height: var\(--touch-target\);[\s\S]*--communication-toolbar-filter-height: var\(--touch-target\);[\s\S]*padding: 6px var\(--space-4\) 8px;/
   )
-  assert.doesNotMatch(listToolbar, /min-height: var\(--touch-target\)/)
   assert.match(detailActions, /class="workspace-detail-actions__primary"/)
   assert.match(detailActions, /class="workspace-detail-actions__secondary"/)
   assert.match(detailActions, /workspace-detail-actions__more/)
@@ -124,7 +123,7 @@ test('workspace primitives own action sizing, priority, and transition timing', 
   assert.match(styles, /--detail-action-size: 40px;/)
   assert.match(
     styles,
-    /@media \(max-width: 860px\)[\s\S]*:root \{[\s\S]*--detail-action-size: var\(--touch-target\);/
+    /@media \(max-width: 640px\)[\s\S]*:root \{[\s\S]*--detail-action-size: var\(--touch-target\);/
   )
   assert.match(
     styles,
