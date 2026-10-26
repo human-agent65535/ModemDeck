@@ -161,10 +161,10 @@ function sessionDescription(session: AccountSession): string {
 .account-sessions__current {
   padding: 5px 9px;
   color: var(--accent-strong);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   background: var(--accent-soft);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .account-sessions__logout {

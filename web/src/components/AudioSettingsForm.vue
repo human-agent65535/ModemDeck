@@ -490,7 +490,7 @@ onBeforeUnmount(() => {
 
 .audio-level-control output {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -502,7 +502,7 @@ onBeforeUnmount(() => {
 .audio-preferences__error {
   margin-top: 12px;
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 @media (max-width: 640px) {

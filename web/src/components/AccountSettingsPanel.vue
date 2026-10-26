@@ -13,6 +13,7 @@ import {
 import AccountProfileSetting from './AccountProfileSetting.vue'
 import DefaultLineSettingsForm from './DefaultLineSettingsForm.vue'
 import SystemSettingsForm from './SystemSettingsForm.vue'
+import ThemeSettingRow from './ThemeSettingRow.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 
 const { t } = useI18n()
@@ -79,6 +80,7 @@ onMounted(() => {
       />
 
       <SystemSettingsForm v-if="props.showLanguage" />
+      <ThemeSettingRow v-if="props.showLanguage" />
       <DefaultLineSettingsForm />
     </div>
   </SettingsLoadBoundary>
@@ -120,22 +122,22 @@ onMounted(() => {
 .account-settings-panel h3 {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-base);
   text-transform: none;
 }
 
 .account-settings-panel p {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .account-role {
   padding: 5px 9px;
   color: var(--accent-strong);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   background: var(--accent-soft);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 </style>

@@ -106,7 +106,7 @@ withDefaults(
 .list-skeleton__copy > span {
   width: min(62%, 190px);
   height: 11px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .list-skeleton__copy > span:last-child {

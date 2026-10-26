@@ -54,7 +54,7 @@ const toneStyle = computed(() =>
   padding: 0 7px;
   overflow: hidden;
   font-size: var(--text-xs);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -248,12 +248,12 @@ onBeforeUnmount(() => {
   gap: 7px;
   padding: 0 10px;
   color: var(--text);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   background: var(--surface);
   white-space: nowrap;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .incoming-call-mode__trigger:disabled {
@@ -270,7 +270,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   box-shadow: 0 12px 32px rgb(var(--shadow-color) / 16%);
 }
 
@@ -283,12 +283,12 @@ onBeforeUnmount(() => {
 }
 
 .incoming-call-mode__menu > header strong {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .incoming-call-mode__menu small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.45;
 }
 
@@ -341,7 +341,7 @@ onBeforeUnmount(() => {
 .incoming-call-mode__error {
   margin: 0;
   padding: 10px 14px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.45;
 }
 
@@ -364,7 +364,7 @@ onBeforeUnmount(() => {
   grid-column: 2;
   justify-self: start;
   color: inherit;
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   background: transparent;
 }
 
@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
 
   .incoming-call-mode__menu > header strong,
   .incoming-call-mode__menu > button strong {
-    font-size: 12px;
+    font-size: var(--text-xs);
   }
 
   .incoming-call-mode__menu small,

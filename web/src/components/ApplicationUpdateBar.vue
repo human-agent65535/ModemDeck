@@ -73,8 +73,8 @@ const message = computed(() =>
   min-width: 0;
   overflow: hidden;
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -84,8 +84,8 @@ const message = computed(() =>
   min-height: 38px;
   padding: 0 14px;
   color: var(--on-accent);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
   background: var(--accent);
   border-radius: var(--radius-control);
 }

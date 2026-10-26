@@ -43,7 +43,7 @@ function formatBytes(bytes: number): string {
   align-items: center;
   gap: 6px 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 

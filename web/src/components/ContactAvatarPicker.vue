@@ -170,7 +170,7 @@ function removeAvatar(): void {
 .contact-avatar-picker__target :deep(.avatar) {
   width: 74px;
   height: 74px;
-  font-size: 20px;
+  font-size: var(--text-lg);
 }
 
 .contact-avatar-picker__target:hover:not(:disabled),
@@ -229,8 +229,8 @@ function removeAvatar(): void {
   display: grid;
   place-items: center;
   color: var(--on-accent);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   background: rgb(var(--shadow-color) / 64%);
   border-radius: 50%;
 }
@@ -243,7 +243,7 @@ function removeAvatar(): void {
 
 .contact-avatar-picker__copy > span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .contact-avatar-picker__actions {

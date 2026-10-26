@@ -162,7 +162,7 @@ withDefaults(
   width: 100%;
   height: 116px;
   margin-bottom: 18px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .workspace-detail-skeleton__fact-row {
@@ -221,7 +221,7 @@ withDefaults(
 
 .workspace-detail-skeleton__summary-grid > span {
   height: 94px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .workspace-detail-skeleton__section-heading {
@@ -242,7 +242,7 @@ withDefaults(
 
 .workspace-detail-skeleton__card-grid > span {
   height: 86px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 @media (max-width: 560px) {

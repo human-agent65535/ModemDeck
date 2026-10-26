@@ -96,7 +96,7 @@ function iconFor(tone: FeedbackTone): typeof CircleCheck {
 
 .feedback-toast p {
   font-size: var(--text-base);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   line-height: 1.4;
 }
 

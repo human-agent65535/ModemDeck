@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { AudioLines, Download, Star, Trash2 } from '@lucide/vue'
+import { AudioLines, ChevronRight, Download, Star, Trash2 } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
 import BatchActionBar from '../components/BatchActionBar.vue'
 import CommunicationAvatar from '../components/CommunicationAvatar.vue'
@@ -731,6 +731,7 @@ onBeforeUnmount(() => {
                     :to="{ name: 'calls', query: { selected: selected.call.id } }"
                   >
                     {{ formatDateTime(selected.call.started_at) }}
+                    <ChevronRight :size="15" aria-hidden="true" />
                   </RouterLink>
                 </dd>
               </div>
@@ -823,8 +824,11 @@ onBeforeUnmount(() => {
 }
 
 .recording-call-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--accent-strong);
-  font-weight: 650;
+  font-weight: var(--weight-strong);
 }
 
 .recording-call-link:hover {

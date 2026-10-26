@@ -846,7 +846,7 @@ onBeforeUnmount(() => {
 .ios-pairing-note {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -863,10 +863,10 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   padding: 5px 8px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   background: var(--surface-hover);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .ios-status.is-active {
@@ -895,11 +895,11 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .ios-diagnostics {
@@ -932,13 +932,13 @@ onBeforeUnmount(() => {
 .ios-pairing-facts dt {
   color: var(--muted);
   font-size: var(--text-2xs);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
   text-transform: uppercase;
 }
 
 .ios-pairing-facts dd {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
 
@@ -980,7 +980,7 @@ onBeforeUnmount(() => {
 }
 
 .ios-qr-dialog h2 {
-  font-size: 17px;
+  font-size: var(--text-subheading);
 }
 
 .ios-qr-dialog header p,
@@ -988,7 +988,7 @@ onBeforeUnmount(() => {
 .ios-qr-warning {
   margin-top: 5px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -1014,12 +1014,12 @@ onBeforeUnmount(() => {
   resize: none;
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.45;
   overflow-wrap: anywhere;
   background: var(--surface-hover);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .ios-pairing-code .secondary-button {
@@ -1037,7 +1037,7 @@ onBeforeUnmount(() => {
   width: min(320px, 100%);
   height: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .ios-qr-warning {

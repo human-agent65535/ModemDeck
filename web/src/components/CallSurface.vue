@@ -766,7 +766,7 @@ onBeforeUnmount(() => {
 
 .call-card small.is-owned {
   color: var(--accent-strong);
-  font-weight: 650;
+  font-weight: var(--weight-strong);
 }
 
 .call-line-dot {
@@ -798,7 +798,7 @@ onBeforeUnmount(() => {
   position: relative;
   width: 88px;
   height: 88px;
-  font-size: 24px;
+  font-size: var(--text-xl);
 }
 
 .call-surface__ring {
@@ -826,7 +826,7 @@ onBeforeUnmount(() => {
 
 .call-surface__name {
   font-size: var(--text-lg);
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   line-height: 1.25;
 }
 
@@ -855,7 +855,7 @@ onBeforeUnmount(() => {
 .call-surface__bearer {
   color: var(--accent-strong);
   font-size: var(--text-2xs);
-  font-weight: 650;
+  font-weight: var(--weight-strong);
 }
 
 .call-surface__status {
@@ -874,7 +874,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   color: var(--muted-strong);
   font-size: var(--text-sm);
-  font-weight: 550;
+  font-weight: var(--weight-medium);
 }
 
 .call-surface__status-dot {
@@ -900,7 +900,7 @@ onBeforeUnmount(() => {
   color: var(--text);
   font-size: var(--text-2xl);
   font-variant-numeric: tabular-nums;
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   line-height: 1.15;
 }
 
@@ -914,7 +914,7 @@ onBeforeUnmount(() => {
   padding: var(--space-3);
   color: var(--warning-strong);
   font-size: var(--text-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   background: var(--warning-soft);
   border: 1px solid var(--warning-border);
   border-radius: var(--radius-md);
@@ -1050,7 +1050,7 @@ onBeforeUnmount(() => {
   color: var(--text);
   font-size: var(--text-xl);
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   line-height: 38px;
   text-align: center;
   white-space: nowrap;
@@ -1130,7 +1130,7 @@ onBeforeUnmount(() => {
 .call-footer-action {
   color: var(--text);
   font-size: var(--text-base);
-  font-weight: 550;
+  font-weight: var(--weight-medium);
   background: transparent;
 }
 
@@ -1174,7 +1174,7 @@ onBeforeUnmount(() => {
   .call-surface__avatar :deep(.avatar--large) {
     width: 96px;
     height: 96px;
-    font-size: 26px;
+    font-size: var(--text-xl);
   }
 
   .call-surface__primary-actions {
@@ -1190,7 +1190,7 @@ onBeforeUnmount(() => {
   .call-surface__avatar :deep(.avatar--large) {
     width: 68px;
     height: 68px;
-    font-size: 19px;
+    font-size: var(--text-lg);
   }
 
   .call-surface__avatar {

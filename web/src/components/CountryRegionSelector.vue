@@ -236,15 +236,15 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   color: var(--muted);
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
 .country-region-selector__trigger span {
   min-width: 22px;
   color: var(--ink);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--weight-strong);
   text-align: center;
 }
 
@@ -259,7 +259,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   padding: 5px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
 }
 
@@ -272,7 +272,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   padding: 0 10px;
   color: var(--muted);
   background: var(--surface-subtle);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .country-region-selector__search input {
@@ -300,7 +300,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   color: var(--ink);
   background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   text-align: left;
 }
@@ -320,19 +320,19 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 }
 
 .country-region-selector__identity strong {
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .country-region-selector__identity small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .country-region-selector__empty {
   margin: 0;
   padding: 12px 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .country-region-selector__option:hover,

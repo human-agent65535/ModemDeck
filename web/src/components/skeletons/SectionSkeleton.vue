@@ -91,7 +91,7 @@ withDefaults(
   gap: 12px;
   padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .section-skeleton--cards article > span:nth-child(2) {
@@ -116,13 +116,13 @@ withDefaults(
   width: 40px;
   height: 40px;
   flex: 0 0 40px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
 }
 
 .section-skeleton__status {
   width: 62px;
   height: 22px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .section-skeleton--facts {

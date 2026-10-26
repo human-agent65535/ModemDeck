@@ -151,7 +151,7 @@ test('mobile shell removes duplicate global search and compacts page toolbars', 
   assert.doesNotMatch(styles, /\.pane-header:not\(:has/)
   assert.match(
     styles,
-    /@media \(max-width: 640px\)[\s\S]*\.search-field input \{\s*font-size: 15px;/
+    /@media \(max-width: 640px\)[\s\S]*\.search-field input \{\s*font-size: var\(--text-md\);/
   )
 })
 

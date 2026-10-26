@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { Pause, Play } from '@lucide/vue'
+import { Pause, Play, RotateCcw, RotateCw } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import {
   applySelectedAudioOutput,
@@ -27,6 +27,9 @@ const currentTime = ref(0)
 const duration = ref(0)
 const playing = ref(false)
 const playbackError = ref('')
+// Call recordings are long and speech-only: speed and short skips, as in Voice Memos.
+const playbackRates = [1, 1.5, 2] as const
+const playbackRate = ref<number>(1)
 
 const accessibleLabel = computed(() => props.label || t('recordings.playback'))
 const volume = computed(() =>
@@ -98,6 +101,19 @@ function seek(event: Event): void {
   currentTime.value = element.currentTime
 }
 
+function skip(seconds: number): void {
+  const element = audio.value
+  if (!element || duration.value <= 0) return
+  element.currentTime = Math.min(duration.value, Math.max(0, element.currentTime + seconds))
+  currentTime.value = element.currentTime
+}
+
+function cycleRate(): void {
+  const index = playbackRates.indexOf(playbackRate.value as (typeof playbackRates)[number])
+  playbackRate.value = playbackRates[(index + 1) % playbackRates.length] ?? 1
+  if (audio.value) audio.value.playbackRate = playbackRate.value
+}
+
 async function togglePlayback(): Promise<void> {
   const element = audio.value
   if (!element) return
@@ -108,6 +124,7 @@ async function togglePlayback(): Promise<void> {
 
   playbackError.value = ''
   element.volume = volume.value
+  element.playbackRate = playbackRate.value
   if (!(await applySelectedAudioOutput(element))) {
     playbackError.value =
       audioState.outputRoutingError || t('audio.playbackFailed')
@@ -203,6 +220,38 @@ onBeforeUnmount(() => {
       </span>
     </span>
 
+    <span v-if="!compact" class="recording-audio-player__extras">
+      <button
+        class="icon-button"
+        type="button"
+        :disabled="duration <= 0"
+        :aria-label="t('recordings.skipBack')"
+        :title="t('recordings.skipBack')"
+        @click="skip(-10)"
+      >
+        <RotateCcw :size="17" />
+      </button>
+      <button
+        class="icon-button"
+        type="button"
+        :disabled="duration <= 0"
+        :aria-label="t('recordings.skipForward')"
+        :title="t('recordings.skipForward')"
+        @click="skip(10)"
+      >
+        <RotateCw :size="17" />
+      </button>
+      <button
+        class="recording-audio-player__rate"
+        type="button"
+        :aria-label="t('recordings.playbackSpeed', { rate: playbackRate })"
+        :title="t('recordings.playbackSpeed', { rate: playbackRate })"
+        @click="cycleRate"
+      >
+        {{ playbackRate }}×
+      </button>
+    </span>
+
     <span
       v-if="playbackError"
       class="recording-audio-player__error"
@@ -218,13 +267,32 @@ onBeforeUnmount(() => {
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
 }
 
 .recording-audio-player__native {
   display: none;
+}
+
+.recording-audio-player__extras {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.recording-audio-player__rate {
+  min-width: 44px;
+  height: 32px;
+  padding: 0 var(--space-2);
+  color: var(--muted-strong);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-strong);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
 }
 
 .recording-audio-player__toggle {
@@ -276,22 +344,22 @@ onBeforeUnmount(() => {
   appearance: none;
   background: var(--control-muted);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .recording-audio-player__timeline progress::-webkit-progress-bar {
   background: var(--control-muted);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .recording-audio-player__timeline progress::-webkit-progress-value {
   background: var(--accent-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .recording-audio-player__timeline progress::-moz-progress-bar {
   background: var(--accent-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .recording-audio-player__timeline input {
@@ -310,6 +378,13 @@ onBeforeUnmount(() => {
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
+}
+
+@media (max-width: 560px) {
+  .recording-audio-player__extras {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
 }
 
 .recording-audio-player__error {

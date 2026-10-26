@@ -47,7 +47,7 @@ const hint = computed(() => {
 }
 .call-test-feedback label,
 .call-test-feedback span {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 .call-test-feedback meter {
@@ -58,14 +58,14 @@ const hint = computed(() => {
 .call-test-feedback p {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.6;
 }
 .call-test-feedback dl {
   display: grid;
   gap: 4px;
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 .call-test-feedback dl > div {
   display: flex;

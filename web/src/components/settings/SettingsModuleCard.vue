@@ -99,7 +99,7 @@ const headingTag = computed(() => `h${props.headingLevel}`)
 .settings-module-card__icon--brand {
   color: var(--on-accent);
   font-size: var(--text-lg);
-  font-weight: 750;
+  font-weight: var(--weight-strong);
   background: linear-gradient(145deg, var(--accent), var(--accent-strong));
   box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 18%, transparent);
 }

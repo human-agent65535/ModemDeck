@@ -1037,7 +1037,7 @@ onBeforeUnmount(() => {
 .call-sync-status button {
   flex: 0 0 auto;
   color: inherit;
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 

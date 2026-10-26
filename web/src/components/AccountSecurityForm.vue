@@ -199,14 +199,14 @@ async function submit(): Promise<void> {
 .account-security h3 {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-base);
   text-transform: none;
 }
 
 .account-security header p {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .account-security__form {
@@ -235,7 +235,7 @@ async function submit(): Promise<void> {
 .account-security__feedback {
   margin: 0;
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.4;
 }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -223,6 +224,8 @@ const formChanged = computed(() => {
     Boolean(botToken.value.trim())
   )
 })
+// Choosing another entry or leaving Settings asks before an edit is thrown away.
+useUnsavedChangesGuard(() => !creating.value && !saving.value && formChanged.value)
 
 function applyUnit(unit?: TelegramUnit): void {
   const scopes = [...new Set(unit?.line_scopes || [])]
@@ -786,6 +789,9 @@ onMounted(() => {
           <div class="settings-form-feedback">
             <p v-if="validationError" class="field-error" role="alert">{{ validationError }}</p>
             <p v-else-if="saveError" class="field-error" role="alert">{{ saveError }}</p>
+            <p v-else-if="!creating && formChanged" class="settings-form-actions__dirty">
+              {{ t('common.unsavedChanges') }}
+            </p>
           </div>
 
           <button
@@ -820,14 +826,14 @@ onMounted(() => {
 .telegram-form-heading__copy h3 {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
-  font-weight: 750;
+  font-size: var(--text-base);
+  font-weight: var(--weight-strong);
 }
 
 .telegram-form-heading__copy small {
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 550;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
 }
 
 .telegram-unit-row {
@@ -869,7 +875,7 @@ onMounted(() => {
 .telegram-unit-row__topline > strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -877,7 +883,7 @@ onMounted(() => {
 .telegram-unit-row__copy > small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -889,7 +895,7 @@ onMounted(() => {
   gap: 4px;
   color: var(--muted);
   font-size: var(--text-2xs);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .telegram-unit-row__state.is-draft {
@@ -904,7 +910,7 @@ onMounted(() => {
   overflow: hidden;
   color: var(--muted);
   font-size: var(--text-2xs);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -938,7 +944,7 @@ onMounted(() => {
   color: var(--accent-strong);
   background: var(--accent-soft);
   border: 1px solid var(--success-border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .telegram-form-heading__icon {
@@ -968,7 +974,7 @@ onMounted(() => {
   width: 30px;
   height: 30px;
   flex: 0 0 30px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .telegram-editor-section__heading h4 {
@@ -976,8 +982,8 @@ onMounted(() => {
   flex: 1;
   margin: 0;
   color: var(--text);
-  font-size: 13px;
-  font-weight: 750;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
 }
 
 .telegram-scope-save-state {
@@ -987,7 +993,7 @@ onMounted(() => {
   gap: 5px;
   color: var(--accent-strong);
   font-size: var(--text-2xs);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .telegram-bot-identity .settings-form-grid {
@@ -1023,7 +1029,7 @@ onMounted(() => {
   grid-template-columns: 22px minmax(0, 1fr) 18px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .telegram-access-options > label:hover {
@@ -1059,7 +1065,7 @@ onMounted(() => {
 
 .telegram-access-options strong {
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .telegram-access-options small {
@@ -1112,22 +1118,23 @@ onMounted(() => {
   padding: 8px 10px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
-.telegram-event-options label:hover,
-.telegram-event-options label.is-selected {
+/* A checked option is marked by its border and tick, not a filled card, so selection
+   stays distinct from the selected list row and navigation item. */
+.telegram-event-options label:hover {
   border-color: var(--accent-border-strong);
 }
 
 .telegram-event-options label.is-selected {
-  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .telegram-event-options label:has(input:focus-visible) {
-  outline: 3px solid color-mix(in srgb, var(--accent) 14%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .telegram-event-option__icon {
@@ -1144,7 +1151,7 @@ onMounted(() => {
 .telegram-event-options strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1160,7 +1167,7 @@ onMounted(() => {
   padding: 12px;
   background: var(--surface-subtle);
   border: 1px dashed var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   grid-column: 1 / -1;
 }
 

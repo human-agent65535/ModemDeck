@@ -85,7 +85,7 @@ const emit = defineEmits<{
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .batch-action-bar button {
@@ -98,10 +98,10 @@ const emit = defineEmits<{
   gap: 5px;
   padding: 0;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   background: transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .batch-action-bar button:hover:not(:disabled) {
@@ -128,10 +128,10 @@ const emit = defineEmits<{
   gap: 5px;
   padding: 0;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   background: transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .batch-action-bar__actions :deep(button:hover:not(:disabled)) {

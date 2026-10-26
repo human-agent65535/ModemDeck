@@ -114,7 +114,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .recording-settings__state--error,
@@ -124,7 +124,7 @@ onMounted(() => {
 
 .recording-settings__state button {
   color: inherit;
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   background: transparent;
 }
 
@@ -137,6 +137,6 @@ onMounted(() => {
 
 .recording-settings__error {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 </style>

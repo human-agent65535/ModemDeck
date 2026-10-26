@@ -169,7 +169,7 @@ test('all communication list panes expose selection and their eligible batch act
   assert.match(selectableRow, /<SelectionCheckIndicator[\s\S]*:checked="selected"/)
   assert.match(selectionIndicator, /width: 22px;/)
   assert.match(selectionIndicator, /height: 22px;/)
-  assert.match(selectionIndicator, /border-radius: 5px;/)
+  assert.match(selectionIndicator, /border-radius: var\(--radius-xs\);/)
   assert.match(selectionToggle, /import \{ ListChecks \}/)
   assert.match(selectionToggle, /<ListChecks :size="18"/)
   assert.doesNotMatch(selectionToggle, /<X |<CheckSquare2/)

@@ -37,7 +37,7 @@ defineProps<{
 
 .list-item-status-rail time {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.25;
   white-space: nowrap;
 }

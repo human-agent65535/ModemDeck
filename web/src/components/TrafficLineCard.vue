@@ -153,7 +153,7 @@ function secondaryIdentity(): string {
   container-type: inline-size;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .traffic-line-card > header {
@@ -183,13 +183,13 @@ function secondaryIdentity(): string {
 
 .traffic-line-card__identity strong {
   align-self: center;
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .traffic-line-card__identity small {
   grid-column: 1 / -1;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .traffic-line-card__state {
@@ -198,8 +198,8 @@ function secondaryIdentity(): string {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   white-space: nowrap;
 }
 
@@ -218,7 +218,7 @@ function secondaryIdentity(): string {
   overflow: hidden;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .traffic-line-card dl > div {
@@ -244,15 +244,15 @@ function secondaryIdentity(): string {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .traffic-line-card dd {
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;

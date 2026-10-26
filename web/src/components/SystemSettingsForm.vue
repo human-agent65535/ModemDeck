@@ -180,7 +180,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .system-settings__feedback {
@@ -189,7 +189,7 @@ onMounted(() => {
   gap: 5px;
   margin: 0;
   color: var(--accent-strong);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .system-settings__feedback.is-error {
@@ -199,7 +199,7 @@ onMounted(() => {
 .system-settings__feedback button {
   margin-left: 6px;
   color: inherit;
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   background: transparent;
 }
 

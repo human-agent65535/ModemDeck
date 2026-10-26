@@ -288,8 +288,8 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 4px;
   color: var(--on-accent);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
 }
 
 .swipe-action-row__action--read {

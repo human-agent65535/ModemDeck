@@ -538,7 +538,7 @@ const accessTechnology = computed(() => {
   gap: 4px;
   color: var(--muted);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .module-card dd {
@@ -560,7 +560,7 @@ const accessTechnology = computed(() => {
 
 .module-card__technology {
   color: var(--accent-strong);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .module-card__footer {

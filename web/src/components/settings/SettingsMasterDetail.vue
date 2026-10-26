@@ -120,8 +120,8 @@ const emit = defineEmits<{
 .settings-master-detail__sidebar-copy strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 14px;
-  font-weight: 750;
+  font-size: var(--text-base);
+  font-weight: var(--weight-strong);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -129,8 +129,8 @@ const emit = defineEmits<{
 .settings-master-detail__sidebar-copy small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 550;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -156,7 +156,7 @@ const emit = defineEmits<{
   height: 32px;
   padding: 0;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
   background: transparent;
   border: 0;
   outline: 0;

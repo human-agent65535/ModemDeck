@@ -355,7 +355,7 @@ defineProps<{
   width: 40px;
   height: 40px;
   flex: 0 0 40px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
 }
 
 .settings-skeleton__round-action {
@@ -372,7 +372,7 @@ defineProps<{
   width: 72px;
   height: 24px;
   flex: 0 0 72px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .settings-skeleton__control {
@@ -485,7 +485,7 @@ defineProps<{
   gap: 18px;
   padding: 18px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .settings-skeleton__certificate-fields {
@@ -510,7 +510,7 @@ defineProps<{
   padding: 18px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .settings-skeleton__card-body {
@@ -641,7 +641,7 @@ defineProps<{
   gap: 12px;
   padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .settings-skeleton__tabs {

@@ -2616,12 +2616,12 @@ onMounted(() => {
 .module-toolbar h3,
 .configuration-section h4 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 
 .module-toolbar span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .module-grid {
@@ -2657,8 +2657,8 @@ onMounted(() => {
 .sim-form label > span,
 .configuration-control-row label > span {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .data-apn-field input,
@@ -2672,11 +2672,11 @@ onMounted(() => {
   height: 36px;
   min-width: 0;
   padding: 0 9px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .primary-action,
@@ -2687,9 +2687,9 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   padding: 0 11px;
-  font-size: 13px;
-  font-weight: 650;
-  border-radius: 5px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  border-radius: var(--radius-xs);
 }
 
 .primary-action {
@@ -2726,7 +2726,7 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   border-bottom: 2px solid transparent;
 }
 
@@ -2751,8 +2751,8 @@ onMounted(() => {
 
 .selected-module-context__identity > span {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .selected-module-context__name {
@@ -2765,7 +2765,7 @@ onMounted(() => {
 .selected-module-context__name > strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 16px;
+  font-size: var(--text-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2785,7 +2785,7 @@ onMounted(() => {
   place-items: center;
   color: var(--muted);
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .module-name-edit-button:hover,
@@ -2828,13 +2828,13 @@ onMounted(() => {
   height: 34px;
   min-width: 160px;
   padding: 0 9px;
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 
 .module-name-error {
   margin: 2px 0 0;
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .device-configuration__body {
@@ -2854,7 +2854,7 @@ onMounted(() => {
   color: var(--warning-strong);
   background: var(--warning-soft);
   border: 1px solid var(--warning-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .device-recovery-notice > span {
@@ -2866,7 +2866,7 @@ onMounted(() => {
 
 .device-recovery-notice small {
   color: var(--warning);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .configuration-section {
@@ -2911,8 +2911,8 @@ onMounted(() => {
 .line-label-form__name > label > span,
 .line-color-picker legend {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .line-label-form__name > label input {
@@ -2920,11 +2920,11 @@ onMounted(() => {
   height: 36px;
   min-width: 0;
   padding: 0 9px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .line-color-picker {
@@ -2958,7 +2958,7 @@ onMounted(() => {
   height: 26px;
   place-items: center;
   border: 1px solid;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   transition:
     box-shadow var(--motion-fast) var(--ease-standard),
     transform var(--motion-fast) var(--ease-standard);
@@ -3006,16 +3006,16 @@ onMounted(() => {
   height: 34px;
   max-width: 160px;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 32px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .line-label-status {
   min-height: 18px;
   margin: 5px 0 0;
   color: var(--accent-strong);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .line-label-status.is-error {
@@ -3037,15 +3037,15 @@ onMounted(() => {
 .configuration-summary dt,
 .configuration-facts dt {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .configuration-summary dd,
 .configuration-facts dd {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .configuration-summary__signal {
@@ -3082,7 +3082,7 @@ onMounted(() => {
 .hardware-ports > summary > small {
   margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .hardware-ports ul {
@@ -3091,7 +3091,7 @@ onMounted(() => {
   margin: 8px 0 0;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   list-style: none;
 }
 
@@ -3112,13 +3112,13 @@ onMounted(() => {
 .hardware-ports code {
   overflow-wrap: anywhere;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .hardware-ports li span {
   flex: 0 0 auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .configuration-toggle,
@@ -3144,12 +3144,12 @@ onMounted(() => {
 
 .configuration-toggle small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .configuration-toggle small.configuration-toggle__unsupported {
   color: var(--danger);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .configuration-toggle__control {
@@ -3171,7 +3171,7 @@ onMounted(() => {
   color: var(--warning-strong);
   background: var(--warning-soft);
   border: 1px solid var(--warning-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .volte-provisioning {
@@ -3192,7 +3192,7 @@ onMounted(() => {
 
 .restart-required small {
   color: var(--warning);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .restart-action {
@@ -3225,8 +3225,8 @@ onMounted(() => {
 .ip-mode-field legend {
   margin-bottom: 5px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .ip-mode-options {
@@ -3236,7 +3236,7 @@ onMounted(() => {
   padding: 3px;
   background: var(--surface-subtle);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .ip-mode-options label {
@@ -3252,10 +3252,10 @@ onMounted(() => {
   justify-content: center;
   padding: 0 8px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   white-space: nowrap;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .ip-mode-options input:checked + span {
@@ -3312,13 +3312,13 @@ onMounted(() => {
 
 .data-connection-status strong {
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .data-connection-status small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3341,14 +3341,14 @@ onMounted(() => {
 
 .data-connection-facts dt {
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
 }
 
 .data-connection-facts dd {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .network-selection {
@@ -3367,7 +3367,7 @@ onMounted(() => {
 .network-selection-heading small {
   margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .network-selection__load-error {
@@ -3381,7 +3381,7 @@ onMounted(() => {
 .network-selection__load-error p {
   margin: 0;
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .network-selection-mode {
@@ -3402,7 +3402,7 @@ onMounted(() => {
   isolation: isolate;
   background: var(--surface-subtle);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .network-selection-mode__slider {
@@ -3414,7 +3414,7 @@ onMounted(() => {
   width: calc((100% - 6px) / 2);
   pointer-events: none;
   background: var(--surface);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   box-shadow: 0 1px 3px rgb(var(--shadow-color) / 12%);
   transition: transform var(--motion-base) var(--ease-standard);
 }
@@ -3435,9 +3435,9 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
-  border-radius: 4px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  border-radius: var(--radius-xs);
 }
 
 .network-selection-mode__options input:checked + span {
@@ -3485,7 +3485,7 @@ onMounted(() => {
   gap: 8px;
   margin: 5px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .network-scan-state.is-error {
@@ -3538,7 +3538,7 @@ onMounted(() => {
 
 .mobile-network-list__identity strong {
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3546,7 +3546,7 @@ onMounted(() => {
 .mobile-network-list__identity small,
 .mobile-network-list__status {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .mobile-network-list__status {
@@ -3587,7 +3587,7 @@ onMounted(() => {
 .advanced-profiles > summary > small {
   margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .advanced-profiles__body {
@@ -3617,7 +3617,7 @@ onMounted(() => {
   padding: 4px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .profile-list > div > button:first-child {
@@ -3636,7 +3636,7 @@ onMounted(() => {
 .profile-list small,
 .profile-list > div > button > span:nth-child(2) {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .profile-list > div.is-selected {
@@ -3699,33 +3699,33 @@ onMounted(() => {
   padding: 10px 12px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .sim-slot__name {
   grid-area: name;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .sim-slot__state {
   grid-area: state;
-  font-size: 13px;
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
 }
 
 .sim-slot__type {
   grid-area: type;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .sim-slot__badge {
   grid-area: badge;
   align-self: center;
   color: var(--accent-strong);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
 }
 
 .sim-slot__identity {
@@ -3733,7 +3733,7 @@ onMounted(() => {
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3746,9 +3746,9 @@ onMounted(() => {
 .retry-row span {
   padding: 4px 7px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   background: var(--surface-subtle);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .configuration-control-row {
@@ -3771,7 +3771,7 @@ onMounted(() => {
   gap: 5px 8px;
   margin: 9px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .configuration-control-status strong {
@@ -3789,8 +3789,8 @@ onMounted(() => {
 .incoming-policy legend {
   margin-bottom: 5px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .incoming-policy__options {
@@ -3803,7 +3803,7 @@ onMounted(() => {
   isolation: isolate;
   background: var(--surface-subtle);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .incoming-policy__slider {
@@ -3815,7 +3815,7 @@ onMounted(() => {
   width: calc((100% - 6px) / 3);
   pointer-events: none;
   background: var(--surface);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   box-shadow: 0 1px 3px rgb(var(--shadow-color) / 12%);
   transform: translateX(0);
   transition: transform var(--motion-base) var(--ease-standard);
@@ -3843,9 +3843,9 @@ onMounted(() => {
   justify-content: center;
   padding: 0 8px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
-  border-radius: 4px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  border-radius: var(--radius-xs);
 }
 
 .incoming-policy__options input:checked + span {
@@ -3878,7 +3878,7 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .incoming-policy__status strong {
@@ -3894,7 +3894,7 @@ onMounted(() => {
   min-height: 28px;
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 28px;
 }
 
@@ -3917,7 +3917,7 @@ onMounted(() => {
   color: var(--danger);
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .voice-status span {
@@ -3928,7 +3928,7 @@ onMounted(() => {
 
 .voice-status small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .voice-status.is-available {
@@ -3950,7 +3950,7 @@ onMounted(() => {
   gap: 7px;
   margin: 10px 0;
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .inline-warning {
@@ -3973,18 +3973,18 @@ onMounted(() => {
 
 .ussd-status span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 pre {
   margin: 12px 0 0;
   padding: 10px;
   overflow: auto;
-  font-size: 12px;
+  font-size: var(--text-xs);
   white-space: pre-wrap;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 @media (max-width: 1100px) {

@@ -100,15 +100,15 @@ function updateValue(event: Event): void {
 
 .textarea-control__label {
   color: var(--text);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .textarea-control__surface {
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   transition:
     border-color var(--motion-fast) var(--ease-standard),
     box-shadow var(--motion-fast) var(--ease-standard),
@@ -130,7 +130,7 @@ function updateValue(event: Event): void {
   padding: 11px 12px;
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
   appearance: none;
   resize: none;
@@ -156,13 +156,13 @@ function updateValue(event: Event): void {
 
 .textarea-control__description {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .textarea-control__error {
   margin: 0;
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .textarea-control.is-disabled {

@@ -177,7 +177,7 @@ test('dialer separates the primary call action from backspace', async () => {
     /grid-template-columns: repeat\(3, var\(--keypad-track-size\)\)/
   )
   assert.match(dialer, /<small v-if="key\.letters">\{\{ key\.letters \}\}<\/small>/)
-  assert.match(styles, /\.keypad__key strong\s*\{[\s\S]*?font-size: 28px/)
+  assert.match(styles, /\.keypad__key strong\s*\{[\s\S]*?font-size: var\(--text-display\)/)
   assert.match(styles, /\.keypad__key--zero small\s*\{[\s\S]*?font-size: var\(--text-base\)/)
 })
 
@@ -216,7 +216,7 @@ test('contact suggestions expose a complete combobox relationship', async () => 
   assert.match(suggest, /:aria-selected="index === activeIndex"/)
   assert.match(
     suggest,
-    /\.suggest-input__field input::placeholder\s*\{[\s\S]*font-size:\s*15px[\s\S]*font-weight:\s*500/
+    /\.suggest-input__field input::placeholder\s*\{[\s\S]*font-size:\s*var\(--text-md\)[\s\S]*font-weight:\s*var\(--weight-medium\)/
   )
 })
 

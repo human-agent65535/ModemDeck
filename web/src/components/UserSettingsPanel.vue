@@ -10,6 +10,7 @@ import {
   UserRound,
   X
 } from '@lucide/vue'
+import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { gateway } from '../api/client'
@@ -123,6 +124,8 @@ const formChanged = computed(() => {
     currentLines.some((id, index) => id !== savedLines[index])
   )
 })
+// Choosing another entry or leaving Settings asks before an edit is thrown away.
+useUnsavedChangesGuard(() => !creating.value && !saving.value && formChanged.value)
 
 function lineForID(id: string): LineSummary | undefined {
   return lines.value.find(line => lineKey(line) === id)
@@ -685,6 +688,9 @@ onMounted(() => {
               <span class="user-feedback">
                 <span v-if="validationError" class="field-error">{{ validationError }}</span>
                 <span v-else-if="saveError" class="field-error">{{ saveError }}</span>
+                <span v-else-if="!creating && formChanged" class="settings-form-actions__dirty">
+                  {{ t('common.unsavedChanges') }}
+                </span>
               </span>
               <span class="user-form-actions__buttons">
                 <button
@@ -872,9 +878,9 @@ onMounted(() => {
   padding: 5px 9px;
   color: var(--accent-strong);
   font-size: var(--text-2xs);
-  font-weight: 750;
+  font-weight: var(--weight-strong);
   background: var(--accent-soft);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .user-editor__heading small {
@@ -888,12 +894,12 @@ onMounted(() => {
 .user-editor h4 {
   margin: 0;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-transform: none;
 }
 
 .user-editor__heading h3 {
-  font-size: 16px;
+  font-size: var(--text-md);
 }
 
 .user-management-card__body {
@@ -958,10 +964,10 @@ onMounted(() => {
   padding: 2px 7px;
   color: var(--muted-strong);
   font-size: var(--text-2xs);
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   line-height: 1.4;
   background: var(--surface-hover);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .user-pairing-state.is-paired {
@@ -988,8 +994,8 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
   color: var(--text);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .user-lines__state {
@@ -998,14 +1004,14 @@ onMounted(() => {
   gap: 5px;
   color: var(--accent-strong);
   font-size: var(--text-2xs);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .user-lines > p,
 .user-admin-summary p {
   margin: 3px 0 12px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .user-lines > .field-error {
@@ -1042,7 +1048,7 @@ onMounted(() => {
 
 .user-password-dialog h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-md);
 }
 
 .user-password-dialog > header svg {
@@ -1070,7 +1076,7 @@ onMounted(() => {
 
 .user-admin-summary strong {
   color: var(--accent-strong);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 @container (max-width: 720px) {

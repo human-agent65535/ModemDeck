@@ -506,7 +506,7 @@ onBeforeUnmount(() => {
   padding: 0 12px 6px;
   color: var(--muted);
   font-size: var(--text-2xs);
-  font-weight: 750;
+  font-weight: var(--weight-strong);
   letter-spacing: 0.08em;
   line-height: 1.2;
   text-transform: uppercase;

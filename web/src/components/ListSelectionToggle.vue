@@ -40,11 +40,11 @@ const emit = defineEmits<{
   margin-left: auto;
   padding: 0;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .pane-selection-toggle:hover:not(:disabled),

@@ -64,7 +64,7 @@ withDefaults(
 .settings-control-row small {
   overflow: hidden;
   color: var(--muted);
-  font-size: var(--text-2xs);
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

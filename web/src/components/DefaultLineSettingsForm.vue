@@ -101,7 +101,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .default-line-settings__feedback {
@@ -110,7 +110,7 @@ onMounted(() => {
   gap: 5px;
   margin: 0;
   color: var(--success);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .default-line-settings__feedback.is-error {

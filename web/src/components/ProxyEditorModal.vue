@@ -279,7 +279,7 @@ watch(
 }
 
 .proxy-modal h2 {
-  font-size: 17px;
+  font-size: var(--text-subheading);
 }
 
 .proxy-modal form {
@@ -301,8 +301,8 @@ watch(
 .proxy-field legend {
   padding: 0;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .proxy-field input,
@@ -313,7 +313,7 @@ watch(
   padding: 0 11px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .proxy-fields-row {
@@ -333,17 +333,17 @@ watch(
   grid-template-columns: repeat(2, minmax(110px, auto));
   padding: 3px;
   background: var(--surface-hover);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .proxy-segmented button {
   min-height: 34px;
   padding: 0 12px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   background: transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .proxy-segmented button.is-selected {
@@ -354,7 +354,7 @@ watch(
 
 .proxy-modal__error {
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .proxy-modal form > footer {

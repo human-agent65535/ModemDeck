@@ -830,11 +830,11 @@ onBeforeUnmount(() => {
   padding: 0 7px;
   color: var(--accent-strong);
   font: inherit;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   background: var(--accent-soft);
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
 
@@ -966,8 +966,8 @@ onBeforeUnmount(() => {
   max-width: 52px;
   overflow: hidden;
   color: var(--danger);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -992,7 +992,7 @@ onBeforeUnmount(() => {
   padding: 5px 11px 5px 6px;
   background: var(--accent-soft);
   border: 1px solid color-mix(in srgb, var(--accent) 12%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .dialer-contact-match__copy {
@@ -1009,7 +1009,7 @@ onBeforeUnmount(() => {
 .dialer-contact-match__copy strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1022,7 +1022,7 @@ onBeforeUnmount(() => {
 .dialer-recording__error {
   margin-top: 7px;
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .dialer-keypad-stage {
@@ -1045,7 +1045,7 @@ onBeforeUnmount(() => {
 .dialer-recording-note {
   margin-top: 7px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .dialer-primary-action {
@@ -1060,7 +1060,7 @@ onBeforeUnmount(() => {
 
 .dialer-primary-action small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 @media (max-height: 760px) {
@@ -1142,7 +1142,7 @@ onBeforeUnmount(() => {
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
-    border-radius: 8px 8px 0 0;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   }
 
   .dialer-surface-enter-from .dialer-panel,

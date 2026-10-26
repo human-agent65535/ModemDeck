@@ -171,6 +171,11 @@ const unreadMessages = computed(() =>
 const missedCalls = computed(
   () => callsResource.data.filter(call => call.missed && !call.read).length
 )
+// Communication metrics only: monthly traffic already has its own section below.
+const callsToday = computed(() => {
+  const today = new Date().toDateString()
+  return callsResource.data.filter(call => new Date(call.started_at).toDateString() === today).length
+})
 const onlineModules = computed(
   () => presentModules.value.filter(line => isRegisteredNetwork(line)).length
 )
@@ -293,19 +298,6 @@ const favoriteContacts = computed(() =>
     .filter(contact => contact.favorite)
     .slice(0, 6)
 )
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB', 'TB', 'PB']
-  let value = bytes / 1024
-  let unit = units[0]
-  for (let index = 1; index < units.length && value >= 1024; index += 1) {
-    value /= 1024
-    unit = units[index]
-  }
-  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2
-  return `${value.toFixed(precision)} ${unit}`
-}
 
 function callName(call: CallRecord): string {
   return (
@@ -1053,13 +1045,13 @@ onBeforeUnmount(() => {
               </span>
               <ChevronRight :size="17" />
             </RouterLink>
-            <RouterLink class="dashboard-summary-card is-traffic" :to="{ name: 'traffic' }">
+            <RouterLink class="dashboard-summary-card is-calls" :to="{ name: 'calls' }">
               <span class="dashboard-summary-icon">
-                <ChartNoAxesCombined :size="20" />
+                <Phone :size="20" />
               </span>
-              <span class="dashboard-summary-value">{{ formatBytes(monthTraffic) }}</span>
+              <span class="dashboard-summary-value">{{ callsToday }}</span>
               <span class="dashboard-summary-label">
-                {{ t('dashboard.monthTraffic') }}
+                {{ t('dashboard.callsToday') }}
               </span>
               <ChevronRight :size="17" />
             </RouterLink>
@@ -1316,18 +1308,18 @@ onBeforeUnmount(() => {
   min-height: 40px;
   padding: 13px 16px 9px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-transform: none;
 }
 
 .dashboard-overview-row .list-item__content small {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .dashboard-inline-error {
   min-height: 48px;
   padding: 9px 14px;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .dashboard-detail-scroll {
@@ -1450,7 +1442,7 @@ onBeforeUnmount(() => {
 }
 
 .dashboard-detail-section h3 {
-  font-size: 16px;
+  font-size: var(--text-md);
 }
 
 .dashboard-section-metrics {
@@ -1458,7 +1450,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .dashboard-section-metrics b {
@@ -1468,7 +1460,7 @@ onBeforeUnmount(() => {
 
 .dashboard-detail-section > header a {
   min-height: 36px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -1495,7 +1487,7 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .dashboard-contact-row:last-child {
@@ -1511,11 +1503,11 @@ onBeforeUnmount(() => {
 }
 
 .dashboard-contact-row strong {
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .dashboard-contact-row small {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .dashboard-contact-actions {
@@ -1531,10 +1523,10 @@ onBeforeUnmount(() => {
 .dashboard-section-state {
   min-height: 92px;
   padding: 18px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .dashboard-favorites-empty {
@@ -1603,11 +1595,11 @@ onBeforeUnmount(() => {
   }
 
   .dashboard-summary-value {
-    font-size: 22px;
+    font-size: var(--text-xl);
   }
 
   .dashboard-summary-label {
-    font-size: 12px;
+    font-size: var(--text-xs);
   }
 
   .dashboard-module-grid,

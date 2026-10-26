@@ -61,7 +61,7 @@ const showNumber = computed(
 
 .contact-header-identity h2 {
   overflow: hidden;
-  font-size: 17px;
+  font-size: var(--text-subheading);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -77,14 +77,14 @@ const showNumber = computed(
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 @media (max-width: 640px) {
   .contact-header-identity h2 {
-    font-size: 16px;
+    font-size: var(--text-subheading);
   }
 }
 </style>

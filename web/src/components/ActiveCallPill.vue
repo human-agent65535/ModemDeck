@@ -81,7 +81,7 @@ onBeforeUnmount(() => window.clearInterval(timer))
   padding: 0 var(--space-3);
   color: var(--success);
   font-size: var(--text-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   background: var(--success-soft);
   border: 1px solid var(--success-border-strong);
   border-radius: var(--radius-pill);

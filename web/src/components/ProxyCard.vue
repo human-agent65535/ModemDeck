@@ -178,7 +178,7 @@ function applyStateLabel(): string {
   padding: 16px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .proxy-card > header {
@@ -198,7 +198,7 @@ function applyStateLabel(): string {
 
 .proxy-card > header strong {
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--text-base);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -213,24 +213,24 @@ function applyStateLabel(): string {
   margin: 14px 0 2px;
   padding: 8px 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   background: var(--surface-subtle);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .proxy-card__runtime-label {
   flex: 0 0 auto;
-  font-weight: 650;
+  font-weight: var(--weight-strong);
 }
 
 .proxy-card__apply-state {
   margin-left: auto;
   padding: 2px 5px;
   color: var(--warning-strong);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   background: var(--warning-soft);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .proxy-card__runtime-error {
@@ -239,7 +239,7 @@ function applyStateLabel(): string {
   padding-left: 21px;
   overflow: hidden;
   color: inherit;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -270,7 +270,7 @@ function applyStateLabel(): string {
 
 .proxy-card dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
@@ -278,7 +278,7 @@ function applyStateLabel(): string {
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;

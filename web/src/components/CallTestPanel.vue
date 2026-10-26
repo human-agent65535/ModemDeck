@@ -77,7 +77,7 @@ const { t } = useI18n()
 .call-test p {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.6;
 }
 .call-test p.call-test__error {

@@ -351,6 +351,15 @@ onBeforeUnmount(() => {
           <div class="about-status__copy">
             <strong>{{ statusTitle }}</strong>
             <p>{{ statusDescription }}</p>
+            <button
+              v-if="statusClass(update?.status) === 'about-status--unavailable' && !checking"
+              class="secondary-button about-status__retry"
+              type="button"
+              :disabled="applying"
+              @click="checkForUpdates(true)"
+            >
+              {{ t('common.retry') }}
+            </button>
           </div>
         </div>
 
@@ -513,7 +522,7 @@ onBeforeUnmount(() => {
 .about-product__error {
   margin: 0 0 12px;
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .about-facts {
@@ -531,13 +540,13 @@ onBeforeUnmount(() => {
 
 .about-facts dt {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .about-facts dd {
   margin: 4px 0 0;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .about-facts a {
@@ -580,10 +589,15 @@ onBeforeUnmount(() => {
   --about-status-border: var(--warning-border);
 }
 
+/* A failed check is retryable, not a fault: a neutral card with a warning line and Retry. */
 .about-update.about-status--unavailable {
-  --about-status-color: var(--danger);
-  --about-status-background: var(--danger-soft);
-  --about-status-border: color-mix(in srgb, var(--danger) 28%, var(--border));
+  --about-status-color: var(--warning-strong);
+  --about-status-background: var(--surface-subtle);
+  --about-status-border: var(--border);
+}
+
+.about-status__retry {
+  margin-top: var(--space-2);
 }
 
 .about-status {
@@ -608,7 +622,7 @@ onBeforeUnmount(() => {
   place-items: center;
   background: color-mix(in srgb, var(--surface) 58%, transparent);
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
 }
 
 .about-status__copy {
@@ -618,12 +632,12 @@ onBeforeUnmount(() => {
 
 .about-status__copy strong {
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .about-status__copy p {
   margin: 3px 0 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -645,8 +659,8 @@ onBeforeUnmount(() => {
 .about-update__section-heading strong,
 .about-update__target-heading strong {
   color: var(--text);
-  font-size: 11px;
-  font-weight: 750;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
 }
 
 .about-update__section-heading small {
@@ -667,7 +681,7 @@ onBeforeUnmount(() => {
 .about-release__content li,
 .about-release__content p {
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.5;
 }
 
@@ -718,7 +732,7 @@ onBeforeUnmount(() => {
   margin-top: 9px;
   overflow: hidden;
   background: color-mix(in srgb, var(--about-status-color) 13%, var(--surface));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .about-update__progress > span {
@@ -767,10 +781,10 @@ onBeforeUnmount(() => {
   padding: 4px 8px;
   color: var(--success);
   font-size: var(--text-2xs);
-  font-weight: 750;
+  font-weight: var(--weight-strong);
   background: var(--success-soft);
   border: 1px solid var(--success-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .about-update__components--progress .about-update__component-row {
@@ -789,7 +803,7 @@ onBeforeUnmount(() => {
   min-width: 88px;
   color: var(--muted);
   font-size: var(--text-2xs);
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   text-align: right;
 }
 
@@ -821,8 +835,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 5px;
   color: var(--about-status-color);
-  font-size: 11px;
-  font-weight: 750;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   cursor: pointer;
 }
 
@@ -839,7 +853,7 @@ onBeforeUnmount(() => {
 .about-release__content h4 {
   margin: 0;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .about-status__link {
@@ -848,8 +862,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   color: var(--about-status-color);
-  font-size: 11px;
-  font-weight: 750;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
 }
 
 .about-legal__links {
@@ -868,7 +882,7 @@ onBeforeUnmount(() => {
   color: var(--text);
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .about-legal__links > a:hover {
@@ -886,7 +900,7 @@ onBeforeUnmount(() => {
 }
 
 .about-legal__links strong {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .about-legal__links small {
@@ -906,7 +920,7 @@ onBeforeUnmount(() => {
   place-items: center;
   color: var(--accent-strong);
   background: var(--accent-soft);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 @container (max-width: 460px) {

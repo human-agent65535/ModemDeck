@@ -1512,7 +1512,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .message-list-empty {
@@ -1585,7 +1585,7 @@ onBeforeUnmount(() => {
   color: var(--accent-strong);
   background: var(--surface);
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .message-read-error {
@@ -1596,16 +1596,16 @@ onBeforeUnmount(() => {
   margin: 0 0 14px;
   padding: 10px 12px;
   color: var(--danger);
-  font-size: 13px;
+  font-size: var(--text-sm);
   background: var(--danger-soft);
   border: 1px solid var(--danger-border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .message-read-error button {
   flex: 0 0 auto;
   color: var(--danger);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .pane-error {

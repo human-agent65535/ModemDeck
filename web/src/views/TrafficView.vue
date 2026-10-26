@@ -116,8 +116,9 @@ function periodTotal(period: 'today' | 'month'): number {
     .reduce((total, item) => total + item.rx_bytes + item.tx_bytes, 0)
 }
 
+// The share bar always covers every line, so filtering never reshapes the page.
 const monthShare = computed<TrafficShareSegment[]>(() =>
-  visibleLines.value.map(line => {
+  lines.value.map(line => {
     const usage = usageFor('month', 'line', stableLineID(line))
     return {
       id: stableLineID(line),
@@ -238,8 +239,29 @@ onMounted(() => {
 
 <template>
   <section class="traffic-page">
+    <!-- The line filter scopes the whole page, so it sits with the page title. -->
     <header class="traffic-page__header">
       <h1>{{ t('shell.traffic') }}</h1>
+    <nav v-if="lines.length > 1" class="traffic-line-filter" :aria-label="t('traffic.filterLines')">
+      <button
+        type="button"
+        :class="{ 'is-selected': selectedLineID === 'all' }"
+        :aria-pressed="selectedLineID === 'all'"
+        @click="selectLine('all')"
+      >
+        {{ t('traffic.allLines') }}
+      </button>
+      <button
+        v-for="line in lines"
+        :key="stableLineID(line)"
+        type="button"
+        :class="{ 'is-selected': selectedLineID === stableLineID(line) }"
+        :aria-pressed="selectedLineID === stableLineID(line)"
+        @click="selectLine(stableLineID(line))"
+      >
+        <LineTag :line="line" :fallback="lineFallback(line)" />
+      </button>
+    </nav>
     </header>
 
     <LoadingSkeletonBoundary
@@ -300,28 +322,8 @@ onMounted(() => {
           :total-proxies="visibleProxies.length"
         />
 
-        <TrafficShareChart v-if="selectedLineID === 'all' && visibleLines.length > 1" :segments="monthShare" />
+        <TrafficShareChart v-if="lines.length > 1" :segments="monthShare" />
 
-        <nav class="traffic-line-filter" :aria-label="t('traffic.filterLines')">
-          <button
-            type="button"
-            :class="{ 'is-selected': selectedLineID === 'all' }"
-            :aria-pressed="selectedLineID === 'all'"
-            @click="selectLine('all')"
-          >
-            {{ t('traffic.allLines') }}
-          </button>
-          <button
-            v-for="line in lines"
-            :key="stableLineID(line)"
-            type="button"
-            :class="{ 'is-selected': selectedLineID === stableLineID(line) }"
-            :aria-pressed="selectedLineID === stableLineID(line)"
-            @click="selectLine(stableLineID(line))"
-          >
-            <LineTag :line="line" :fallback="lineFallback(line)" />
-          </button>
-        </nav>
 
         <section class="traffic-section">
           <header>
@@ -352,9 +354,20 @@ onMounted(() => {
               <h2>{{ t('traffic.proxies') }}</h2>
               <span>{{ visibleProxies.length }}</span>
             </div>
+            <button
+              v-if="visibleProxies.length > 0"
+              class="secondary-button traffic-section__action"
+              type="button"
+              :disabled="lines.length === 0 || Boolean(networkState.busyID)"
+              @click="openCreate"
+            >
+              <Plus :size="17" />
+              {{ t('traffic.addProxy') }}
+            </button>
           </header>
           <div class="proxy-grid">
             <button
+              v-if="visibleProxies.length === 0"
               class="proxy-add-card"
               type="button"
               :disabled="lines.length === 0 || Boolean(networkState.busyID)"
@@ -415,15 +428,17 @@ onMounted(() => {
 .traffic-page__header {
   display: flex;
   min-height: 64px;
-  flex: 0 0 64px;
+  flex: 0 0 auto;
   align-items: center;
-  padding: 0 24px;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) 24px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
 
 .traffic-page__header h1 {
-  font-size: 21px;
+  font-size: var(--text-title);
 }
 
 .traffic-page > :deep(.state-panel) {
@@ -445,10 +460,10 @@ onMounted(() => {
 .traffic-banner {
   padding: 10px 12px;
   color: var(--accent-strong);
-  font-size: 12px;
+  font-size: var(--text-xs);
   background: var(--accent-soft);
   border: 1px solid var(--accent-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .traffic-banner.is-warning {
@@ -478,11 +493,11 @@ onMounted(() => {
   align-items: center;
   padding: 0 11px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .traffic-line-filter > button:hover {
@@ -491,9 +506,9 @@ onMounted(() => {
 }
 
 .traffic-line-filter > button.is-selected {
-  color: var(--accent-strong);
-  background: var(--surface-selected);
-  border-color: var(--success-border-strong);
+  color: var(--text);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .traffic-line-filter :deep(.line-tag) {
@@ -506,11 +521,18 @@ onMounted(() => {
   gap: 12px;
 }
 
+.traffic-section__action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .traffic-section > header {
   display: flex;
   min-height: 30px;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-3);
 }
 
 .traffic-section > header > div {
@@ -520,12 +542,12 @@ onMounted(() => {
 }
 
 .traffic-section h2 {
-  font-size: 16px;
+  font-size: var(--text-md);
 }
 
 .traffic-section > header span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .traffic-line-grid {
@@ -563,7 +585,7 @@ onMounted(() => {
   color: var(--muted);
   background: var(--surface);
   border: 1px dashed var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .proxy-add-card:hover:not(:disabled) {
@@ -580,11 +602,11 @@ onMounted(() => {
   justify-self: center;
   color: var(--accent-strong);
   background: var(--accent-soft);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .proxy-add-card strong {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .proxy-empty {
@@ -592,7 +614,7 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 @media (max-width: 560px) {

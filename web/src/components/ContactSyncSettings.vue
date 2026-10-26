@@ -421,7 +421,7 @@ onMounted(() => {
 .contact-sync-direction small {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.55;
 }
 
@@ -429,9 +429,9 @@ onMounted(() => {
   padding: 5px 8px;
   color: var(--muted);
   background: var(--surface-hover);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
 }
 
 .contact-sync-status.is-connected {
@@ -469,7 +469,7 @@ onMounted(() => {
   padding: 2px 5px;
   color: var(--text);
   background: var(--surface-hover);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .contact-sync-help a {
@@ -477,7 +477,7 @@ onMounted(() => {
   align-items: center;
   gap: 3px;
   color: var(--blue);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .contact-sync-direction {
@@ -488,12 +488,12 @@ onMounted(() => {
   padding: 12px 14px;
   text-align: left;
   background: var(--surface-hover);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
 }
 
 .contact-sync-direction strong,
 .contact-sync-direction span {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .contact-sync-direction small {
@@ -514,7 +514,7 @@ onMounted(() => {
 .contact-sync-notice {
   margin: 0;
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .contact-sync-file-input {

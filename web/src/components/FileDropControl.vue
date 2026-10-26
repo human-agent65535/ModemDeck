@@ -131,8 +131,8 @@ function handleDrop(event: DragEvent): void {
 
 .file-drop-control__label {
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
 }
 
 .file-drop-control__input {
@@ -151,7 +151,7 @@ function handleDrop(event: DragEvent): void {
   text-align: left;
   background: var(--surface-subtle);
   border: 1px dashed var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition:
     border-color var(--motion-fast) var(--ease-standard),
@@ -186,7 +186,7 @@ function handleDrop(event: DragEvent): void {
   place-items: center;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .file-drop-control__copy {
@@ -205,7 +205,7 @@ function handleDrop(event: DragEvent): void {
 
 .file-drop-control__copy strong {
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .file-drop-control__copy small {
@@ -220,7 +220,7 @@ function handleDrop(event: DragEvent): void {
 .file-drop-control__error {
   margin: 0;
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .file-drop-control.is-disabled {

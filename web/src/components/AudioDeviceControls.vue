@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
 
 .field select {
   min-height: 40px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .field small {
@@ -262,7 +262,7 @@ onBeforeUnmount(() => {
 }
 
 .microphone-test strong {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .microphone-test small {
@@ -275,7 +275,7 @@ onBeforeUnmount(() => {
   height: 8px;
   overflow: hidden;
   background: var(--surface-hover);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .microphone-level > span {

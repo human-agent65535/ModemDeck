@@ -181,7 +181,7 @@ function onBlur(event: FocusEvent): void {
 
 <style scoped>
 .suggest-input__field input::placeholder {
-  font-size: 15px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
 }
 </style>

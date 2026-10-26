@@ -36,7 +36,7 @@ const emit = defineEmits<{
   color: var(--muted);
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .favorite-filter-button:hover:not(:disabled),

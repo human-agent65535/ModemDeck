@@ -743,11 +743,11 @@ onBeforeUnmount(() => {
   padding: 0 4px;
   color: var(--on-accent);
   font-size: var(--text-2xs);
-  font-weight: 800;
+  font-weight: var(--weight-strong);
   line-height: 1;
   background: var(--danger);
   border: 2px solid var(--surface);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
 }
 
 @media (max-width: 640px) {
@@ -768,7 +768,7 @@ onBeforeUnmount(() => {
 
   .mobile-more-sheet__header h2 {
     margin: 0;
-    font-size: 17px;
+    font-size: var(--text-subheading);
   }
 
   .mobile-more-links {
@@ -783,9 +783,9 @@ onBeforeUnmount(() => {
     gap: 13px;
     padding: 0 12px;
     color: var(--text);
-    font-size: 14px;
-    font-weight: 650;
-    border-radius: 10px;
+    font-size: var(--text-base);
+    font-weight: var(--weight-strong);
+    border-radius: var(--radius-sm);
     transition:
       color var(--motion-fast) var(--ease-standard),
       background var(--motion-fast) var(--ease-standard),

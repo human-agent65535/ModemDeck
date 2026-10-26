@@ -279,11 +279,11 @@ async function deleteCertificate(): Promise<void> {
   flex: 0 0 auto;
   padding: 4px 8px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   background: var(--surface-hover);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .origin-status.is-active {

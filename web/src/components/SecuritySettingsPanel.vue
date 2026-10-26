@@ -185,23 +185,23 @@ onMounted(() => {
 .security-identity__copy strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-base);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .security-identity__copy small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .security-identity__role {
   flex: 0 0 auto;
   padding: 5px 9px;
   color: var(--accent-strong);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
   background: var(--accent-soft);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 </style>

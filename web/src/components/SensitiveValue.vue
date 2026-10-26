@@ -107,7 +107,7 @@ onBeforeUnmount(clearRemaskTimer)
   place-items: center;
   color: var(--muted);
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .sensitive-value button:hover,

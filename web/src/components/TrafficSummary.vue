@@ -64,7 +64,7 @@ function formatBytes(bytes: number): string {
   display: grid;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -89,7 +89,7 @@ function formatBytes(bytes: number): string {
   place-items: center;
   color: var(--warning-strong);
   background: var(--warning-soft);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .traffic-summary__icon.is-blue {
@@ -116,12 +116,12 @@ function formatBytes(bytes: number): string {
 .traffic-summary small {
   margin-bottom: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .traffic-summary strong {
   overflow: hidden;
-  font-size: 18px;
+  font-size: var(--text-lg);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -155,7 +155,7 @@ function formatBytes(bytes: number): string {
   }
 
   .traffic-summary strong {
-    font-size: 15px;
+    font-size: var(--text-lg);
   }
 }
 </style>

@@ -126,8 +126,8 @@ const toneStyle = computed<Record<string, string> | undefined>(() => {
 
 .line-identity__name-row strong {
   color: var(--text);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
 }
 
 .line-identity__copy small {
@@ -136,15 +136,15 @@ const toneStyle = computed<Record<string, string> | undefined>(() => {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
 }
 
 .line-identity__copy small > em {
   flex: 0 0 auto;
   color: var(--danger);
   font-style: normal;
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .line-identity__default {
@@ -154,10 +154,10 @@ const toneStyle = computed<Record<string, string> | undefined>(() => {
   gap: 4px;
   padding: 4px 6px;
   color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
   background: var(--accent-soft);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .line-identity--option {
@@ -172,16 +172,16 @@ const toneStyle = computed<Record<string, string> | undefined>(() => {
 }
 
 .line-identity--option .line-identity__name-row strong {
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .line-identity--option .line-identity__copy small {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .line-identity--option .line-identity__default {
   padding: 0;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   background: transparent;
 }
 
@@ -194,11 +194,11 @@ const toneStyle = computed<Record<string, string> | undefined>(() => {
 .line-identity--filter .line-identity__icon {
   width: 26px;
   height: 26px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .line-identity--compact .line-identity__name-row strong {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .line-identity--compact .line-identity__copy small,

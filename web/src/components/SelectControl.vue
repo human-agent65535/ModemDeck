@@ -311,11 +311,11 @@ onBeforeUnmount(() => {
   padding: 0 13px;
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition:
     border-color var(--motion-fast) var(--ease-standard),
@@ -369,7 +369,7 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
 }
 
@@ -392,7 +392,7 @@ onBeforeUnmount(() => {
   text-align: left;
   background: transparent;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
 }
 
@@ -431,8 +431,8 @@ onBeforeUnmount(() => {
 }
 
 .select-control__option-copy strong {
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
 }
 
 .select-control__option-copy small {
@@ -443,7 +443,7 @@ onBeforeUnmount(() => {
 .select-control.is-compact .select-control__trigger {
   min-height: 36px;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .select-control.is-compact .select-control__options {

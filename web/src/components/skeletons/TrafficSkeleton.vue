@@ -10,9 +10,8 @@ defineProps<{ label: string }>()
     <div class="traffic-skeleton__summary" aria-hidden="true">
       <SkeletonBlock v-for="card in 4" :key="card" />
     </div>
-    <div class="traffic-skeleton__filters" aria-hidden="true">
-      <SkeletonBlock v-for="filter in 3" :key="filter" />
-    </div>
+    <!-- Holds the place of the monthly share bar so the page does not shift when data arrives. -->
+    <SkeletonBlock class="traffic-skeleton__share" aria-hidden="true" />
     <section v-for="section in 2" :key="section" class="traffic-skeleton__section" aria-hidden="true">
       <header>
         <SkeletonBlock />
@@ -41,18 +40,12 @@ defineProps<{ label: string }>()
 
 .traffic-skeleton__summary > span {
   height: 92px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
-.traffic-skeleton__filters {
-  display: flex;
-  gap: 8px;
-}
-
-.traffic-skeleton__filters > span {
-  width: 104px;
-  height: 36px;
-  border-radius: 999px;
+.traffic-skeleton__share {
+  height: 116px;
+  border-radius: var(--radius-md);
 }
 
 .traffic-skeleton__section {
@@ -76,7 +69,7 @@ defineProps<{ label: string }>()
 .traffic-skeleton__section header > span:last-child {
   width: 28px;
   height: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .traffic-skeleton__grid {
@@ -85,7 +78,7 @@ defineProps<{ label: string }>()
 
 .traffic-skeleton__grid > span {
   height: 184px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 @media (max-width: 640px) {

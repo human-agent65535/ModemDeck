@@ -25,7 +25,7 @@ defineProps<{
   color: var(--on-accent);
   background: var(--surface);
   border: 2px solid var(--faint);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
 }
 
 .selection-check-indicator.is-checked {

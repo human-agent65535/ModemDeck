@@ -140,10 +140,16 @@ watch(
       <ol v-else>
       <li v-for="recording in current.data" :key="recording.id">
         <div class="recording-list__meta">
-          <strong>{{ t('recordings.segment', { number: recording.segment_index }) }}</strong>
-          <span>
+          <!-- Named by when it was recorded and how long it is; the part number only
+               matters when a call was recorded in several parts. -->
+          <strong>
             {{ formatDateTime(recording.recorded_at) }} ·
-            {{ formatDuration(recording.duration_seconds) }} ·
+            {{ formatDuration(recording.duration_seconds) }}
+          </strong>
+          <span>
+            <template v-if="current.data.length > 1">
+              {{ t('recordings.segment', { number: recording.segment_index }) }} ·
+            </template>
             {{ formatSize(recording.size_bytes) }}
           </span>
         </div>
@@ -218,7 +224,7 @@ watch(
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .recording-list__state--error {
@@ -253,7 +259,7 @@ watch(
   padding: 10px 12px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .recording-list__meta {
@@ -265,7 +271,7 @@ watch(
 
 .recording-list__meta strong {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .recording-list__meta span {
@@ -284,7 +290,7 @@ watch(
 .recording-list__availability {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .recording-list a {

@@ -8,7 +8,7 @@
   display: block;
   overflow: hidden;
   background: var(--skeleton);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .skeleton-block::after {

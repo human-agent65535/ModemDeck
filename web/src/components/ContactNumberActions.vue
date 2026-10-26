@@ -359,25 +359,25 @@ async function addToContact(): Promise<void> {
   gap: 16px;
   padding: 0 12px;
   background: var(--surface-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .quick-contact-target span,
 .quick-contact-state {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .quick-contact-target strong {
   overflow-wrap: anywhere;
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .quick-contact-list {
   max-height: min(360px, 44dvh);
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .quick-contact-option {
@@ -421,12 +421,12 @@ async function addToContact(): Promise<void> {
 }
 
 .quick-contact-option strong {
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .quick-contact-option small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .quick-contact-state {

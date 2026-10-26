@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { LoaderCircle, LogIn, UserRoundPlus } from '@lucide/vue'
+import { Eye, EyeOff, LoaderCircle, LogIn, UserRoundPlus } from '@lucide/vue'
 import { login, sessionState, setup as setupAdministrator } from '../state/session'
 import {
   minimumPasswordCharacters,
@@ -14,6 +14,7 @@ const router = useRouter()
 const { t } = useI18n()
 const username = ref('')
 const password = ref('')
+const showPassword = ref(false)
 const confirmation = ref('')
 const submitting = ref(false)
 const submitError = ref('')
@@ -35,7 +36,7 @@ function destination(): string {
   ) {
     return redirect
   }
-  return '/contacts'
+  return '/'
 }
 
 async function submit(): Promise<void> {
@@ -84,12 +85,11 @@ async function submit(): Promise<void> {
 
 <template>
   <main class="login-page">
-    <header class="login-brand" aria-label="ModemDeck">
-      <span>M</span>
-      <strong>ModemDeck</strong>
-    </header>
-
     <section class="login-panel" aria-labelledby="login-title">
+      <div class="login-brand" aria-label="ModemDeck">
+        <span>M</span>
+        <strong>ModemDeck</strong>
+      </div>
       <header>
         <h1 id="login-title">{{ isSetup ? t('auth.quickStart') : t('auth.title') }}</h1>
         <p v-if="isSetup">{{ t('auth.quickStartDescription') }}</p>
@@ -105,6 +105,8 @@ async function submit(): Promise<void> {
             autocomplete="username"
             autocapitalize="none"
             spellcheck="false"
+            :aria-invalid="Boolean(visibleError)"
+            :aria-describedby="visibleError ? 'login-error' : undefined"
             autofocus
             :disabled="submitting"
           />
@@ -112,13 +114,29 @@ async function submit(): Promise<void> {
 
         <label class="field">
           <span>{{ t('auth.password') }}</span>
-          <input
-            v-model="password"
-            name="password"
-            type="password"
-            :autocomplete="isSetup ? 'new-password' : 'current-password'"
-            :disabled="submitting"
-          />
+          <span class="login-password">
+            <input
+              v-model="password"
+              name="password"
+              :type="showPassword ? 'text' : 'password'"
+              :autocomplete="isSetup ? 'new-password' : 'current-password'"
+              :aria-invalid="Boolean(visibleError)"
+              :aria-describedby="visibleError ? 'login-error' : undefined"
+              :disabled="submitting"
+            />
+            <button
+              class="icon-button"
+              type="button"
+              :title="showPassword ? t('account.hidePassword') : t('account.showPassword')"
+              :aria-label="showPassword ? t('account.hidePassword') : t('account.showPassword')"
+              :aria-pressed="showPassword"
+              :disabled="submitting"
+              @click="showPassword = !showPassword"
+            >
+              <EyeOff v-if="showPassword" :size="18" />
+              <Eye v-else :size="18" />
+            </button>
+          </span>
         </label>
 
         <label v-if="isSetup" class="field">
@@ -132,7 +150,7 @@ async function submit(): Promise<void> {
           />
         </label>
 
-        <p v-if="visibleError" class="login-error" role="alert">{{ visibleError }}</p>
+        <p v-if="visibleError" id="login-error" class="login-error" role="alert">{{ visibleError }}</p>
         <p v-else-if="visibleNotice" class="login-notice" role="status">
           {{ visibleNotice }}
         </p>
@@ -155,3 +173,21 @@ async function submit(): Promise<void> {
     </section>
   </main>
 </template>
+
+<style scoped>
+.login-password {
+  position: relative;
+  display: block;
+}
+
+.login-password input {
+  padding-right: 46px;
+}
+
+.login-password .icon-button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+}
+</style>
