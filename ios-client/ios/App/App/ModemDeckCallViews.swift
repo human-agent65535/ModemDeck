@@ -2315,6 +2315,14 @@ struct ModemDeckMiniCallBar: View {
     }
 }
 
+enum ModemDeckCallStageLayout {
+    /// Below this scrollable stage height the avatar and spacing shrink to keep controls visible.
+    static let compactHeight: CGFloat = 480
+    /// Four 84 pt control cells with 16 pt gaps.
+    static let oneRowControlsWidth: CGFloat = 4 * 84 + 3 * 16
+    static let widePanelMaximumHeight: CGFloat = 760
+}
+
 struct ModemDeckActiveCallView: View {
     let call: ModemDeckPresentedCall
     @ObservedObject var controller: ModemDeckSessionController
@@ -2328,6 +2336,8 @@ struct ModemDeckActiveCallView: View {
     @State private var dtmfDigits = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var endedCall: ModemDeckEndedCall? { callController.endedCall?.id == call.callID ? callController.endedCall : nil }
     private var isEnded: Bool { endedCall != nil }
@@ -2372,8 +2382,15 @@ struct ModemDeckActiveCallView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let presentsAsPadPanel = ModemDeckLayout.isPad
-            let panelWidth = min(420, max(0, geometry.size.width - 24))
+            // Regular in both axes covers iPad and iPhone Duo's unfolded display; compact
+            // scenes such as Slide Over or the folded cover screen keep the full-screen stage.
+            let presentsAsPadPanel = horizontalSizeClass == .regular && verticalSizeClass == .regular
+            // A short regular scene (iPad or iPhone Duo in landscape) gets a wider panel so the
+            // call controls can sit in one row instead of overflowing the height.
+            let panelWidth = min(
+                geometry.size.height < ModemDeckCallStageLayout.widePanelMaximumHeight ? 480 : 420,
+                max(0, geometry.size.width - 24)
+            )
             let panelHeight = min(720, max(0, geometry.size.height - 24))
 
             ZStack {
@@ -2473,11 +2490,15 @@ struct ModemDeckActiveCallView: View {
         VStack(spacing: 0) {
             collapseHeader
             GeometryReader { available in
+                // Short stages (iPhone Duo's cover screen, iPhone SE) tighten the identity block
+                // so the controls fit without scrolling.
+                let compact = available.size.height < ModemDeckCallStageLayout.compactHeight
+                let controlsInOneRow = compact && available.size.width >= ModemDeckCallStageLayout.oneRowControlsWidth
                 ScrollView {
                     VStack(spacing: 0) {
-                        Spacer(minLength: keypadVisible ? ModemDeckSpacing.xs : ModemDeckSpacing.md)
-                        callIdentity
-                        Spacer(minLength: keypadVisible ? ModemDeckSpacing.lg : ModemDeckSpacing.xxl)
+                        Spacer(minLength: keypadVisible || compact ? ModemDeckSpacing.xs : ModemDeckSpacing.md)
+                        callIdentity(compact: compact)
+                        Spacer(minLength: keypadVisible ? ModemDeckSpacing.lg : compact ? ModemDeckSpacing.md : ModemDeckSpacing.xxl)
                         VStack(spacing: ModemDeckSpacing.xl) {
                             if !isIncomingRinging && !isEnded {
                                 if call.testAudio && isActive { testAudioFeedback }
@@ -2488,7 +2509,7 @@ struct ModemDeckActiveCallView: View {
                                         action: sendDTMF
                                     )
                                 } else if !controlKinds.isEmpty {
-                                    auxiliaryControls
+                                    auxiliaryControls(oneRow: controlsInOneRow)
                                 }
                             }
                             ModemDeckInlineError(message: callController.errorMessage)
@@ -2518,10 +2539,10 @@ struct ModemDeckActiveCallView: View {
         !call.remoteNumber.isEmpty && displayName != call.remoteNumber
     }
 
-    private var callIdentity: some View {
+    private func callIdentity(compact: Bool) -> some View {
         VStack(spacing: 0) {
             if !keypadVisible {
-                callAvatar.padding(.bottom, ModemDeckSpacing.md)
+                callAvatar(compact: compact).padding(.bottom, compact ? ModemDeckSpacing.sm : ModemDeckSpacing.md)
             }
             Text(displayName)
                 .font(keypadVisible ? .title3.weight(.semibold) : .title.weight(.semibold))
@@ -2543,12 +2564,13 @@ struct ModemDeckActiveCallView: View {
         }
     }
 
-    @ViewBuilder private var callAvatar: some View {
+    @ViewBuilder private func callAvatar(compact: Bool) -> some View {
+        let size: CGFloat = compact || dynamicTypeSize.isAccessibilitySize ? 64 : 96
         if call.testCall {
             Image(systemName: "checkmark.shield.fill")
-                .font(.system(size: 40, weight: .medium))
+                .font(.system(size: compact ? 28 : 40, weight: .medium))
                 .foregroundColor(.mdAccent)
-                .frame(width: 96, height: 96)
+                .frame(width: size, height: size)
                 .background(Circle().fill(Color.mdSurface))
                 .overlay(Circle().stroke(Color.mdBorder, lineWidth: 1))
                 .accessibilityHidden(true)
@@ -2559,7 +2581,7 @@ struct ModemDeckActiveCallView: View {
                 avatarSource: contact?.avatar,
                 fallback: known ? .initials : .unknown,
                 paletteKey: call.remoteNumber,
-                size: dynamicTypeSize.isAccessibilitySize ? 64 : 96
+                size: size
             )
         }
     }
@@ -2641,8 +2663,8 @@ struct ModemDeckActiveCallView: View {
         return canRecordBeforeConnect ? [.record] : []
     }
 
-    private var auxiliaryControls: some View {
-        let columns = dynamicTypeSize.isAccessibilitySize ? 2 : 3
+    private func auxiliaryControls(oneRow: Bool) -> some View {
+        let columns = dynamicTypeSize.isAccessibilitySize ? 2 : oneRow ? 4 : 3
         let kinds = controlKinds
         // Rows are centered, so a short last row (e.g. Record alone) sits under the middle.
         let rows: [[ControlKind]] = stride(from: 0, to: kinds.count, by: columns).map { start in

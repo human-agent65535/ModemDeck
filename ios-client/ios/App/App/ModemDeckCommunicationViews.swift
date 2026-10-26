@@ -2312,10 +2312,10 @@ private struct ModemDeckTimestampPan: UIGestureRecognizerRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
-            let velocity = pan.velocity(in: pan.view)
+            let movement = ModemDeckPanDirection.movement(of: pan, in: pan.view)
             // Reject a rightward drag before recognition, so it remains
             // available to the navigation controller's native back gesture.
-            return velocity.x < 0 && abs(velocity.x) > abs(velocity.y) * 1.2
+            return movement.x < 0 && abs(movement.x) > abs(movement.y) * 1.2
         }
     }
 
@@ -2977,6 +2977,15 @@ private struct ModemDeckMessageBubble: View {
                         .padding(.vertical, 9)
                         .background(message.incoming ? Color.mdSurface : Color.mdAccent)
                         .clipShape(bubbleShape)
+                        .contentShape(.contextMenuPreview, bubbleShape)
+                        // Only the bubble opens the menu: a full-width long-press target
+                        // claimed any back swipe that started with a brief pause.
+                        .modemDeckCopyMenu([
+                            ModemDeckCopyItem(
+                                label: controller.text("复制短信", "Copy Message"),
+                                value: message.content
+                            )
+                        ])
                     if let deliveryText {
                         Label(deliveryText, systemImage: deliveryFailed ? "exclamationmark.circle" : "checkmark")
                             .font(.caption2)
@@ -2991,12 +3000,6 @@ private struct ModemDeckMessageBubble: View {
         }
         .frame(maxWidth: .infinity)
         .clipped()
-        .modemDeckCopyMenu([
-            ModemDeckCopyItem(
-                label: controller.text("复制短信", "Copy Message"),
-                value: message.content
-            )
-        ])
         .accessibilityElement(children: .combine)
         .accessibilityLabel([
             message.incoming

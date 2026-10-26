@@ -44,8 +44,8 @@ const devicesJSON = await run(
 )
 const runtimes = JSON.parse(devicesJSON).devices
 const requestedFamily = (process.env.MODEMDECK_SIMULATOR_FAMILY || 'iphone').toLowerCase()
-if (!['iphone', 'ipad'].includes(requestedFamily)) {
-  throw new Error('MODEMDECK_SIMULATOR_FAMILY must be iphone or ipad')
+if (!['iphone', 'ipad', 'duo'].includes(requestedFamily)) {
+  throw new Error('MODEMDECK_SIMULATOR_FAMILY must be iphone, ipad or duo')
 }
 const familyPrefix = requestedFamily === 'ipad' ? 'iPad' : 'iPhone'
 const devices = Object.entries(runtimes)
@@ -53,8 +53,11 @@ const devices = Object.entries(runtimes)
     runtimeDevices.map(device => ({ ...device, runtime }))
   )
   .filter(device => device.isAvailable && device.name.startsWith(familyPrefix))
+  .filter(device => requestedFamily !== 'duo' || device.name.startsWith('iPhone Duo'))
 
-const preferredNames = requestedFamily === 'ipad'
+const preferredNames = requestedFamily === 'duo'
+  ? ['iPhone Duo']
+  : requestedFamily === 'ipad'
   ? [
       'iPad Pro 13-inch (M5)',
       'iPad Pro 13-inch (M4)',

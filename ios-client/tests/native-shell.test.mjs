@@ -288,7 +288,7 @@ test('SwiftUI is the universal iPhone and iPad application root', async () => {
   ]) {
     assert.match(padOrientations, new RegExp(`<string>${orientation}<\\/string>`))
   }
-  assert.match(app, /GeometryReader \{ geometry in[\s\S]*geometry\.size\.width >= ModemDeckLayout\.splitWorkspaceMinimumWidth/)
+  assert.match(app, /GeometryReader \{ geometry in[\s\S]*let sceneWidth = geometry\.size\.width \+ geometry\.safeAreaInsets\.leading \+ geometry\.safeAreaInsets\.trailing[\s\S]*sceneWidth >= ModemDeckLayout\.splitWorkspaceMinimumWidth/)
   assert.doesNotMatch(app, /horizontalSizeClass/)
   assert.match(
     app,
@@ -300,7 +300,7 @@ test('SwiftUI is the universal iPhone and iPad application root', async () => {
   assert.match(runner, /iPad Pro 13-inch/)
   assert.match(app, /MODEMDECK_UAT_INITIAL_SECTION/)
   assert.match(calls, /MODEMDECK_UAT_CALL_KEYPAD/)
-  assert.match(calls, /let panelWidth = min\(420/)
+  assert.match(calls, /let panelWidth = min\(\s*geometry\.size\.height < ModemDeckCallStageLayout\.widePanelMaximumHeight \? 480 : 420/)
   assert.match(calls, /if reduceMotion \{[\s\S]*showingKeypad\.toggle\(\)/)
   assert.match(calls, /callLine\?\.capabilities\?\.sendDtmf != false/)
   const scripts = JSON.parse(packageJSON).scripts
@@ -636,6 +636,13 @@ test('native phone detail screens enable the standard left-edge back gesture', a
   assert.match(app, /interactivePopGestureRecognizer/)
   assert.match(app, /UIGestureRecognizerDelegate/)
   assert.match(app, /viewControllers\.count[^\n]*> 1/)
+  // Slow swipes must not depend on a fast flick: direction comes from accumulated movement.
+  assert.match(app, /if gestureRecognizer === edgeGesture \{ return true \}/)
+  assert.match(app, /translation == \.zero \? pan\.velocity\(in: view\) : translation/)
+  assert.doesNotMatch(app, /return velocity\.x \* direction > abs\(velocity\.y\)/)
+  assert.match(communication, /let movement = ModemDeckPanDirection\.movement\(of: pan, in: pan\.view\)/)
+  // A full-width message long-press target claimed back swipes that began with a pause.
+  assert.match(communication, /\.clipShape\(bubbleShape\)\s*\.contentShape\(\.contextMenuPreview, bubbleShape\)[\s\S]{0,240}\.modemDeckCopyMenu\(/)
   assert.match(app, /func modemDeckInteractiveBack/)
   assert.match(communication, /\.modemDeckInteractiveBack\(showsBackButton\)/)
   assert.match(communication, /\.modemDeckInteractiveBack\(\)/)
@@ -673,7 +680,15 @@ test('native iPad communication workspaces mirror the Web list-detail geometry',
 
   assert.match(app, /static let padListWidth: CGFloat = 340/)
   assert.match(app, /static let splitWorkspaceMinimumWidth: CGFloat = 900/)
-  assert.match(app, /UIDevice\.current\.userInterfaceIdiom == \.pad/)
+  // iPhone Duo's unfolded display is phone idiom, so layout follows the scene, not the device.
+  assert.doesNotMatch(app, /userInterfaceIdiom|isPad/)
+  assert.match(calls, /presentsAsPadPanel = horizontalSizeClass == \.regular && verticalSizeClass == \.regular/)
+  // iPhone Duo's trailing status-bar column hosts section navigation instead of the tab bar or rail.
+  assert.match(app, /insets\.trailing >= ModemDeckLayout\.statusColumnMinimumWidth && insets\.leading < 1/)
+  assert.match(app, /if let statusColumnWidth \{[\s\S]*ModemDeckStatusColumnNavigation[\s\S]*\.ignoresSafeArea\(\.keyboard\)[\s\S]*\.ignoresSafeArea\(\.container, edges: \.trailing\)[\s\S]*\} else if usesSplitWorkspace \{/)
+  // Short stages keep every call control visible without scrolling.
+  assert.match(calls, /let compact = available\.size\.height < ModemDeckCallStageLayout\.compactHeight/)
+  assert.match(calls, /dynamicTypeSize\.isAccessibilitySize \? 2 : oneRow \? 4 : 3/)
   assert.match(app, /ModemDeckPadNavigationRail/)
   assert.match(communication, /selectedContactID/)
   assert.match(communication, /selectedThreadID/)

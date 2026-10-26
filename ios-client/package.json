@@ -9,6 +9,7 @@
     "run:ios": "node ./scripts/run-ios.mjs",
     "run:ios:iphone": "MODEMDECK_SIMULATOR_FAMILY=iphone node ./scripts/run-ios.mjs",
     "run:ios:ipad": "MODEMDECK_SIMULATOR_FAMILY=ipad node ./scripts/run-ios.mjs",
+    "run:ios:duo": "MODEMDECK_SIMULATOR_FAMILY=duo node ./scripts/run-ios.mjs",
     "open:ios": "open ios/App/App.xcodeproj"
   }
 }

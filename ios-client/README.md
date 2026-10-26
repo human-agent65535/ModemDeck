@@ -8,7 +8,12 @@ call audio remain native platform services.
 
 - Implements the approved native design with five destinations: Recents,
   Messages, Contacts, Calls, and Settings. Compact layouts use bottom tabs;
-  regular-width iPads use a labelled sidebar with retained list/detail state.
+  scenes at least 900 pt wide (iPad, and iPhone Duo's unfolded display in
+  landscape) use a labelled sidebar with retained list/detail state. Layout
+  follows the scene size rather than the device idiom. When iPhone Duo puts the
+  status bar in a trailing column (cover screen, or the unfolded screen held
+  wide), section navigation moves into that column in place of the tab bar or
+  sidebar.
 - Calls shares one list across All, Missed, and Recorded filters. Call details
   retain every recording segment; More → Manage recordings keeps independent
   recording search, favorites, playback and batch deletion available.
@@ -112,6 +117,9 @@ npm run run:ios:iphone
 
 # Rebuild, install, and launch on the preferred iPad Pro simulator.
 npm run run:ios:ipad
+
+# Rebuild, install, and launch on an iPhone Duo simulator (iOS 27.1 runtime).
+npm run run:ios:duo
 
 # Target a specific disposable simulator instead of an existing personal one.
 MODEMDECK_SIMULATOR_ID=<simulator-uuid> npm run run:ios:iphone

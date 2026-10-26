@@ -125,6 +125,14 @@ enum ModemDeckAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+enum ModemDeckPanDirection {
+    /// The pan's translation so far, or its velocity before it has moved.
+    static func movement(of pan: UIPanGestureRecognizer, in view: UIView?) -> CGPoint {
+        let translation = pan.translation(in: view)
+        return translation == .zero ? pan.velocity(in: view) : translation
+    }
+}
+
 private struct ModemDeckInteractivePopSupport: UIViewControllerRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         weak var navigationController: UINavigationController?
@@ -163,10 +171,15 @@ private struct ModemDeckInteractivePopSupport: UIViewControllerRepresentable {
             guard let navigationController,
                   navigationController.viewControllers.count > 1,
                   navigationController.transitionCoordinator == nil else { return false }
+            // The screen-edge recognizer is already directional; checking its velocity would
+            // reject a slow, deliberate swipe from the edge.
+            if gestureRecognizer === edgeGesture { return true }
             if let pan = gestureRecognizer as? UIPanGestureRecognizer {
-                let velocity = pan.velocity(in: navigationController.view)
+                // Judge direction from the accumulated movement: at recognition a slow finger's
+                // velocity is near zero and noisy, which made back swipes need a quick flick.
+                let movement = ModemDeckPanDirection.movement(of: pan, in: navigationController.view)
                 let direction: CGFloat = navigationController.view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1
-                return velocity.x * direction > abs(velocity.y)
+                return movement.x * direction > abs(movement.y)
             }
             return true
         }
@@ -407,7 +420,11 @@ enum ModemDeckDateText {
 
 enum ModemDeckLayout {
     static let padListWidth: CGFloat = 340
+    /// Measured from the scene, not the device idiom: iPhone Duo's unfolded display reports the
+    /// phone idiom, and its 951 pt wide scene fits the rail and two columns.
     static let splitWorkspaceMinimumWidth: CGFloat = 900
+    /// A trailing safe area this wide is a status-bar column rather than a rounded-corner inset.
+    static let statusColumnMinimumWidth: CGFloat = 60
     static let pageHorizontalPadding: CGFloat = 20
     static let pageHeaderHeight: CGFloat = 76
     static let collectionHeaderHeight: CGFloat = 56
@@ -426,7 +443,6 @@ enum ModemDeckLayout {
     static let listTextLeading = listHorizontalPadding + listAvatarSize + listAvatarTextSpacing
     static let listUnreadIndicatorSize: CGFloat = 10
     static let listSelectionMarkWidth: CGFloat = 24
-    static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 }
 
 private struct ModemDeckUsesSplitWorkspaceKey: EnvironmentKey {
@@ -925,9 +941,17 @@ private struct ModemDeckAdaptiveShell: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let usesSplitWorkspace = ModemDeckLayout.isPad &&
-                geometry.size.width >= ModemDeckLayout.splitWorkspaceMinimumWidth
-            ModemDeckWorkspaceShell(controller: controller, usesSplitWorkspace: usesSplitWorkspace, callExpanded: $callExpanded)
+            // iPhone Duo keeps its status bar in a trailing safe-area column, so measure the
+            // whole scene rather than the inset content width.
+            let sceneWidth = geometry.size.width + geometry.safeAreaInsets.leading + geometry.safeAreaInsets.trailing
+            let usesSplitWorkspace = sceneWidth >= ModemDeckLayout.splitWorkspaceMinimumWidth
+            let insets = geometry.safeAreaInsets
+            let statusColumnWidth = insets.trailing >= ModemDeckLayout.statusColumnMinimumWidth && insets.leading < 1
+                ? insets.trailing : nil
+            ModemDeckWorkspaceShell(
+                controller: controller, usesSplitWorkspace: usesSplitWorkspace,
+                statusColumnWidth: statusColumnWidth, callExpanded: $callExpanded
+            )
             .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
             .environmentObject(retainedSections)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -940,14 +964,20 @@ private struct ModemDeckWorkspaceShell: View {
     @ObservedObject private var callController: ModemDeckCallController
     @Binding var callExpanded: Bool
     let usesSplitWorkspace: Bool
+    /// Width of a trailing status-bar column (iPhone Duo) that hosts section navigation.
+    let statusColumnWidth: CGFloat?
     @State private var showingDialer: Bool
     @State private var tabBarHeight: CGFloat = 61
     @State private var miniCallBarHeight: CGFloat = 72
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(controller: ModemDeckSessionController, usesSplitWorkspace: Bool, callExpanded: Binding<Bool>) {
+    init(
+        controller: ModemDeckSessionController, usesSplitWorkspace: Bool,
+        statusColumnWidth: CGFloat?, callExpanded: Binding<Bool>
+    ) {
         self.controller = controller
         self.usesSplitWorkspace = usesSplitWorkspace
+        self.statusColumnWidth = statusColumnWidth
         _callController = ObservedObject(wrappedValue: controller.callController)
         _callExpanded = callExpanded
         _showingDialer = State(initialValue: ModemDeckSection.initialSection == .dial)
@@ -955,7 +985,21 @@ private struct ModemDeckWorkspaceShell: View {
 
     var body: some View {
         Group {
-            if usesSplitWorkspace {
+            if let statusColumnWidth {
+                // The column beside the status bar replaces both the tab bar and the rail, so
+                // pages take the column's place in the trailing safe area.
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        sectionTabs
+                        if let call = miniCall { miniCallBar(call) }
+                    }
+                    ModemDeckStatusColumnNavigation(controller: controller, selection: $controller.selectedSection)
+                        .frame(width: statusColumnWidth)
+                        // Stay put under the status items while the keyboard is up.
+                        .ignoresSafeArea(.keyboard)
+                }
+                .ignoresSafeArea(.container, edges: .trailing)
+            } else if usesSplitWorkspace {
                 HStack(spacing: 0) {
                     ModemDeckPadNavigationRail(
                         controller: controller, selection: $controller.selectedSection,
@@ -1110,8 +1154,62 @@ private struct ModemDeckPhoneTabBar: View {
         .padding(.top, 5)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .modemDeckSelectionFeedback(selection)
-        .background(.bar, ignoresSafeAreaEdges: .bottom)
-        .overlay(alignment: .top) { ModemDeckHairline() }
+        .background(.bar, ignoresSafeAreaEdges: [.bottom, .horizontal])
+        .overlay(alignment: .top) { ModemDeckHairline().ignoresSafeArea(edges: .horizontal) }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// Section navigation stacked in iPhone Duo's trailing status-bar column, below the status items.
+private struct ModemDeckStatusColumnNavigation: View {
+    @ObservedObject var controller: ModemDeckSessionController
+    @Binding var selection: ModemDeckSection
+    private let badges: ModemDeckSectionBadgeSource
+
+    init(controller: ModemDeckSessionController, selection: Binding<ModemDeckSection>) {
+        _controller = ObservedObject(wrappedValue: controller)
+        _selection = selection
+        badges = ModemDeckSectionBadgeSource(controller: controller)
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ForEach(ModemDeckSection.contentSections) { section in
+                let selected = selection == section
+                let badge = badges.count(for: section)
+                Button { selection = section } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: section.systemImage)
+                            .symbolVariant(selected ? .fill : .none)
+                            .font(.system(size: 21, weight: selected ? .semibold : .regular))
+                            .frame(height: 25)
+                            .overlay(alignment: .topTrailing) {
+                                ModemDeckSectionBadge(count: badge).offset(x: 12, y: -6)
+                            }
+                        Text(section.title(controller))
+                            .font(.caption2.weight(selected ? .semibold : .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .foregroundColor(selected ? .mdAccent : .mdMuted)
+                    .frame(maxWidth: .infinity, minHeight: 60)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("section-\(section.id)")
+                .accessibilityValue(badge > 0 ? "\(badge)" : "")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, 4)
+        // Centered vertically, clear of the clock and status icons at the top of the column.
+        .frame(maxHeight: .infinity)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .modemDeckSelectionFeedback(selection)
+        .background(.bar, ignoresSafeAreaEdges: .all)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Color.mdBorder).frame(width: 1).ignoresSafeArea()
+        }
         .accessibilityElement(children: .contain)
     }
 }
