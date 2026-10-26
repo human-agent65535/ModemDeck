@@ -96,16 +96,17 @@ withDefaults(
   right: calc(var(--communication-toolbar-primary-height) + var(--space-2));
 }
 
+/* Segments size to their labels, so a short "All" leaves room for "Incoming" in narrow lists. */
 .communication-list-toolbar--filters-2 :deep(.segmented-control) {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, auto);
 }
 
 .communication-list-toolbar--filters-3 :deep(.segmented-control) {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, auto);
 }
 
 .communication-list-toolbar--filters-4 :deep(.segmented-control) {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, auto);
 }
 
 /* Phones: 44px touch targets (HIG) and the shell's 16px side gutter. */

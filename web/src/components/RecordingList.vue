@@ -265,16 +265,21 @@ watch(
 .recording-list__meta {
   display: flex;
   min-width: 0;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
 }
 
+/* The time-and-length title shrinks with an ellipsis instead of running under the actions. */
 .recording-list__meta strong {
-  flex: 0 0 auto;
-  font-size: var(--text-2xs);
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recording-list__meta span {
+  max-width: 100%;
   overflow: hidden;
   color: var(--muted);
   font-size: var(--text-2xs);

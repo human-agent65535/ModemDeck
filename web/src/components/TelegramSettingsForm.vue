@@ -225,7 +225,9 @@ const formChanged = computed(() => {
   )
 })
 // Choosing another entry or leaving Settings asks before an edit is thrown away.
-useUnsavedChangesGuard(() => !creating.value && !saving.value && formChanged.value)
+const confirmDiscardChanges = useUnsavedChangesGuard(
+  () => !creating.value && !saving.value && formChanged.value
+)
 
 function applyUnit(unit?: TelegramUnit): void {
   const scopes = [...new Set(unit?.line_scopes || [])]
@@ -324,9 +326,10 @@ function changeAssignedUser(userID: string): void {
   setAllLines()
 }
 
-function selectUnit(id: string): void {
+async function selectUnit(id: string): Promise<void> {
   if (saving.value || deleting.value) return
   if (!creating.value && selectedID.value === id) return
+  if (!(await confirmDiscardChanges())) return
   discardDraft(id)
   void router.push({
     name: 'settings',
@@ -335,8 +338,9 @@ function selectUnit(id: string): void {
   })
 }
 
-function startCreate(): void {
+async function startCreate(): Promise<void> {
   if (saving.value || deleting.value) return
+  if (!(await confirmDiscardChanges())) return
   if (!creating.value) {
     draftReturnID.value = selectedUnit.value?.id || telegramResource.data[0]?.id || ''
   }

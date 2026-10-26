@@ -335,8 +335,14 @@ function setMessageFilter(value: MessageReadFilter): void {
 function clearFilters(): void {
   search.value = ''
   lineFilterKey.value = 'all'
-  setMessageFilter('all')
-  setFavoriteFilter(false)
+  messageFilter.value = 'all'
+  favoriteOnly.value = false
+  if (embedded.value) return
+  // One navigation for both, so the second cannot restore the first from a stale query.
+  const query = { ...route.query }
+  delete query.filter
+  delete query.favorite
+  void router.replace({ name: 'messages', params: route.params, query })
 }
 
 function setFavoriteFilter(value: boolean): void {

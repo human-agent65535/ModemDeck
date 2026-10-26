@@ -40,7 +40,7 @@ import {
 } from '../state/workspace'
 import { playDTMFTone } from '../state/dtmfAudio'
 import { normalizeDialTarget } from '../utils/dialTarget'
-import { formatDialInput, phoneDestination, stripDialFormatting } from '../utils/format'
+import { formatDialInput, isDialEntry, phoneDestination, stripDialFormatting } from '../utils/format'
 import { phoneKeypad } from '../utils/phoneKeypad'
 import BaseAvatar from './BaseAvatar.vue'
 import ContactSuggestInput from './ContactSuggestInput.vue'
@@ -384,15 +384,40 @@ function removeDigit(): void {
   selectedContactPreferredLineID.value = ''
 }
 
+const dialCharacter = /[\d+*#]/
+
 function editNumber(value: string): void {
-  const stripped = stripDialFormatting(value)
-  // Backspace over a grouping space or bracket removes the digit before it instead of doing nothing.
-  number.value =
-    stripped === number.value && value.length < formattedNumber.value.length
-      ? Array.from(stripped).slice(0, -1).join('')
-      : stripped
   contactLabel.value = ''
   selectedContactPreferredLineID.value = ''
+  const stripped = stripDialFormatting(value)
+  // The field also searches contacts by name: only a dialable entry loses its grouping.
+  if (!isDialEntry(value)) {
+    number.value = value
+    return
+  }
+  const input = document.activeElement instanceof HTMLInputElement &&
+    document.activeElement.closest('.dialer-panel')
+    ? document.activeElement
+    : null
+  const caret = input?.selectionStart ?? value.length
+  let digitsBeforeCaret = Array.from(value.slice(0, caret)).filter(char => dialCharacter.test(char)).length
+  let next = stripped
+  // Deleting a grouping space or bracket removes the digit before the caret instead of doing nothing.
+  if (stripped === number.value && value.length < formattedNumber.value.length && digitsBeforeCaret > 0) {
+    next = stripped.slice(0, digitsBeforeCaret - 1) + stripped.slice(digitsBeforeCaret)
+    digitsBeforeCaret -= 1
+  }
+  number.value = next
+  if (!input) return
+  // Regrouping rewrites the text; keep the caret after the same digit.
+  void nextTick(() => {
+    const text = input.value
+    let position = 0
+    for (let seen = 0; position < text.length && seen < digitsBeforeCaret; position += 1) {
+      if (dialCharacter.test(text.charAt(position))) seen += 1
+    }
+    input.setSelectionRange(position, position)
+  })
 }
 
 function chooseContact(suggestion: {

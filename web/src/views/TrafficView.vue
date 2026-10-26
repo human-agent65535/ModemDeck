@@ -618,7 +618,17 @@ onMounted(() => {
 }
 
 @media (max-width: 560px) {
+  /* The shell already titles the page on phones; the line filter stays. */
   .traffic-page__header {
+    min-height: 0;
+    padding: var(--space-2) var(--space-4);
+  }
+
+  .traffic-page__header h1 {
+    display: none;
+  }
+
+  .traffic-page__header:not(:has(.traffic-line-filter)) {
     display: none;
   }
 

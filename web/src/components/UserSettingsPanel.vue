@@ -125,7 +125,9 @@ const formChanged = computed(() => {
   )
 })
 // Choosing another entry or leaving Settings asks before an edit is thrown away.
-useUnsavedChangesGuard(() => !creating.value && !saving.value && formChanged.value)
+const confirmDiscardChanges = useUnsavedChangesGuard(
+  () => !creating.value && !saving.value && formChanged.value
+)
 
 function lineForID(id: string): LineSummary | undefined {
   return lines.value.find(line => lineKey(line) === id)
@@ -150,9 +152,10 @@ function applyUser(user?: UserAccount): void {
   saveError.value = ''
 }
 
-function selectUser(id: string): void {
+async function selectUser(id: string): Promise<void> {
   if (saving.value || pairingRevoking.value) return
   if (!creating.value && selectedID.value === id) return
+  if (!(await confirmDiscardChanges())) return
   creating.value = false
   selectedID.value = id
   applyUser(users.value.find(user => user.id === id))
@@ -163,8 +166,9 @@ function selectUser(id: string): void {
   })
 }
 
-function startCreate(): void {
+async function startCreate(): Promise<void> {
   if (saving.value || pairingRevoking.value) return
+  if (!(await confirmDiscardChanges())) return
   creating.value = true
   selectedID.value = '__new_member__'
   applyUser()

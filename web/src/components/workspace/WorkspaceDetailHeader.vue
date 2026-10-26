@@ -17,8 +17,11 @@
   min-width: 0;
   min-height: 60px;
   flex: 0 0 auto;
+  /* A narrow detail column (tablets) moves the actions under the name instead of
+     squeezing the name to nothing or overlapping it. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 7px 20px;
   border-bottom: 1px solid var(--border);
   container-type: inline-size;
@@ -37,9 +40,12 @@
   margin-left: auto;
 }
 
+.workspace-detail-header :deep(:is(.workspace-detail-identity, .contact-header-identity)) {
+  min-width: min(160px, 100%);
+}
+
 .workspace-detail-header :deep(.workspace-detail-identity) {
   display: flex;
-  min-width: 0;
   flex: 1;
   flex-direction: column;
   gap: 4px;

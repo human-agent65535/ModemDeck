@@ -135,6 +135,11 @@ export function formatDialInput(value: string, homeRegion = ''): string {
   return new AsYouType(region).input(value)
 }
 
+/** True when the dial field holds a number or service code, not a contact name search. */
+export function isDialEntry(value: string): boolean {
+  return /^\+?[\d*#]*$/.test(stripDialFormatting(value))
+}
+
 /** Removes the grouping that formatDialInput adds, so the draft keeps only what is dialed. */
 export function stripDialFormatting(value: string): string {
   return value.replace(/[\s().-]/g, '')

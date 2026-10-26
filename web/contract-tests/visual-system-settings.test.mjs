@@ -65,7 +65,7 @@ test('explicit-save settings keep Save in reach and ask before discarding edits'
   assert.match(guard, /onBeforeRouteUpdate\(confirmDiscard\)/)
   assert.match(guard, /window\.addEventListener\('beforeunload', onBeforeUnload\)/)
   for (const form of [users, telegram]) {
-    assert.match(form, /useUnsavedChangesGuard\(\(\) => !creating\.value && !saving\.value && formChanged\.value\)/)
+    assert.match(form, /useUnsavedChangesGuard\(\s*\(\) => !creating\.value && !saving\.value && formChanged\.value\s*\)/)
     assert.match(form, /t\('common\.unsavedChanges'\)/)
   }
   assert.match(styles, /\.settings-form-actions \{[\s\S]*?position: sticky;[\s\S]*?bottom: 0;/)
@@ -91,4 +91,36 @@ test('data pages keep their layout stable and controls where they act', async ()
   assert.match(about, /--about-status-color: var\(--warning-strong\);\s*--about-status-background: var\(--surface-subtle\);/)
   assert.match(login, /:type="showPassword \? 'text' : 'password'"/)
   assert.match(login, /return '\/'\n\}/)
+})
+
+test('review fixes: entry switches ask first, phone Traffic keeps its filter, narrow details wrap', async () => {
+  const [users, telegram, traffic, header, toolbar] = await Promise.all([
+    source('../src/components/UserSettingsPanel.vue'),
+    source('../src/components/TelegramSettingsForm.vue'),
+    source('../src/views/TrafficView.vue'),
+    source('../src/components/workspace/WorkspaceDetailHeader.vue'),
+    source('../src/components/workspace/CommunicationListToolbar.vue')
+  ])
+
+  // The edit is replaced before the route guard runs, so switching entries confirms first.
+  assert.match(users, /async function selectUser\(id: string\): Promise<void> \{[\s\S]*?if \(!\(await confirmDiscardChanges\(\)\)\) return[\s\S]*?selectedID\.value = id/)
+  assert.match(users, /async function startCreate\(\): Promise<void> \{[\s\S]*?if \(!\(await confirmDiscardChanges\(\)\)\) return[\s\S]*?creating\.value = true/)
+  assert.match(telegram, /async function selectUnit\(id: string\): Promise<void> \{[\s\S]*?if \(!\(await confirmDiscardChanges\(\)\)\) return[\s\S]*?discardDraft\(id\)/)
+  assert.match(telegram, /async function startCreate\(\): Promise<void> \{[\s\S]*?if \(!\(await confirmDiscardChanges\(\)\)\) return/)
+  assert.match(traffic, /@media \(max-width: 560px\) \{[\s\S]*?\.traffic-page__header h1 \{\s*display: none;/)
+  assert.doesNotMatch(traffic, /\.traffic-page__header \{\s*display: none;/)
+  assert.match(header, /flex-wrap: wrap;/)
+  assert.match(toolbar, /--filters-4 :deep\(\.segmented-control\) \{\s*grid-template-columns: repeat\(4, auto\);/)
+})
+
+test('review fixes: dialer keeps names intact, edits at the caret, and Clear filters navigates once', async () => {
+  const [dialer, messages] = await Promise.all([
+    source('../src/components/DialerPanel.vue'),
+    source('../src/views/MessagesView.vue')
+  ])
+
+  assert.match(dialer, /if \(!isDialEntry\(value\)\) \{\s*number\.value = value\s*return/)
+  assert.match(dialer, /next = stripped\.slice\(0, digitsBeforeCaret - 1\) \+ stripped\.slice\(digitsBeforeCaret\)/)
+  assert.match(dialer, /input\.setSelectionRange\(position, position\)/)
+  assert.match(messages, /function clearFilters\(\): void \{[\s\S]*?delete query\.filter\s*delete query\.favorite\s*void router\.replace/)
 })

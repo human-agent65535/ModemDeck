@@ -7,7 +7,7 @@ import { requestConfirmation } from '../state/confirmation'
  * Asks before navigation or a tab close throws away an edited, unsaved form, as GitHub and
  * Stripe settings do. Route updates count too, since choosing another resource is a query change.
  */
-export function useUnsavedChangesGuard(dirty: MaybeRefOrGetter<boolean>): void {
+export function useUnsavedChangesGuard(dirty: MaybeRefOrGetter<boolean>): () => Promise<boolean> {
   async function confirmDiscard(): Promise<boolean> {
     if (!toValue(dirty)) return true
     return requestConfirmation({
@@ -28,4 +28,8 @@ export function useUnsavedChangesGuard(dirty: MaybeRefOrGetter<boolean>): void {
 
   onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
   onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
+
+  // Callers that change the form before navigating (choosing another entry) ask first,
+  // since by the time the route guard runs the edit has already been replaced.
+  return confirmDiscard
 }
