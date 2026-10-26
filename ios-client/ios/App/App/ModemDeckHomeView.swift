@@ -113,9 +113,9 @@ struct ModemDeckHomeView: View {
     var body: some View {
         Group {
             if usesSplitWorkspace {
-                HStack(spacing: 0) {
-                    activityColumn.modemDeckListColumn()
-                    Rectangle().fill(Color.mdBorder).frame(width: 1)
+                ModemDeckSplitColumns(controller: controller, detailID: selectedRoute) {
+                    activityColumn
+                } detail: {
                     detail
                 }
             } else { activityColumn }

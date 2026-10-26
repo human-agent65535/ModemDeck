@@ -71,12 +71,7 @@ final class ModemDeckSessionController: ObservableObject {
     }
     @Published var errorMessage = ""
     @Published var pairingInProgress = false
-    @Published var selectedSection: ModemDeckSection {
-        didSet {
-            if selectedSection != oldValue { listInteractionRevision &+= 1 }
-        }
-    }
-    @Published private(set) var listInteractionRevision = 0
+    @Published var selectedSection: ModemDeckSection
     @Published var callsFilter = "all"
     @Published private(set) var callsNavigationRevision = 0
     @Published private(set) var requestedMessageThreadKey: String?

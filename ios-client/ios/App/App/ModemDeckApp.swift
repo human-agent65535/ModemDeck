@@ -779,8 +779,10 @@ enum ModemDeckSection: String, CaseIterable, Identifiable {
 }
 
 @MainActor
-private final class ModemDeckSectionNavigation: ObservableObject {
+final class ModemDeckSectionNavigation: ObservableObject {
     @Published var path: [ModemDeckRoute] = []
+    /// Bumped when the user leaves this section, so its open swipe actions close while it is hidden.
+    @Published var swipeResetRevision = 0
 }
 
 /// One navigation path per section for the life of the shell, so a tab returns where it was.
@@ -801,15 +803,26 @@ private struct ModemDeckSectionRoot: View {
     @ObservedObject var controller: ModemDeckSessionController
     let padDialerAction: ModemDeckPadDialerAction?
     @ObservedObject var navigation: ModemDeckSectionNavigation
+    @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
 
     var body: some View {
-        NavigationStack(path: $navigation.path) {
-            destination
-                .navigationDestination(for: ModemDeckRoute.self) { route in
-                    ModemDeckRouteContent(route: route, controller: controller)
+        Group {
+            if usesSplitWorkspace {
+                // Side by side, the page's split view owns navigation: pushes land in its detail
+                // column, which keeps this section's path.
+                destination
+                    .environment(\.modemDeckSplitNavigation, navigation)
+            } else {
+                NavigationStack(path: $navigation.path) {
+                    destination
+                        .navigationDestination(for: ModemDeckRoute.self) { route in
+                            ModemDeckRouteContent(route: route, controller: controller)
+                        }
                 }
+            }
         }
         .environment(\.modemDeckNavigate, { navigation.path.append($0) })
+        .environment(\.modemDeckSwipeResetRevision, navigation.swipeResetRevision)
         // Dialing belongs to Recents and Calls; other sections keep their toolbars uncluttered.
         .environment(\.modemDeckPadDialerAction, section == .home || section == .calls ? padDialerAction : nil)
         .onChange(of: controller.callsNavigationRevision) { _ in
@@ -900,7 +913,16 @@ private struct ModemDeckWorkspaceShell: View {
     private var selection: Binding<ModemDeckSection> {
         Binding(
             get: { controller.selectedSection == .dial ? .home : controller.selectedSection },
-            set: { controller.selectedSection = $0 }
+            set: { section in
+                let leaving = controller.selectedSection == .dial ? .home : controller.selectedSection
+                if leaving != section {
+                    // After the switch settles: changing the hidden section inside the tab
+                    // change disturbs the arriving section's interactive back gesture.
+                    let left = navigation.navigation(for: leaving)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { left.swipeResetRevision &+= 1 }
+                }
+                controller.selectedSection = section
+            }
         )
     }
 
@@ -977,40 +999,114 @@ private struct ModemDeckSectionBadgeSource: DynamicProperty {
     }
 }
 
-private struct ModemDeckListColumnModifier: ViewModifier {
-    @Environment(\.modemDeckListColumnWidth) private var width
+private struct ModemDeckSplitNavigationKey: EnvironmentKey {
+    static let defaultValue: ModemDeckSectionNavigation? = nil
+}
+
+private struct ModemDeckInSplitDetailKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private struct ModemDeckSwipeResetRevisionKey: EnvironmentKey {
+    static let defaultValue = 0
+}
+
+extension EnvironmentValues {
+    /// The section's navigation path, handed to a split view's detail column.
+    var modemDeckSplitNavigation: ModemDeckSectionNavigation? {
+        get { self[ModemDeckSplitNavigationKey.self] }
+        set { self[ModemDeckSplitNavigationKey.self] = newValue }
+    }
+
+    /// True inside a split view's detail column, where the tab bar or sidebar stays put.
+    var modemDeckInSplitDetail: Bool {
+        get { self[ModemDeckInSplitDetailKey.self] }
+        set { self[ModemDeckInSplitDetailKey.self] = newValue }
+    }
+
+    /// Changes only for the section the user just left; rows key their swipe surface on it.
+    var modemDeckSwipeResetRevision: Int {
+        get { self[ModemDeckSwipeResetRevisionKey.self] }
+        set { self[ModemDeckSwipeResetRevisionKey.self] = newValue }
+    }
+}
+
+/// A list beside its detail, as a system split view: each column has its own navigation bar, so
+/// scrolling one never moves the other, and deeper pages push inside the detail column.
+struct ModemDeckSplitColumns<ListColumn: View, DetailColumn: View>: View {
+    @ObservedObject var controller: ModemDeckSessionController
+    /// The selected item; choosing another one returns the detail column to its root.
+    let detailID: AnyHashable?
+    @ViewBuilder var list: () -> ListColumn
+    @ViewBuilder var detail: () -> DetailColumn
+    @Environment(\.modemDeckSplitNavigation) private var navigation
+    @Environment(\.modemDeckListColumnWidth) private var listWidth
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            list()
+                .navigationSplitViewColumnWidth(listWidth)
+                .modemDeckRemovingSidebarToggle()
+        } detail: {
+            ModemDeckSplitDetailStack(controller: controller, navigation: navigation ?? ModemDeckSectionNavigation()) {
+                detail()
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onChange(of: detailID) { _ in navigation?.path.removeAll() }
+    }
+}
+
+private extension View {
+    /// The list column always shows; there is nothing for a sidebar toggle to hide.
+    @ViewBuilder func modemDeckRemovingSidebarToggle() -> some View {
+        if #available(iOS 17.0, *) { toolbar(removing: .sidebarToggle) } else { self }
+    }
+}
+
+private struct ModemDeckSplitDetailStack<Root: View>: View {
+    @ObservedObject var controller: ModemDeckSessionController
+    @ObservedObject var navigation: ModemDeckSectionNavigation
+    @ViewBuilder var root: () -> Root
+
+    var body: some View {
+        NavigationStack(path: $navigation.path) {
+            root()
+                .navigationDestination(for: ModemDeckRoute.self) { route in
+                    ModemDeckRouteContent(route: route, controller: controller)
+                }
+        }
+        // Pages pushed here are single-column, and leave the sidebar or tab bar alone.
+        .environment(\.modemDeckUsesSplitWorkspace, false)
+        .environment(\.modemDeckInSplitDetail, true)
+    }
+}
+
+private struct ModemDeckImmersiveScreenModifier: ViewModifier {
+    let pushed: Bool
+    @Environment(\.modemDeckInSplitDetail) private var inSplitDetail
 
     func body(content: Content) -> some View {
-        content.frame(width: width)
+        content.modemDeckTabBarVisible(!pushed || inSplitDetail)
     }
 }
 
 extension View {
-    /// Sizes a list beside its detail in proportion to the screen, as Mail and Messages do.
-    func modemDeckListColumn() -> some View {
-        modifier(ModemDeckListColumnModifier())
-    }
-
     /// Hides the system tab bar for this page while it is shown, as Messages does for a
     /// conversation; the system animates the bar and the page's safe area together.
     @ViewBuilder func modemDeckTabBarVisible(_ visible: Bool) -> some View {
         if visible { self } else { toolbar(.hidden, for: .tabBar) }
     }
 
-    /// A pushed detail takes the system bar's inline title and back button; shown beside its
-    /// list it leaves the list page's bar alone.
-    @ViewBuilder func modemDeckDetailTitle(_ title: String, pushed: Bool) -> some View {
-        if pushed {
-            navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-        } else {
-            self
-        }
+    /// A detail page takes its navigation bar's inline title, pushed or in a split detail column.
+    func modemDeckDetailTitle(_ title: String) -> some View {
+        navigationTitle(title).navigationBarTitleDisplayMode(.inline)
     }
 
     /// Marks a pushed screen (a conversation or composer) that owns the bottom edge on iPhone.
     /// A detail embedded beside its list leaves the tab bar alone.
     func modemDeckImmersiveScreen(_ pushed: Bool = true) -> some View {
-        modemDeckTabBarVisible(!pushed)
+        modifier(ModemDeckImmersiveScreenModifier(pushed: pushed))
     }
 }
 

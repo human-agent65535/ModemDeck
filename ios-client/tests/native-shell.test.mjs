@@ -484,6 +484,14 @@ test('native tabs retain an independent NavigationStack per module', async () =>
   assert.match(app, /final class ModemDeckShellNavigation: ObservableObject[\s\S]*if let existing = paths\[section\] \{ return existing \}/)
   assert.match(app, /@StateObject private var navigation = ModemDeckShellNavigation\(\)/)
   assert.match(app, /navigation: navigation\.navigation\(for: section\)/)
+  // Tab switches never rebuild list rows, so returning to a tab doesn't flash its content.
+  assert.doesNotMatch(app, /entryRevisions|modemDeckListEntryRevision|listInteractionRevision/)
+  // Only the section being left resets its open swipes, while it is hidden.
+  assert.match(app, /let left = navigation\.navigation\(for: leaving\)\s*DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ 0\.35\) \{ left\.swipeResetRevision &\+= 1 \}/)
+  assert.match(app, /\.environment\(\\\.modemDeckSwipeResetRevision, navigation\.swipeResetRevision\)/)
+  // Side-by-side columns each own a navigation bar, so one column's scroll doesn't move the other.
+  assert.match(app, /struct ModemDeckSplitColumns[\s\S]*NavigationSplitView\(columnVisibility: \.constant\(\.all\)\)/)
+  assert.match(app, /\.onChange\(of: detailID\) \{ _ in navigation\?\.path\.removeAll\(\) \}/)
   assert.match(app, /\.onChange\(of: controller\.selectedSection\)[\s\S]{0,200}resignFirstResponder/)
   assert.doesNotMatch(app, /NavigationView \{\s*destination\(for: controller\.selectedSection\)/)
 })
@@ -648,7 +656,8 @@ test('conversations and selection hide the system tab bar natively', async () =>
 
   // The system hides the tab bar and resizes the page together, keeping transitions and swipe-back.
   assert.match(app, /func modemDeckTabBarVisible\(_ visible: Bool\) -> some View \{\s*if visible \{ self \} else \{ toolbar\(\.hidden, for: \.tabBar\) \}/)
-  assert.match(app, /func modemDeckImmersiveScreen\(_ pushed: Bool = true\) -> some View \{\s*modemDeckTabBarVisible\(!pushed\)/)
+  assert.match(app, /func modemDeckImmersiveScreen\(_ pushed: Bool = true\) -> some View \{\s*modifier\(ModemDeckImmersiveScreenModifier\(pushed: pushed\)\)/)
+  assert.match(app, /content\.modemDeckTabBarVisible\(!pushed \|\| inSplitDetail\)/)
   // A conversation embedded beside its list leaves the tab bar or sidebar alone.
   assert.match(communication, /\.modemDeckImmersiveScreen\(showsBackButton\)/)
   // Selection's toolbar takes the tab bar's place.
@@ -681,17 +690,14 @@ test('native iPad communication workspaces mirror the Web list-detail geometry',
   assert.match(communication, /\.frame\(maxWidth: ModemDeckLayout\.readableContentWidth\)/)
   assert.match(communication, /selectedContactID/)
   assert.match(communication, /selectedThreadID/)
-  assert.ok(
-    (communication.match(/\.modemDeckListColumn\(\)/g) || []).length >= 2
-  )
+  assert.ok((communication.match(/ModemDeckSplitColumns\(/g) || []).length >= 2)
   assert.ok(
     (communication.match(/showsBackButton: false/g) || []).length >= 2
   )
   assert.match(calls, /selectedCallID/)
   assert.match(calls, /selectedRecordingID/)
-  assert.ok(
-    (calls.match(/\.modemDeckListColumn\(\)/g) || []).length >= 2
-  )
+  assert.ok((calls.match(/ModemDeckSplitColumns\(/g) || []).length >= 2)
+  assert.match(app, /list\(\)\s*\.navigationSplitViewColumnWidth\(listWidth\)/)
   assert.ok((calls.match(/showsBackButton: false/g) || []).length >= 2)
 })
 

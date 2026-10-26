@@ -41,10 +41,9 @@ struct ModemDeckContactsView: View {
     var body: some View {
         Group {
             if usesSplitWorkspace {
-                HStack(spacing: 0) {
+                ModemDeckSplitColumns(controller: controller, detailID: selectedContactID) {
                     contactList
-                        .modemDeckListColumn()
-                    Rectangle().fill(Color.mdBorder).frame(width: 1)
+                } detail: {
                     contactDetail
                 }
             } else {
@@ -651,49 +650,26 @@ struct ModemDeckIdentityHeader: View {
     var copyItems: [ModemDeckCopyItem] = []
 
     var body: some View {
-        if showsBackButton {
-            // Pushed: the system bar carries the back button, the identity in its centre and the
-            // actions at its trailing edge, as in Messages and Contacts.
-            Color.clear
-                .frame(height: 0)
-                .accessibilityHidden(true)
-                .navigationTitle(title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        identity(avatarSize: 32, compact: true)
-                    }
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        ForEach(inlineActions) { item in
-                            barButton(item)
-                        }
-                        if !menuActions.isEmpty || !destructiveActions.isEmpty {
-                            moreMenu
-                        }
-                    }
+        // The navigation bar carries the identity in its centre and the actions at its trailing
+        // edge, as in Messages and Contacts, whether pushed or in a split detail column.
+        Color.clear
+            .frame(height: 0)
+            .accessibilityHidden(true)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    identity(avatarSize: 32, compact: true)
                 }
-        } else {
-            // Beside its list on a wide screen, the detail titles its own column.
-            HStack(spacing: 10) {
-                identity(avatarSize: 44, compact: false)
-                    .layoutPriority(1)
-                Spacer(minLength: 4)
-                ForEach(inlineActions) { item in
-                    headerButton(item)
-                }
-                if !menuActions.isEmpty || !destructiveActions.isEmpty {
-                    moreMenu
-                        .frame(width: 44, height: 44)
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    ForEach(inlineActions) { item in
+                        barButton(item)
+                    }
+                    if !menuActions.isEmpty || !destructiveActions.isEmpty {
+                        moreMenu
+                    }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
-            .frame(minHeight: 64)
-            // Large text grows the header; the cap keeps the action row usable.
-            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-            .background(Color.mdBackground)
-            .overlay(alignment: .bottom) { ModemDeckHairline() }
-        }
     }
 
     private func identity(avatarSize: CGFloat, compact: Bool) -> some View {
@@ -1777,10 +1753,9 @@ struct ModemDeckMessagesView: View {
     var body: some View {
         Group {
             if usesSplitWorkspace {
-                HStack(spacing: 0) {
+                ModemDeckSplitColumns(controller: controller, detailID: selectedThreadID) {
                     messageList
-                        .modemDeckListColumn()
-                    Rectangle().fill(Color.mdBorder).frame(width: 1)
+                } detail: {
                     conversationDetail
                 }
             } else {

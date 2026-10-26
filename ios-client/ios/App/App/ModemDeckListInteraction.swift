@@ -143,6 +143,7 @@ struct ModemDeckContextAction: Identifiable {
 /// swipe actions, selection feedback, and destructive confirmation.
 struct ModemDeckListRow<Content: View>: View {
     @ObservedObject var controller: ModemDeckSessionController
+    @Environment(\.modemDeckSwipeResetRevision) private var swipeResetRevision
     var selecting = false
     var selected = false
     var enabled = true
@@ -249,10 +250,10 @@ struct ModemDeckListRow<Content: View>: View {
         )) {
             Button(controller.text("好", "OK"), role: .cancel) { errorMessage = "" }
         } message: { Text(errorMessage) }
-        // Retained tabs must recreate the native swipe surface on re-entry.
-        // This identity is below the row's action state, so pending requests,
-        // selection, navigation, drafts and the List's scroll owner survive.
-        .id(controller.listInteractionRevision)
+        // Closes a swipe left open when the user switched away. Only the section that was left
+        // changes, and it changes while hidden, so returning shows the rows as they were.
+        // The identity sits below the row's action state, so pending requests and alerts survive.
+        .id(swipeResetRevision)
     }
 
     private func perform(_ action: @escaping () async throws -> Void) {

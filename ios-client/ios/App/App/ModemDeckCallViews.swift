@@ -727,10 +727,9 @@ struct ModemDeckCallsView: View {
     var body: some View {
         Group {
             if usesSplitWorkspace {
-                HStack(spacing: 0) {
+                ModemDeckSplitColumns(controller: controller, detailID: selectedCallID) {
                     callListColumn
-                        .modemDeckListColumn()
-                    Rectangle().fill(Color.mdBorder).frame(width: 1)
+                } detail: {
                     callDetail
                 }
             } else {
@@ -1182,10 +1181,9 @@ struct ModemDeckRecordingsView: View {
     var body: some View {
         Group {
             if usesSplitWorkspace {
-                HStack(spacing: 0) {
+                ModemDeckSplitColumns(controller: controller, detailID: selectedRecordingID) {
                     recordingListColumn
-                        .modemDeckListColumn()
-                    Rectangle().fill(Color.mdBorder).frame(width: 1)
+                } detail: {
                     recordingDetail
                 }
             } else {

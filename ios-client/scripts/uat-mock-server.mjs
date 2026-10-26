@@ -153,6 +153,12 @@ const messages = [
   }))
 ]
 
+messages.push({
+  id: 31, line_id: 'uat-line-a', peer: 'UAT-SERVICE', direction: 'incoming',
+  content: '未绑定发送方 UAT 消息。', timestamp: '2026-08-09T08:33:00Z',
+  type: 1, status: 0, delivery_status: '', revision: 1
+})
+
 const calls = [
   {
     id: 'uat-call-example',
@@ -507,6 +513,7 @@ async function fixtureWrite(request, response, pathname) {
       }
     }
     if (body.messagesRead) applyState(threads, () => true, 'read')
+    if (body.shortUnreadThread) Object.assign(threads[1], { unread_count: 1, first_unread_message_id: 31 })
     if (Number.isInteger(body.firstUnreadMessageID) && body.firstUnreadMessageID >= 1 && body.firstUnreadMessageID <= 30) {
       threads[0].first_unread_message_id = body.firstUnreadMessageID
       threads[0].unread_count = messages.filter(message => message.id >= body.firstUnreadMessageID && message.type === 1).length
@@ -660,7 +667,12 @@ const server = https.createServer(
         if (messageReadDelayMS) await new Promise(resolve => setTimeout(resolve, messageReadDelayMS))
         messageReadsCompleted += 1
       }
-      const body = readOnlyBody(url.pathname)
+      let body = readOnlyBody(url.pathname)
+      // Each conversation only returns its own messages, so short threads can be reviewed.
+      if (url.pathname === '/api/v1/messages' && url.searchParams.get('peer')) {
+        const peer = url.searchParams.get('peer')
+        body = { ...body, messages: messages.filter(message => message.peer === peer) }
+      }
       if (body !== undefined) {
         send(response, 200, body)
       } else if (url.pathname === '/api/v1/network' || url.pathname === '/api/v1/proxies') {

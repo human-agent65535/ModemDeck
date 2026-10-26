@@ -29,25 +29,30 @@ struct ModemDeckSettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ModemDeckPageHeader(title: controller.text("设置", "Settings"))
+        Group {
             if usesTwoColumns {
-                HStack(spacing: 0) {
-                    settingsDirectory
-                        .modemDeckListColumn()
-                    Rectangle().fill(Color.mdBorder).frame(width: 1)
+                ModemDeckSplitColumns(controller: controller, detailID: selectedSection) {
+                    titledDirectory
+                } detail: {
                     settingsDestination(selectedSection)
                         .environment(\.modemDeckSettingsShowsBackButton, false)
                         .id(selectedSection)
                 }
             } else {
-                settingsDirectory
+                titledDirectory
             }
         }
         .background(Color.mdBackground)
         .task {
             await controller.refreshNotificationStatus()
             controller.refreshMicrophoneStatus()
+        }
+    }
+
+    private var titledDirectory: some View {
+        VStack(spacing: 0) {
+            ModemDeckPageHeader(title: controller.text("设置", "Settings"))
+            settingsDirectory
         }
     }
 
@@ -378,17 +383,6 @@ private struct ModemDeckSettingsDetailScaffold<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Pushed, the page uses the system bar and back button; shown beside the directory
-            // on wide screens, it titles its own column.
-            if !showsBackButton {
-                Text(title)
-                    .font(.title3.weight(.bold))
-                    .foregroundColor(.mdText)
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.horizontal, 20)
-                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                    .background(Color.mdBackground)
-            }
             ScrollView {
                 content
                     .frame(maxWidth: ModemDeckLayout.readableContentWidth)
@@ -397,7 +391,7 @@ private struct ModemDeckSettingsDetailScaffold<Content: View>: View {
             }
         }
         .background(Color.mdBackground)
-        .modemDeckDetailTitle(title, pushed: showsBackButton)
+        .modemDeckDetailTitle(title)
         .modemDeckInteractiveBack(showsBackButton)
     }
 }
