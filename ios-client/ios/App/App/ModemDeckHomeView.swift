@@ -84,7 +84,11 @@ struct ModemDeckHomeView: View {
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
     @Environment(\.modemDeckNavigate) private var navigate
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var selectedRoute: ModemDeckRoute?
+    @EnvironmentObject private var sectionSelection: ModemDeckSectionSelection
+    private var selectedRoute: ModemDeckRoute? {
+        get { sectionSelection.route }
+        nonmutating set { sectionSelection.route = newValue }
+    }
     @State private var activity = ModemDeckActivitySnapshot()
     @State private var preparingActivity = true
 

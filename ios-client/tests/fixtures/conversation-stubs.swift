@@ -25,6 +25,13 @@ enum ModemDeckDateText { static func date(_ value: String) -> Date? { ISO8601Dat
  }
 }
 @MainActor final class ModemDeckMessagesStore {
+ private var drafts: [String: ModemDeckMessageDraft] = [:]
+ func draft(for threadID: String) -> ModemDeckMessageDraft {
+  if let existing = drafts[threadID] { return existing }
+  let draft = ModemDeckMessageDraft()
+  drafts[threadID] = draft
+  return draft
+ }
  func apply(_ action: Action, to ids: Set<String>) {}
  func apply(_ summary: Summary) {}
  func load() async {}
@@ -39,7 +46,8 @@ enum ModemDeckDateText { static func date(_ value: String) -> Date? { ISO8601Dat
   api.cache = [message(1)]
   api.response = .init(messages: [message(3)], meta: .init(hasMore: false, nextCursor: ""))
   let thread = ModemDeckMessageThread(id: "line:peer", lineId: "line", peer: "peer", firstUnreadMessageId: nil)
-  let store = ModemDeckConversationStore(api: api, thread: thread, messagesStore: ModemDeckMessagesStore())
+  let messagesStore = ModemDeckMessagesStore()
+  let store = ModemDeckConversationStore(api: api, thread: thread, messagesStore: messagesStore)
   await store.load()
   precondition(store.messages.map(\.id) == [3] && api.cache.map(\.id) == [3], "deleted cached messages returned")
   api.response = .init(messages: [message(4)], meta: .init(hasMore: true, nextCursor: "older"))
@@ -73,6 +81,9 @@ enum ModemDeckDateText { static func date(_ value: String) -> Date? { ISO8601Dat
   precondition(!failed && store.outbox.count == 1, "a failed send must remain as a bubble")
   if case .failed = store.outbox[0].state {} else { preconditionFailure("the bubble must show the failure") }
   precondition(store.errorMessage.isEmpty, "a failed send is reported on its bubble, not a banner")
+  // Leaving the conversation drops its store; the failed SMS must still be there on return.
+  let reopened = ModemDeckConversationStore(api: api, thread: thread, messagesStore: messagesStore)
+  precondition(reopened.outbox.map(\.id) == ["attempt-1"], "a failed SMS must survive leaving the conversation")
   api.sendFails = false
   let retried = await store.retry(store.outbox[0])
   precondition(retried && store.outbox.isEmpty && store.messages.last?.id == 100, "retry must land the message")

@@ -111,7 +111,11 @@ final class CommunicationUXTests: XCTestCase {
         let title = ["home": "最近", "messages": "消息", "contacts": "联系人", "calls": "通话", "settings": "设置"][id]!
         let tab = app.tabBars.buttons[title]
         if tab.exists { return tab }
-        return app.collectionViews.cells.matching(NSPredicate(format: "label == %@", title)).firstMatch
+        // Badges extend the label ("消息, 1"), in the sidebar and in the floating tab bar.
+        let labelled = NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + ",")
+        let sidebarItem = app.collectionViews.cells.matching(labelled).firstMatch
+        if sidebarItem.exists { return sidebarItem }
+        return app.buttons.matching(labelled).firstMatch
     }
 
     /// A page's own button with this label, not the tab bar item of the same name.
@@ -597,6 +601,36 @@ final class CommunicationUXTests: XCTestCase {
             NSPredicate(format: "value CONTAINS %@", "SPLIT_DRAFT")
         ).firstMatch.waitForExistence(timeout: 6))
         capture("fixed-split-to-compact-draft", app: app)
+    }
+
+    /// Needs an iPad that is single-column in portrait (iPad Air 11-inch, 820pt) and two-column in landscape.
+    func testOpenConversationCrossesBetweenOneAndTwoColumns() async throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
+        let app = try await launch()
+        XCUIDevice.shared.orientation = .portrait
+        let portrait = NSPredicate { _, _ in app.frame.width < app.frame.height }
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: portrait, object: app)], timeout: 8)
+        try XCTSkipUnless(app.frame.width < 900, "Portrait must be single-column on this device")
+        section(app, "messages").tap()
+        let row = app.buttons["message-\(threadID)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 6))
+        row.tap()
+        XCTAssertTrue(backButton(app).waitForExistence(timeout: 5))
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 8)
+        // The pushed conversation becomes the side-by-side selection, not a page over a placeholder.
+        XCTAssertTrue(app.textFields["短信内容"].waitForExistence(timeout: 6))
+        XCTAssertTrue(row.waitForExistence(timeout: 6))
+        XCTAssertTrue(row.isSelected, "The open conversation must be selected in the list")
+        XCTAssertFalse(app.staticTexts["选择会话"].exists)
+        capture("fixed-compact-to-split-selection", app: app)
+
+        XCUIDevice.shared.orientation = .portrait
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: portrait, object: app)], timeout: 8)
+        XCTAssertTrue(app.textFields["短信内容"].waitForExistence(timeout: 6), "Folding back keeps the conversation open")
+        XCTAssertTrue(backButton(app).exists)
     }
 
     func testContactBatchDeleteKeepsItsOriginalSelection() async throws {

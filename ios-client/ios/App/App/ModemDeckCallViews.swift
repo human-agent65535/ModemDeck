@@ -677,7 +677,14 @@ struct ModemDeckCallsView: View {
     @State private var directionFilter = "all"
     @State private var selecting = false
     @State private var selectedIDs = Set<String>()
-    @State private var selectedCallID: String?
+    @EnvironmentObject private var sectionSelection: ModemDeckSectionSelection
+    private var selectedCallID: String? {
+        get {
+            if case .call(let id) = sectionSelection.route { return id }
+            return nil
+        }
+        nonmutating set { sectionSelection.route = newValue.map(ModemDeckRoute.call) }
+    }
     @State private var batchBusy = false
     @State private var confirmBatchDelete = false
 

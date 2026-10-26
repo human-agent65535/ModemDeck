@@ -9,7 +9,14 @@ struct ModemDeckContactsView: View {
     @State private var query = ""
     @State private var selecting = false
     @State private var selectedIDs = Set<String>()
-    @State private var selectedContactID: String?
+    @EnvironmentObject private var sectionSelection: ModemDeckSectionSelection
+    private var selectedContactID: String? {
+        get {
+            if case .contact(let id) = sectionSelection.route { return id }
+            return nil
+        }
+        nonmutating set { sectionSelection.route = newValue.map(ModemDeckRoute.contact) }
+    }
     @State private var editorOpen = false
     @State private var editingContact: ModemDeckContact?
     @State private var batchBusy = false
@@ -1704,9 +1711,14 @@ struct ModemDeckMessagesView: View {
     @State private var favoriteOnly = false
     @State private var selecting = false
     @State private var selectedIDs = Set<String>()
-    @State private var selectedThreadID: String?
-    @State private var notificationThread: ModemDeckMessageThread?
-    @State private var notificationLinkActive = false
+    @EnvironmentObject private var sectionSelection: ModemDeckSectionSelection
+    private var selectedThreadID: String? {
+        get {
+            if case .message(let id) = sectionSelection.route { return id }
+            return nil
+        }
+        nonmutating set { sectionSelection.route = newValue.map(ModemDeckRoute.message) }
+    }
     @State private var composeOpen = false
     @State private var batchBusy = false
     @State private var confirmBatchDelete = false
@@ -1771,37 +1783,15 @@ struct ModemDeckMessagesView: View {
             await store.load()
             applyRequestedThread()
         }
-        .onChange(of: usesSplitWorkspace) { split in
-            if !split, let selectedThreadID {
-                navigate(.message(selectedThreadID))
-                self.selectedThreadID = nil
-            }
-        }
         .onChange(of: controller.requestedMessageThreadKey) { _ in
             applyRequestedThread()
         }
         .onChange(of: store.threads.map(\.id)) { _ in
             applyRequestedThread()
         }
-        .onChange(of: notificationLinkActive) { active in
-            if !active { notificationThread = nil }
-        }
         .onChange(of: filteredThreads.map(\.id)) { visibleIDs in
             guard selecting else { return }
             selectedIDs.formIntersection(Set(visibleIDs))
-        }
-        .navigationDestination(isPresented: $notificationLinkActive) {
-            Group {
-                if let thread = notificationThread {
-                    ModemDeckConversationView(
-                        thread: thread,
-                        controller: controller,
-                        contact: contact(for: thread),
-                        onChanged: reloadThreads,
-                        onDeleted: handleDeletedThread
-                    )
-                }
-            }
         }
         .sheet(isPresented: $composeOpen) {
             ModemDeckNewMessageView(controller: controller) {
@@ -1829,11 +1819,11 @@ struct ModemDeckMessagesView: View {
               let thread = store.threads.first(where: { $0.key == key }) else {
             return
         }
+        // A pushed route, unlike a one-off destination, survives the layout changing.
         if usesSplitWorkspace {
             selectedThreadID = thread.id
         } else {
-            notificationThread = thread
-            notificationLinkActive = true
+            navigate(.message(thread.id))
         }
         controller.acceptRequestedMessage(threadKey: key)
     }

@@ -487,7 +487,16 @@ test('native tabs retain an independent NavigationStack per module', async () =>
   // Tab switches never rebuild list rows, so returning to a tab doesn't flash its content.
   assert.doesNotMatch(app, /entryRevisions|modemDeckListEntryRevision|listInteractionRevision/)
   // Only the section being left resets its open swipes, while it is hidden.
-  assert.match(app, /let left = navigation\.navigation\(for: leaving\)\s*DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ 0\.35\) \{ left\.swipeResetRevision &\+= 1 \}/)
+  // Every section change, including ones the app makes, resets swipes after the switch settles,
+  // and only if the user has not already returned.
+  assert.match(app, /\.onChange\(of: controller\.selectedSection\) \{ section in[\s\S]{0,240}closeSwipesInSectionLeft\(for: tabSection\(section\)\)/)
+  assert.match(app, /guard tabSection\(controller\.selectedSection\) != left else \{ return \}\s*leftNavigation\.swipeResetRevision &\+= 1/)
+  // The side-by-side selection lives on the section, so layout changes carry it across.
+  // It is a separate object, so pages do not redraw on every push or pop.
+  assert.match(app, /final class ModemDeckSectionSelection: ObservableObject \{\s*@Published var route: ModemDeckRoute\?/)
+  assert.match(app, /\.environmentObject\(navigation\.selection\)/)
+  assert.match(app, /navigation\.path\.removeFirst\(\)\s*navigation\.selection\.route = first/)
+  assert.match(app, /navigation\.selection\.route = nil\s*navigation\.path\.insert\(selection, at: 0\)/)
   assert.match(app, /\.environment\(\\\.modemDeckSwipeResetRevision, navigation\.swipeResetRevision\)/)
   // Side-by-side columns each own a navigation bar, so one column's scroll doesn't move the other.
   assert.match(app, /struct ModemDeckSplitColumns[\s\S]*NavigationSplitView\(columnVisibility: \.constant\(\.all\)\)/)

@@ -752,6 +752,17 @@ enum ModemDeckSection: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Routes this section shows beside its list when side by side.
+    func selects(_ route: ModemDeckRoute) -> Bool {
+        switch (self, route) {
+        case (.contacts, .contact), (.messages, .message), (.calls, .call),
+             (.home, .message), (.home, .call):
+            return true
+        default:
+            return false
+        }
+    }
+
     static var contentSections: [ModemDeckSection] {
         [.home, .messages, .contacts, .calls, .settings]
     }
@@ -779,8 +790,18 @@ enum ModemDeckSection: String, CaseIterable, Identifiable {
 }
 
 @MainActor
+final class ModemDeckSectionSelection: ObservableObject {
+    @Published var route: ModemDeckRoute?
+}
+
+@MainActor
 final class ModemDeckSectionNavigation: ObservableObject {
     @Published var path: [ModemDeckRoute] = []
+    /// The item shown beside the list when the section is side by side. It lives here, not in
+    /// the page, so it survives the page being rebuilt when the layout changes. It is its own
+    /// object so pages observe only it: redrawing the list on every push or pop interrupts the
+    /// interactive back gesture.
+    let selection = ModemDeckSectionSelection()
     /// Bumped when the user leaves this section, so its open swipe actions close while it is hidden.
     @Published var swipeResetRevision = 0
 }
@@ -789,6 +810,9 @@ final class ModemDeckSectionNavigation: ObservableObject {
 @MainActor
 private final class ModemDeckShellNavigation: ObservableObject {
     private var paths: [ModemDeckSection: ModemDeckSectionNavigation] = [:]
+    /// The tab on screen. Deliberately not published: changing view state during a tab switch
+    /// re-renders the shell mid-transition and breaks the arriving page's back gesture.
+    var shownSection: ModemDeckSection = .home
 
     func navigation(for section: ModemDeckSection) -> ModemDeckSectionNavigation {
         if let existing = paths[section] { return existing }
@@ -821,8 +845,23 @@ private struct ModemDeckSectionRoot: View {
                 }
             }
         }
+        .environmentObject(navigation.selection)
         .environment(\.modemDeckNavigate, { navigation.path.append($0) })
         .environment(\.modemDeckSwipeResetRevision, navigation.swipeResetRevision)
+        // Unfolding a Duo, rotating or resizing an iPad keeps what was open: a pushed detail
+        // becomes the side-by-side selection, and the selection becomes a push again on the way back.
+        .onChange(of: usesSplitWorkspace) { split in
+            if split {
+                guard navigation.selection.route == nil,
+                      let first = navigation.path.first,
+                      section.selects(first) else { return }
+                navigation.path.removeFirst()
+                navigation.selection.route = first
+            } else if let selection = navigation.selection.route {
+                navigation.selection.route = nil
+                navigation.path.insert(selection, at: 0)
+            }
+        }
         // Dialing belongs to Recents and Calls; other sections keep their toolbars uncluttered.
         .environment(\.modemDeckPadDialerAction, section == .home || section == .calls ? padDialerAction : nil)
         .onChange(of: controller.callsNavigationRevision) { _ in
@@ -902,10 +941,31 @@ private struct ModemDeckWorkspaceShell: View {
         .onReceive(controller.callController.$call) { call in
             if call != nil { showingDialer = false }
         }
-        .onChange(of: controller.selectedSection) { _ in
+        .onAppear { navigation.shownSection = tabSection(controller.selectedSection) }
+        .onChange(of: controller.selectedSection) { section in
             UIApplication.shared.sendAction(
                 #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
             )
+            closeSwipesInSectionLeft(for: tabSection(section))
+        }
+    }
+
+    private func tabSection(_ section: ModemDeckSection) -> ModemDeckSection {
+        section == .dial ? .home : section
+    }
+
+    /// Closes swipe actions left open in the section the user just left, for taps on the tab bar
+    /// and for switches the app makes itself. It waits for the switch to settle, since changing
+    /// the hidden section during the tab change disturbs the arriving section's back gesture,
+    /// and skips the reset if the user has already come back.
+    private func closeSwipesInSectionLeft(for section: ModemDeckSection) {
+        let left = navigation.shownSection
+        navigation.shownSection = section
+        guard left != section else { return }
+        let leftNavigation = navigation.navigation(for: left)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard tabSection(controller.selectedSection) != left else { return }
+            leftNavigation.swipeResetRevision &+= 1
         }
     }
 
@@ -913,16 +973,7 @@ private struct ModemDeckWorkspaceShell: View {
     private var selection: Binding<ModemDeckSection> {
         Binding(
             get: { controller.selectedSection == .dial ? .home : controller.selectedSection },
-            set: { section in
-                let leaving = controller.selectedSection == .dial ? .home : controller.selectedSection
-                if leaving != section {
-                    // After the switch settles: changing the hidden section inside the tab
-                    // change disturbs the arriving section's interactive back gesture.
-                    let left = navigation.navigation(for: leaving)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { left.swipeResetRevision &+= 1 }
-                }
-                controller.selectedSection = section
-            }
+            set: { controller.selectedSection = $0 }
         )
     }
 
