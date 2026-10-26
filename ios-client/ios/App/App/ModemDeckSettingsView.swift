@@ -34,7 +34,7 @@ struct ModemDeckSettingsView: View {
             if usesTwoColumns {
                 HStack(spacing: 0) {
                     settingsDirectory
-                        .frame(width: 370)
+                        .modemDeckListColumn()
                     Rectangle().fill(Color.mdBorder).frame(width: 1)
                     settingsDestination(selectedSection)
                         .environment(\.modemDeckSettingsShowsBackButton, false)
@@ -45,7 +45,6 @@ struct ModemDeckSettingsView: View {
             }
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .task {
             await controller.refreshNotificationStatus()
             controller.refreshMicrophoneStatus()
@@ -204,7 +203,6 @@ struct ModemDeckSettingsView: View {
             } else {
                 NavigationLink {
                     settingsDestination(.security)
-                        .modemDeckTabBarClearance()
                 } label: { label }
                 .buttonStyle(.plain)
             }
@@ -238,7 +236,6 @@ struct ModemDeckSettingsView: View {
         } else {
             NavigationLink {
                 settingsDestination(section)
-                    .modemDeckTabBarClearance()
             } label: {
                 ModemDeckSettingsDirectoryRow(icon: icon, title: title, subtitle: subtitle)
             }
@@ -381,36 +378,26 @@ private struct ModemDeckSettingsDetailScaffold<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                if showsBackButton {
-                    Button { presentationMode.wrappedValue.dismiss() } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundColor(.mdText)
-                            .frame(width: 34, height: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(backTitle)
-                }
+            // Pushed, the page uses the system bar and back button; shown beside the directory
+            // on wide screens, it titles its own column.
+            if !showsBackButton {
                 Text(title)
-                    .font(.system(size: 19, weight: .bold))
+                    .font(.title3.weight(.bold))
                     .foregroundColor(.mdText)
-                Spacer()
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                    .background(Color.mdBackground)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 56)
-            .background(Color.mdSurface)
-            .overlay(alignment: .bottom) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
-
             ScrollView {
                 content
-                    .frame(maxWidth: 720)
+                    .frame(maxWidth: ModemDeckLayout.readableContentWidth)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
             }
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
+        .modemDeckDetailTitle(title, pushed: showsBackButton)
         .modemDeckInteractiveBack(showsBackButton)
     }
 }

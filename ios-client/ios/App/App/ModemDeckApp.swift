@@ -444,25 +444,17 @@ enum ModemDeckDateText {
 }
 
 enum ModemDeckLayout {
+    /// The list column's width before the shell has measured the screen.
     static let padListWidth: CGFloat = 340
     /// Measured from the scene, not the device idiom: iPhone Duo's unfolded display reports the
     /// phone idiom, and its 951 pt wide scene fits the rail and two columns.
     static let splitWorkspaceMinimumWidth: CGFloat = 900
-    /// A trailing safe area this wide is a status-bar column rather than a rounded-corner inset.
-    static let statusColumnMinimumWidth: CGFloat = 60
+    /// Comfortable reading width for conversations and forms on wide screens.
+    static let readableContentWidth: CGFloat = 720
 
-    /// iPhone Duo centres its clock and status icons under the camera cutout, 48 pt from the
-    /// trailing edge on both screens, while the safe-area column is 84 pt wide. UIKit reports no
-    /// side status-bar frame, so the column's items take that axis from this measured offset.
-    static let statusColumnAxisFromTrailingEdge: CGFloat = 48
-    /// Room the clock and status icons take at the top of the Duo status column.
-    static let statusColumnStatusClearance: CGFloat = 132
-    /// The navigation items stop this far above the bottom edge, within thumb reach.
-    static let statusColumnBottomInset: CGFloat = 40
-
-    /// Extra trailing inset that moves column content onto the status items' axis.
-    static func statusColumnAxisInset(columnWidth: CGFloat) -> CGFloat {
-        min(columnWidth / 3, max(0, 2 * (statusColumnAxisFromTrailingEdge - columnWidth / 2)))
+    /// About 36% of the content width, kept between a usable minimum and a readable maximum.
+    static func listColumnWidth(forContentWidth width: CGFloat) -> CGFloat {
+        min(400, max(320, (width * 0.36).rounded()))
     }
     static let pageHorizontalPadding: CGFloat = 20
     static let pageHeaderHeight: CGFloat = 76
@@ -472,7 +464,6 @@ enum ModemDeckLayout {
     static let toolbarGap: CGFloat = 6
     static let controlHitSize: CGFloat = 44
     static let controlVisualSize: CGFloat = 36
-    static let searchVisualHeight: CGFloat = 44
     static let listHorizontalPadding: CGFloat = 20
     static let listRowMinHeight: CGFloat = 80
     /// Settings directory rows are single-purpose and denser than communication rows.
@@ -489,6 +480,10 @@ enum ModemDeckLayout {
 /// Rows grouped under a day heading show only the time, so the date is not said twice.
 private struct ModemDeckRowsShowTimeOnlyKey: EnvironmentKey {
     static let defaultValue = false
+}
+
+private struct ModemDeckListColumnWidthKey: EnvironmentKey {
+    static let defaultValue = ModemDeckLayout.padListWidth
 }
 
 private struct ModemDeckUsesSplitWorkspaceKey: EnvironmentKey {
@@ -508,6 +503,12 @@ extension EnvironmentValues {
     var modemDeckRowsShowTimeOnly: Bool {
         get { self[ModemDeckRowsShowTimeOnlyKey.self] }
         set { self[ModemDeckRowsShowTimeOnlyKey.self] = newValue }
+    }
+
+    /// The list column's width beside a detail, proportional to the space available.
+    var modemDeckListColumnWidth: CGFloat {
+        get { self[ModemDeckListColumnWidthKey.self] }
+        set { self[ModemDeckListColumnWidthKey.self] = newValue }
     }
 
     var modemDeckUsesSplitWorkspace: Bool {
@@ -777,70 +778,39 @@ enum ModemDeckSection: String, CaseIterable, Identifiable {
     }
 }
 
-private struct ModemDeckSectionTabs: View {
-    @ObservedObject var controller: ModemDeckSessionController
-    @EnvironmentObject private var retainedSections: ModemDeckLazySectionHost.Coordinator
-    @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
-    @Environment(\.modemDeckPadDialerAction) private var padDialerAction
-
-    var body: some View {
-        ModemDeckLazySectionHost(
-            controller: controller,
-            activeSection: activeSection,
-            usesSplitWorkspace: usesSplitWorkspace,
-            padDialerAction: padDialerAction,
-            retainedCoordinator: retainedSections
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.mdBackground)
-        .animation(nil, value: activeSection)
-        .onChange(of: activeSection) { _ in
-            UIApplication.shared.sendAction(
-                #selector(UIResponder.resignFirstResponder),
-                to: nil,
-                from: nil,
-                for: nil
-            )
-        }
-    }
-
-    private var activeSection: ModemDeckSection {
-        controller.selectedSection == .dial
-            ? .home
-            : controller.selectedSection
-    }
-
-}
-
 @MainActor
 private final class ModemDeckSectionNavigation: ObservableObject {
     @Published var path: [ModemDeckRoute] = []
 }
 
+/// One navigation path per section for the life of the shell, so a tab returns where it was.
+@MainActor
+private final class ModemDeckShellNavigation: ObservableObject {
+    private var paths: [ModemDeckSection: ModemDeckSectionNavigation] = [:]
+
+    func navigation(for section: ModemDeckSection) -> ModemDeckSectionNavigation {
+        if let existing = paths[section] { return existing }
+        let created = ModemDeckSectionNavigation()
+        paths[section] = created
+        return created
+    }
+}
+
 private struct ModemDeckSectionRoot: View {
     let section: ModemDeckSection
     @ObservedObject var controller: ModemDeckSessionController
-    let usesSplitWorkspace: Bool
     let padDialerAction: ModemDeckPadDialerAction?
     @ObservedObject var navigation: ModemDeckSectionNavigation
 
     var body: some View {
         NavigationStack(path: $navigation.path) {
             destination
-                .modemDeckTabBarClearance()
                 .navigationDestination(for: ModemDeckRoute.self) { route in
-                    if route.opensConversation {
-                        ModemDeckRouteContent(route: route, controller: controller)
-                    } else {
-                        ModemDeckRouteContent(route: route, controller: controller)
-                            .modemDeckTabBarClearance()
-                    }
+                    ModemDeckRouteContent(route: route, controller: controller)
                 }
         }
-        .toolbar(.hidden, for: .navigationBar)
         .environment(\.modemDeckNavigate, { navigation.path.append($0) })
-        .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
-        // Dialing belongs to Recents and Calls; other sections keep their headers uncluttered.
+        // Dialing belongs to Recents and Calls; other sections keep their toolbars uncluttered.
         .environment(\.modemDeckPadDialerAction, section == .home || section == .calls ? padDialerAction : nil)
         .onChange(of: controller.callsNavigationRevision) { _ in
             if section == .calls { navigation.path.removeAll() }
@@ -868,128 +838,9 @@ private struct ModemDeckSectionRoot: View {
     }
 }
 
-private struct ModemDeckLazySectionHost: UIViewControllerRepresentable {
-    final class ContainerViewController: UIViewController {
-        private weak var visibleController: UIViewController?
-
-        override func viewDidLoad() {
-            super.viewDidLoad()
-            view.backgroundColor = UIColor(Color.mdBackground)
-        }
-
-        func show(_ controller: UIViewController) {
-            guard visibleController !== controller else { return }
-            if let visibleController {
-                visibleController.willMove(toParent: nil)
-                visibleController.view.removeFromSuperview()
-                visibleController.removeFromParent()
-            }
-            if controller.parent != nil {
-                controller.willMove(toParent: nil)
-                controller.view.removeFromSuperview()
-                controller.removeFromParent()
-            }
-            addChild(controller)
-            controller.view.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(controller.view)
-            NSLayoutConstraint.activate([
-                controller.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                controller.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                controller.view.topAnchor.constraint(equalTo: view.topAnchor),
-                controller.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-            ])
-            controller.didMove(toParent: self)
-            visibleController = controller
-        }
-
-    }
-
-    @MainActor
-    final class Coordinator: ObservableObject {
-        var sections: [ModemDeckSection: UIHostingController<ModemDeckSectionRoot>] = [:]
-        private var navigation: [ModemDeckSection: ModemDeckSectionNavigation] = [:]
-        private var isEnvironmentConfigured = false
-        private var usesSplitWorkspace = false
-        private var padDialerAction: ModemDeckPadDialerAction?
-
-        func updateEnvironment(
-            usesSplitWorkspace: Bool,
-            padDialerAction: ModemDeckPadDialerAction?,
-            controller: ModemDeckSessionController
-        ) {
-            let layoutChanged = !isEnvironmentConfigured ||
-                self.usesSplitWorkspace != usesSplitWorkspace
-            let actionChanged = !isEnvironmentConfigured ||
-                self.padDialerAction?.accessibilityLabel != padDialerAction?.accessibilityLabel
-            self.usesSplitWorkspace = usesSplitWorkspace
-            if actionChanged || self.padDialerAction == nil {
-                self.padDialerAction = padDialerAction
-            }
-            isEnvironmentConfigured = true
-            guard layoutChanged || actionChanged else { return }
-            for (section, hosted) in sections {
-                hosted.rootView = rootView(for: section, controller: controller)
-            }
-        }
-
-        func sectionController(
-            for section: ModemDeckSection,
-            controller: ModemDeckSessionController
-        ) -> UIHostingController<ModemDeckSectionRoot> {
-            if let existing = sections[section] { return existing }
-            let hosted = UIHostingController(rootView: rootView(for: section, controller: controller))
-            hosted.view.backgroundColor = UIColor(Color.mdBackground)
-            sections[section] = hosted
-            return hosted
-        }
-
-        private func rootView(
-            for section: ModemDeckSection,
-            controller: ModemDeckSessionController
-        ) -> ModemDeckSectionRoot {
-            let state = navigation[section] ?? ModemDeckSectionNavigation()
-            navigation[section] = state
-            return ModemDeckSectionRoot(
-                section: section,
-                controller: controller,
-                usesSplitWorkspace: usesSplitWorkspace,
-                padDialerAction: padDialerAction,
-                navigation: state
-            )
-        }
-    }
-
-    @ObservedObject var controller: ModemDeckSessionController
-    let activeSection: ModemDeckSection
-    let usesSplitWorkspace: Bool
-    let padDialerAction: ModemDeckPadDialerAction?
-    let retainedCoordinator: Coordinator
-
-    func makeCoordinator() -> Coordinator { retainedCoordinator }
-
-    func makeUIViewController(context: Context) -> ContainerViewController {
-        ContainerViewController()
-    }
-
-    func updateUIViewController(
-        _ container: ContainerViewController,
-        context: Context
-    ) {
-        context.coordinator.updateEnvironment(
-            usesSplitWorkspace: usesSplitWorkspace,
-            padDialerAction: padDialerAction,
-            controller: controller
-        )
-        container.show(
-            context.coordinator.sectionController(for: activeSection, controller: controller)
-        )
-    }
-}
-
 private struct ModemDeckAdaptiveShell: View {
     @ObservedObject var controller: ModemDeckSessionController
     @Binding var callExpanded: Bool
-    @StateObject private var retainedSections = ModemDeckLazySectionHost.Coordinator()
 
     var body: some View {
         GeometryReader { geometry in
@@ -997,92 +848,37 @@ private struct ModemDeckAdaptiveShell: View {
             // whole scene rather than the inset content width.
             let sceneWidth = geometry.size.width + geometry.safeAreaInsets.leading + geometry.safeAreaInsets.trailing
             let usesSplitWorkspace = sceneWidth >= ModemDeckLayout.splitWorkspaceMinimumWidth
-            let insets = geometry.safeAreaInsets
-            let statusColumnWidth = insets.trailing >= ModemDeckLayout.statusColumnMinimumWidth && insets.leading < 1
-                ? insets.trailing : nil
-            let statusAxisInset = statusColumnWidth.map(ModemDeckLayout.statusColumnAxisInset) ?? 0
-            ModemDeckWorkspaceShell(
-                controller: controller, usesSplitWorkspace: usesSplitWorkspace,
-                statusColumnWidth: statusColumnWidth, statusAxisInset: statusAxisInset,
-                callExpanded: $callExpanded
-            )
-            .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
-            .environmentObject(retainedSections)
+            ModemDeckWorkspaceShell(controller: controller, callExpanded: $callExpanded)
+                .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
+                .environment(\.modemDeckListColumnWidth, ModemDeckLayout.listColumnWidth(
+                    forContentWidth: geometry.size.width
+                ))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
 
+/// The system tab view: a bottom tab bar on iPhone, a sidebar or floating tab bar on iPad, and on
+/// iPhone Duo the system's vertical tab bar in the status-bar column, with the page's toolbar
+/// buttons beside it.
 private struct ModemDeckWorkspaceShell: View {
     @ObservedObject var controller: ModemDeckSessionController
     @ObservedObject private var callController: ModemDeckCallController
     @Binding var callExpanded: Bool
-    let usesSplitWorkspace: Bool
-    /// Width of a trailing status-bar column (iPhone Duo) that hosts section navigation.
-    let statusColumnWidth: CGFloat?
-    /// Trailing inset that puts the column's items on the system status items' axis.
-    let statusAxisInset: CGFloat
+    @StateObject private var navigation = ModemDeckShellNavigation()
     @State private var showingDialer: Bool
-    @State private var tabBarHeight: CGFloat = 61
-    @State private var miniCallBarHeight: CGFloat = 72
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let badges: ModemDeckSectionBadgeSource
 
-    init(
-        controller: ModemDeckSessionController, usesSplitWorkspace: Bool,
-        statusColumnWidth: CGFloat?, statusAxisInset: CGFloat = 0, callExpanded: Binding<Bool>
-    ) {
+    init(controller: ModemDeckSessionController, callExpanded: Binding<Bool>) {
         self.controller = controller
-        self.usesSplitWorkspace = usesSplitWorkspace
-        self.statusColumnWidth = statusColumnWidth
-        self.statusAxisInset = statusAxisInset
         _callController = ObservedObject(wrappedValue: controller.callController)
         _callExpanded = callExpanded
         _showingDialer = State(initialValue: ModemDeckSection.initialSection == .dial)
+        badges = ModemDeckSectionBadgeSource(controller: controller)
     }
 
     var body: some View {
-        Group {
-            if let statusColumnWidth {
-                // The column beside the status bar replaces both the tab bar and the rail, so
-                // pages take the column's place in the trailing safe area.
-                HStack(spacing: 0) {
-                    VStack(spacing: 0) {
-                        sectionTabs()
-                        if let call = miniCall { miniCallBar(call) }
-                    }
-                    ModemDeckStatusColumnNavigation(
-                        controller: controller, selection: $controller.selectedSection,
-                        axisInset: statusAxisInset
-                    )
-                        .frame(width: statusColumnWidth)
-                        // Stay put under the status items while the keyboard is up.
-                        .ignoresSafeArea(.keyboard)
-                }
-                .ignoresSafeArea(.container, edges: .trailing)
-            } else if usesSplitWorkspace {
-                HStack(spacing: 0) {
-                    ModemDeckPadNavigationRail(
-                        controller: controller, selection: $controller.selectedSection,
-                        openDialer: openDialer
-                    )
-                    Rectangle().fill(Color.mdBorder).frame(width: 1)
-                    VStack(spacing: 0) {
-                        sectionTabs(headerDialer: false)
-                        if let call = miniCall { miniCallBar(call) }
-                    }
-                }
-            } else {
-                sectionTabs()
-                    // Pages extend under the floating bottom chrome and reserve its space
-                    // themselves, so hiding the tab bar for a conversation never resizes the
-                    // navigation container mid-push.
-                    .environment(\.modemDeckBottomChrome, ModemDeckBottomChrome(
-                        tabBar: tabBarHeight,
-                        miniCallBar: miniCall == nil ? 0 : miniCallBarHeight
-                    ))
-                    .overlay(alignment: .bottom) { phoneBottomChrome }
-            }
-        }
+        tabs
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.mdBackground.ignoresSafeArea())
         .sheet(isPresented: $showingDialer) {
@@ -1093,15 +889,64 @@ private struct ModemDeckWorkspaceShell: View {
         .onReceive(controller.callController.$call) { call in
             if call != nil { showingDialer = false }
         }
+        .onChange(of: controller.selectedSection) { _ in
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+            )
+        }
     }
 
-    /// The iPad rail has its own Dial button, so page headers offer the dialer only without it.
-    private func sectionTabs(headerDialer: Bool = true) -> some View {
-        ModemDeckSectionTabs(controller: controller)
-            .environment(\.modemDeckPadDialerAction, headerDialer ? ModemDeckPadDialerAction(
+    /// The dialer is a sheet, not a tab; a request for it shows Recents underneath.
+    private var selection: Binding<ModemDeckSection> {
+        Binding(
+            get: { controller.selectedSection == .dial ? .home : controller.selectedSection },
+            set: { controller.selectedSection = $0 }
+        )
+    }
+
+    @ViewBuilder
+    private var tabs: some View {
+        if #available(iOS 18.0, *) {
+            TabView(selection: selection) {
+                ForEach(ModemDeckSection.contentSections) { section in
+                    Tab(section.title(controller), systemImage: section.systemImage, value: section) {
+                        tabContent(section)
+                    }
+                    .badge(badges.count(for: section))
+                }
+            }
+            .tabViewStyle(.sidebarAdaptable)
+        } else {
+            TabView(selection: selection) {
+                ForEach(ModemDeckSection.contentSections) { section in
+                    tabContent(section)
+                        .tabItem { Label(section.title(controller), systemImage: section.systemImage) }
+                        .badge(badges.count(for: section))
+                        .tag(section)
+                }
+            }
+        }
+    }
+
+    private func tabContent(_ section: ModemDeckSection) -> some View {
+        ModemDeckSectionRoot(
+            section: section,
+            controller: controller,
+            padDialerAction: ModemDeckPadDialerAction(
                 accessibilityLabel: controller.text("打开拨号盘", "Open dialer"),
                 open: openDialer
-            ) : nil)
+            ),
+            navigation: navigation.navigation(for: section)
+        )
+        // A collapsed call stays one tap away above the tab bar, and above a conversation's
+        // composer when the tab bar steps aside.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let call = miniCall {
+                ModemDeckMiniCallBar(call: call, controller: controller, callController: callController,
+                                     restore: { callExpanded = true })
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+            }
+        }
     }
 
     private var miniCall: ModemDeckPresentedCall? {
@@ -1110,29 +955,6 @@ private struct ModemDeckWorkspaceShell: View {
 
     private func openDialer() {
         if callController.call != nil { callExpanded = true } else { showingDialer = true }
-    }
-
-    private func miniCallBar(_ call: ModemDeckPresentedCall) -> some View {
-        ModemDeckMiniCallBar(call: call, controller: controller, callController: callController,
-                             restore: { callExpanded = true })
-            .padding(.horizontal, 12).padding(.vertical, 8)
-    }
-
-    /// The iPhone tab bar and mini call bar float over the reserved bottom space; the tab bar
-    /// slides away while a conversation is open instead of changing the layout under it.
-    private var phoneBottomChrome: some View {
-        let showsTabBar = controller.immersiveScreenCount == 0
-        return VStack(spacing: 0) {
-            if let call = miniCall {
-                miniCallBar(call).modemDeckReadHeight($miniCallBarHeight)
-            }
-            if showsTabBar {
-                ModemDeckPhoneTabBar(controller: controller, selection: $controller.selectedSection)
-                    .modemDeckReadHeight($tabBarHeight)
-                    .transition(.move(edge: .bottom))
-            }
-        }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: showsTabBar)
     }
 }
 
@@ -1155,279 +977,40 @@ private struct ModemDeckSectionBadgeSource: DynamicProperty {
     }
 }
 
-private struct ModemDeckSectionBadge: View {
-    let count: Int
-
-    var body: some View {
-        if count > 0 {
-            Text(count > 99 ? "99+" : "\(count)")
-                .font(.caption2.weight(.bold).monospacedDigit())
-                .foregroundColor(.white)
-                .padding(.horizontal, 5)
-                .frame(minWidth: 18, minHeight: 18)
-                .background(Capsule().fill(Color.mdCallEnd))
-                .accessibilityHidden(true)
-                .allowsHitTesting(false)
-        }
-    }
-}
-
-private struct ModemDeckPhoneTabBar: View {
-    @ObservedObject var controller: ModemDeckSessionController
-    @Binding var selection: ModemDeckSection
-    private let badges: ModemDeckSectionBadgeSource
-
-    init(controller: ModemDeckSessionController, selection: Binding<ModemDeckSection>) {
-        _controller = ObservedObject(wrappedValue: controller)
-        _selection = selection
-        badges = ModemDeckSectionBadgeSource(controller: controller)
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(ModemDeckSection.contentSections) { section in
-                let selected = selection == section
-                let badge = badges.count(for: section)
-                Button { selection = section } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: section.systemImage)
-                            .symbolVariant(selected ? .fill : .none)
-                            .font(.system(size: 21, weight: selected ? .semibold : .regular))
-                            .frame(height: 25)
-                            .overlay(alignment: .topTrailing) {
-                                ModemDeckSectionBadge(count: badge).offset(x: 12, y: -6)
-                            }
-                        Text(section.title(controller))
-                            .font(.caption2.weight(selected ? .semibold : .medium))
-                            .lineLimit(1)
-                    }
-                    .foregroundColor(selected ? .mdAccent : .mdMuted)
-                    .frame(maxWidth: .infinity, minHeight: 56)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("section-\(section.id)")
-                .accessibilityValue(badge > 0 ? "\(badge)" : "")
-                .accessibilityAddTraits(selected ? .isSelected : [])
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.top, 5)
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .modemDeckSelectionFeedback(selection)
-        .background(.bar, ignoresSafeAreaEdges: [.bottom, .horizontal])
-        .overlay(alignment: .top) { ModemDeckHairline().ignoresSafeArea(edges: .horizontal) }
-        .accessibilityElement(children: .contain)
-    }
-}
-
-/// Section navigation stacked in iPhone Duo's trailing status-bar column, below the status items.
-private struct ModemDeckStatusColumnNavigation: View {
-    @ObservedObject var controller: ModemDeckSessionController
-    @Binding var selection: ModemDeckSection
-    let axisInset: CGFloat
-    private let badges: ModemDeckSectionBadgeSource
-    @State private var keyboardVisible = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    init(controller: ModemDeckSessionController, selection: Binding<ModemDeckSection>, axisInset: CGFloat) {
-        _controller = ObservedObject(wrappedValue: controller)
-        _selection = selection
-        self.axisInset = axisInset
-        badges = ModemDeckSectionBadgeSource(controller: controller)
-    }
-
-    var body: some View {
-        VStack(spacing: 4) {
-            // Clear of the clock and status icons; the items then sit low for thumb reach.
-            Spacer(minLength: ModemDeckLayout.statusColumnStatusClearance)
-            ForEach(ModemDeckSection.contentSections) { section in
-                let selected = selection == section
-                let badge = badges.count(for: section)
-                Button { selection = section } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: section.systemImage)
-                            .symbolVariant(selected ? .fill : .none)
-                            .font(.system(size: 21, weight: selected ? .semibold : .regular))
-                            .frame(height: 25)
-                            .overlay(alignment: .topTrailing) {
-                                ModemDeckSectionBadge(count: badge).offset(x: 12, y: -6)
-                            }
-                        Text(section.title(controller))
-                            .font(.caption2.weight(selected ? .semibold : .medium))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .foregroundColor(selected ? .mdAccent : .mdMuted)
-                    .frame(maxWidth: .infinity, minHeight: 60)
-                    // Selection reads by shape as well as colour, like the iPad rail.
-                    .background(
-                        RoundedRectangle.modemDeck(ModemDeckRadius.medium)
-                            .fill(selected ? Color.mdAccentSoft : Color.clear)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("section-\(section.id)")
-                .accessibilityValue(badge > 0 ? "\(badge)" : "")
-                .accessibilityAddTraits(selected ? .isSelected : [])
-            }
-            Spacer(minLength: 12).frame(maxHeight: ModemDeckLayout.statusColumnBottomInset)
-        }
-        .padding(.leading, 6)
-        // The system centres the clock and status icons under the camera, not on the whole inset.
-        .padding(.trailing, 6 + axisInset)
-        .frame(maxHeight: .infinity)
-        // While typing, the keyboard owns the bottom of the screen; the column steps aside
-        // instead of leaving a stub of items above it.
-        .opacity(keyboardVisible ? 0 : 1)
-        .allowsHitTesting(!keyboardVisible)
-        .accessibilityHidden(keyboardVisible)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: keyboardVisible)
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            keyboardVisible = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardVisible = false
-        }
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        .modemDeckSelectionFeedback(selection)
-        .background(.bar, ignoresSafeAreaEdges: .all)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(Color.mdBorder).frame(width: 1).ignoresSafeArea()
-        }
-        .accessibilityElement(children: .contain)
-    }
-}
-
-private struct ModemDeckPadNavigationRail: View {
-    @ObservedObject var controller: ModemDeckSessionController
-    @Binding var selection: ModemDeckSection
-    let openDialer: () -> Void
-    private let badges: ModemDeckSectionBadgeSource
-
-    init(controller: ModemDeckSessionController, selection: Binding<ModemDeckSection>, openDialer: @escaping () -> Void) {
-        _controller = ObservedObject(wrappedValue: controller)
-        _selection = selection
-        self.openDialer = openDialer
-        badges = ModemDeckSectionBadgeSource(controller: controller)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("ModemDeck")
-                .font(.title3.weight(.semibold))
-                .foregroundColor(.mdText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 24)
-            ForEach(ModemDeckSection.contentSections) { section in
-                let selected = selection == section
-                let badge = badges.count(for: section)
-                Button { selection = section } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: section.systemImage)
-                            .symbolVariant(selected ? .fill : .none)
-                            .frame(width: 24)
-                        Text(section.title(controller))
-                        Spacer(minLength: 4)
-                        if badge > 0 {
-                            Text("\(badge)")
-                                .font(.footnote.weight(.semibold).monospacedDigit())
-                                .foregroundColor(selected ? .mdOnAccent : .mdMuted)
-                        }
-                    }
-                    .font(.body.weight(selected ? .semibold : .regular))
-                    .foregroundColor(selected ? .mdOnAccent : .mdText)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .background(selected ? Color.mdAccent : Color.clear)
-                    .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .hoverEffect(.highlight)
-                .accessibilityIdentifier("section-\(section.id)")
-                .accessibilityValue(badge > 0 ? "\(badge)" : "")
-                .accessibilityAddTraits(selected ? .isSelected : [])
-            }
-            Spacer()
-            Button(action: openDialer) {
-                Label(controller.text("拨号", "Dial"), systemImage: "circle.grid.3x3.fill")
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.mdAccent)
-            .buttonBorderShape(.capsule)
-            .padding(.bottom, 16)
-            .accessibilityLabel(controller.text("打开拨号盘", "Open dialer"))
-        }
-        .padding(.horizontal, 12)
-        .frame(width: 196)
-        .modemDeckSelectionFeedback(selection)
-        .background(.bar)
-    }
-}
-
-/// Heights of the iPhone shell's floating bottom bars.
-struct ModemDeckBottomChrome: Equatable {
-    var tabBar: CGFloat = 0
-    var miniCallBar: CGFloat = 0
-}
-
-private struct ModemDeckBottomChromeKey: EnvironmentKey {
-    static let defaultValue = ModemDeckBottomChrome()
-}
-
-extension EnvironmentValues {
-    var modemDeckBottomChrome: ModemDeckBottomChrome {
-        get { self[ModemDeckBottomChromeKey.self] }
-        set { self[ModemDeckBottomChromeKey.self] = newValue }
-    }
-}
-
-private struct ModemDeckBottomChromeClearance: ViewModifier {
-    let includesTabBar: Bool
-    @Environment(\.modemDeckBottomChrome) private var chrome
+private struct ModemDeckListColumnModifier: ViewModifier {
+    @Environment(\.modemDeckListColumnWidth) private var width
 
     func body(content: Content) -> some View {
-        content.safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear
-                .frame(height: chrome.miniCallBar + (includesTabBar ? chrome.tabBar : 0))
-                .allowsHitTesting(false)
-        }
-    }
-}
-
-private struct ModemDeckImmersiveScreenModifier: ViewModifier {
-    let controller: ModemDeckSessionController
-
-    func body(content: Content) -> some View {
-        content
-            .modifier(ModemDeckBottomChromeClearance(includesTabBar: false))
-            .onAppear { controller.enterImmersiveScreen() }
-            .onDisappear { controller.leaveImmersiveScreen() }
+        content.frame(width: width)
     }
 }
 
 extension View {
-    /// Reserves the iPhone tab bar (and any mini call bar) under a section screen.
-    /// Every pushed screen other than a conversation or composer applies this.
-    func modemDeckTabBarClearance() -> some View {
-        modifier(ModemDeckBottomChromeClearance(includesTabBar: true))
+    /// Sizes a list beside its detail in proportion to the screen, as Mail and Messages do.
+    func modemDeckListColumn() -> some View {
+        modifier(ModemDeckListColumnModifier())
     }
 
-    /// Marks a pushed screen (a conversation or composer) that should own the bottom edge on iPhone.
-    func modemDeckImmersiveScreen(_ controller: ModemDeckSessionController) -> some View {
-        modifier(ModemDeckImmersiveScreenModifier(controller: controller))
+    /// Hides the system tab bar for this page while it is shown, as Messages does for a
+    /// conversation; the system animates the bar and the page's safe area together.
+    @ViewBuilder func modemDeckTabBarVisible(_ visible: Bool) -> some View {
+        if visible { self } else { toolbar(.hidden, for: .tabBar) }
     }
 
-    func modemDeckReadHeight(_ height: Binding<CGFloat>) -> some View {
-        background(GeometryReader { proxy in
-            Color.clear
-                .onAppear { height.wrappedValue = proxy.size.height }
-                .onChange(of: proxy.size.height) { height.wrappedValue = $0 }
-        })
+    /// A pushed detail takes the system bar's inline title and back button; shown beside its
+    /// list it leaves the list page's bar alone.
+    @ViewBuilder func modemDeckDetailTitle(_ title: String, pushed: Bool) -> some View {
+        if pushed {
+            navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+        } else {
+            self
+        }
+    }
+
+    /// Marks a pushed screen (a conversation or composer) that owns the bottom edge on iPhone.
+    /// A detail embedded beside its list leaves the tab bar alone.
+    func modemDeckImmersiveScreen(_ pushed: Bool = true) -> some View {
+        modemDeckTabBarVisible(!pushed)
     }
 }
 
@@ -1609,81 +1192,37 @@ struct ModemDeckLoadErrorState: View {
     }
 }
 
+/// Gives a top-level page the system large title, with the dialer in the toolbar where
+/// dialing belongs. It draws nothing itself.
 struct ModemDeckPageHeader: View {
     let title: String
-    var backAction: (() -> Void)? = nil
-    var backAccessibilityText = ""
-    var secondaryActionIcon: String? = nil
-    var secondaryActionAccessibilityText = ""
-    var secondaryActionDisabled = false
-    var secondaryAction: (() -> Void)? = nil
-    var actionIcon: String? = nil
-    var actionAccessibilityText = ""
-    var actionDisabled = false
-    var action: (() -> Void)? = nil
     @Environment(\.modemDeckPadDialerAction) private var padDialerAction
 
     var body: some View {
-        HStack {
-            if let backAction {
-                Button(action: backAction) {
-                    Image(systemName: "chevron.left").font(.body.weight(.medium))
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.mdAccent)
-                .accessibilityLabel(backAccessibilityText)
-            }
-            Text(title)
-                .font(backAction == nil ? .largeTitle.weight(.bold) : .title2.weight(.bold))
-                .foregroundColor(.mdText)
-                .lineLimit(1).minimumScaleFactor(0.8)
-                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-                .accessibilityAddTraits(.isHeader)
-            Spacer()
-            HStack(spacing: 4) {
-                if let secondaryActionIcon, let secondaryAction {
-                    Button(action: secondaryAction) {
-                        Image(systemName: secondaryActionIcon)
-                            .font(.body.weight(.semibold))
-                            .foregroundColor(.mdAccent)
-                            .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
-                            .frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(secondaryActionDisabled)
-                    .opacity(secondaryActionDisabled ? 0.45 : 1)
-                    .accessibilityLabel(secondaryActionAccessibilityText)
-                }
-                if let actionIcon, let action {
-                    Button(action: action) {
-                        Image(systemName: actionIcon)
-                            .font(.body.weight(.semibold))
-                            .foregroundColor(.mdAccent)
-                            .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
-                            .frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(actionDisabled)
-                    .opacity(actionDisabled ? 0.45 : 1)
-                    .accessibilityLabel(actionAccessibilityText)
-                }
+        Color.clear
+            .frame(height: 0)
+            .accessibilityHidden(true)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
                 if let padDialerAction {
-                    Button(action: padDialerAction.open) {
-                        Image(systemName: "circle.grid.3x3.fill")
-                            .font(.body.weight(.medium))
-                            .foregroundColor(.mdAccent)
-                            .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
-                            .frame(width: 44, height: 44)
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ModemDeckDialerToolbarButton(action: padDialerAction)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(padDialerAction.accessibilityLabel)
                 }
             }
+    }
+}
+
+struct ModemDeckDialerToolbarButton: View {
+    let action: ModemDeckPadDialerAction
+
+    var body: some View {
+        Button(action: action.open) {
+            Image(systemName: "circle.grid.3x3.fill")
         }
-        .padding(.horizontal, ModemDeckLayout.pageHorizontalPadding)
-        .frame(minHeight: ModemDeckLayout.pageHeaderHeight)
-        .background(Color.mdBackground)
+        .accessibilityLabel(action.accessibilityLabel)
+        .accessibilityIdentifier("open-dialer")
     }
 }
 
@@ -1710,97 +1249,50 @@ struct ModemDeckRowTitleLine<Title: View, Trailing: View>: View {
     }
 }
 
-struct ModemDeckSearchField: View {
-    @Binding var text: String
-    let prompt: String
-    let clearAccessibilityText: String
-    var focus: FocusState<Bool>.Binding? = nil
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.subheadline.weight(.medium))
-                .foregroundColor(.mdMuted)
-            TextField(prompt, text: $text)
-                .font(.subheadline)
-                .foregroundColor(.mdText)
-                .disableAutocorrection(true)
-                .focused(focus ?? $focused)
-            if !text.isEmpty {
-                Button { text = "" } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.mdFaint)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(clearAccessibilityText)
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(minHeight: ModemDeckLayout.searchVisualHeight)
-        .background(Color.mdSurfaceHover)
-        .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
-        .frame(minHeight: ModemDeckLayout.controlHitSize)
-        .contentShape(Rectangle())
-        .onTapGesture { (focus ?? $focused).wrappedValue = true }
-    }
-}
-
-/// Search replaces the title row instead of adding another permanent toolbar.
+/// Gives a collection page the system large title, search field and toolbar. While the
+/// page is selecting, the selection bar's header supplies the title and buttons instead.
 /// The page keeps its query and filters when a retained tab is revisited.
 struct ModemDeckCollectionHeader<Actions: View>: View {
     @ObservedObject var controller: ModemDeckSessionController
     let title: String
     @Binding var query: String
-    var backAction: (() -> Void)? = nil
-    var backAccessibilityText = ""
+    var selecting = false
     @ViewBuilder var actions: () -> Actions
     @Environment(\.modemDeckPadDialerAction) private var dialerAction
-    @State private var searching = false
-    @FocusState private var searchFocused: Bool
 
     var body: some View {
-        HStack(spacing: 0) {
-            if searching {
-                ModemDeckSearchField(text: $query, prompt: controller.text("搜索", "Search"),
-                    clearAccessibilityText: controller.text("清除搜索", "Clear search"), focus: $searchFocused)
-                Button(controller.text("取消", "Cancel")) {
-                    searchFocused = false
-                    query = ""
-                    searching = false
-                }
-                .font(.subheadline)
-                .foregroundColor(.mdAccent)
-                .frame(minWidth: 44, minHeight: 44)
-                .padding(.leading, 8)
-                .accessibilityIdentifier("collection-search-cancel")
-            } else {
-                if let backAction {
-                    ModemDeckCollectionHeaderButton(icon: "chevron.left", title: backAccessibilityText, action: backAction)
-                }
-                // Top-level collections share the large title used by Recents and Settings.
-                Text(title).font(backAction == nil ? .largeTitle.weight(.bold) : .title2.weight(.bold))
-                    .foregroundColor(.mdText)
-                    .lineLimit(1).minimumScaleFactor(0.8)
-                    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 4)
-                ModemDeckCollectionHeaderButton(icon: "magnifyingglass", title: controller.text("搜索", "Search")) {
-                    searching = true
-                    searchFocused = true
-                }
-                .accessibilityIdentifier("collection-search-open")
-                actions()
-                if let dialerAction {
-                    ModemDeckCollectionHeaderButton(icon: "circle.grid.3x3.fill", title: dialerAction.accessibilityLabel, action: dialerAction.open)
+        if selecting {
+            // The selection bar's header owns the title and bar buttons while selecting.
+            Color.clear.frame(height: 0).accessibilityHidden(true)
+        } else {
+            page
+        }
+    }
+
+    private var page: some View {
+        Color.clear
+            .frame(height: 0)
+            .accessibilityHidden(true)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.large)
+            .searchable(
+                text: $query,
+                placement: .navigationBarDrawer(displayMode: .automatic),
+                prompt: controller.text("搜索", "Search")
+            )
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    actions()
+                    if let dialerAction {
+                        ModemDeckDialerToolbarButton(action: dialerAction)
+                    }
                 }
             }
-        }
-        .padding(.horizontal, ModemDeckLayout.pageHorizontalPadding)
-        .frame(minHeight: ModemDeckLayout.collectionHeaderHeight)
-        .background(Color.mdBackground)
-        .onDisappear { searchFocused = false }
-        .onChange(of: controller.selectedSection) { _ in searchFocused = false }
+            .onChange(of: controller.selectedSection) { _ in
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+                )
+            }
     }
 }
 
@@ -1812,13 +1304,9 @@ struct ModemDeckCollectionHeaderButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon).font(.body.weight(.medium))
-                .foregroundColor(.mdAccent)
-                // Glyphs stop growing inside their fixed hit area so neighbours never overlap.
-                .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
-                .frame(width: 44, height: 44).contentShape(Rectangle())
+            Image(systemName: icon)
         }
-        .buttonStyle(.plain).disabled(disabled)
+        .disabled(disabled)
         .accessibilityLabel(title)
     }
 }
@@ -2069,11 +1557,7 @@ struct ModemDeckCollectionMenu<Actions: View>: View {
             }
             actions()
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.body.weight(.semibold))
-                .foregroundColor(.mdAccent)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            Image(systemName: "ellipsis.circle")
         }
         .disabled(busy)
         .accessibilityLabel(controller.text("更多操作", "More actions"))
@@ -2113,13 +1597,10 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
     let doneText: String
     let selectAll: () -> Void
     let done: () -> Void
-    private let controller: ModemDeckSessionController?
     private let actions: Actions
-    @Environment(\.modemDeckBottomChrome) private var chrome
 
     init(
         part: ModemDeckBatchActionBarPart = .toolbar,
-        controller: ModemDeckSessionController? = nil,
         selectedCount: Int,
         totalCount: Int,
         busy: Bool,
@@ -2132,7 +1613,6 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
         @ViewBuilder actions: () -> Actions
     ) {
         self.part = part
-        self.controller = controller
         self.selectedCount = selectedCount
         self.totalCount = totalCount
         self.busy = busy
@@ -2156,53 +1636,43 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
         }
     }
 
+    /// The navigation bar becomes "Select All · N selected · Done", as in Mail.
     private var header: some View {
-        HStack(spacing: 12) {
-            Button(allSelected ? clearAllText : selectAllText, action: selectAll)
-                .disabled(busy || totalCount == 0)
-                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-            Spacer(minLength: 8)
-            HStack(spacing: 7) {
-                if busy { ProgressView().controlSize(.small) }
-                Text(String(format: selectedText, selectedCount))
-                    .font(.headline)
-                    .foregroundColor(.mdText)
-                    .lineLimit(1)
-                    .accessibilityAddTraits(.isHeader)
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .navigationTitle(String(format: selectedText, selectedCount))
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(allSelected ? clearAllText : selectAllText, action: selectAll)
+                        .disabled(busy || totalCount == 0)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    if busy {
+                        ProgressView()
+                    } else {
+                        Button(doneText, action: done)
+                            .fontWeight(.semibold)
+                            .accessibilityIdentifier("selection-done")
+                    }
+                }
             }
-            Spacer(minLength: 8)
-            Button(doneText, action: done)
-                .fontWeight(.semibold)
-                .disabled(busy)
-                .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                .accessibilityIdentifier("selection-done")
-        }
-        .font(.body)
-        .foregroundColor(.mdAccent)
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .padding(.horizontal, ModemDeckLayout.pageHorizontalPadding)
-        .frame(minHeight: ModemDeckLayout.collectionHeaderHeight)
-        .background(Color.mdBackground)
-        .overlay(alignment: .bottom) { ModemDeckHairline() }
     }
 
-    /// On iPhone the toolbar takes the hidden tab bar's slot; it reserves no extra space,
-    /// because the page already keeps that slot clear.
+    /// The toolbar takes the tab bar's place: the tab bar steps aside while selecting.
     private var toolbar: some View {
-        let slot = max(0, chrome.tabBar - chrome.miniCallBar)
-        return HStack(alignment: .top, spacing: 4) {
+        HStack(alignment: .top, spacing: 4) {
             actions
         }
         .padding(.horizontal, 8)
-        .padding(.top, 6)
-        .padding(.bottom, slot > 0 ? 0 : 6)
-        .frame(minHeight: max(slot, 56), alignment: .top)
+        .padding(.vertical, 6)
+        .frame(minHeight: 56, alignment: .top)
         .frame(maxWidth: .infinity)
         .background(.bar, ignoresSafeAreaEdges: .bottom)
         .overlay(alignment: .top) { ModemDeckHairline() }
-        .padding(.bottom, -slot)
-        .onAppear { controller?.enterImmersiveScreen() }
-        .onDisappear { controller?.leaveImmersiveScreen() }
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 

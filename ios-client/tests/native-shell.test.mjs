@@ -244,27 +244,19 @@ test('SwiftUI is the universal iPhone and iPad application root', async () => {
   assert.match(scene, /UIHostingController\([\s\S]*ModemDeckRootView/)
   assert.doesNotMatch(scene, /CAPBridgeViewController|SceneDelegateProxy/)
   assert.match(app, /ModemDeckWorkspaceShell/)
-  assert.match(app, /ModemDeckPhoneTabBar/)
-  const phoneTabStart = app.indexOf("private struct ModemDeckPhoneTabBar")
-  const padShellStart = app.indexOf("private struct ModemDeckPadNavigationRail")
-  const phoneTab = app.slice(phoneTabStart, padShellStart)
-  assert.doesNotMatch(phoneTab, /showingDialer \? "xmark"/)
-  assert.doesNotMatch(phoneTab, /showingDialer\.toggle\(\)/)
+  // The system tab view: a tab bar on iPhone, a sidebar on iPad and the status-column tab bar on
+  // iPhone Duo; iOS 17 falls back to the classic tab items.
+  assert.match(app, /if #available\(iOS 18\.0, \*\) \{\s*TabView\(selection: selection\) \{[\s\S]*Tab\(section\.title\(controller\), systemImage: section\.systemImage, value: section\)[\s\S]*\.tabViewStyle\(\.sidebarAdaptable\)/)
+  assert.match(app, /\.tabItem \{ Label\(section\.title\(controller\), systemImage: section\.systemImage\) \}/)
+  assert.match(app, /\.badge\(badges\.count\(for: section\)\)/)
+  assert.doesNotMatch(app, /ModemDeckPhoneTabBar|ModemDeckPadNavigationRail|ModemDeckStatusColumnNavigation|ModemDeckLazySectionHost/)
   assert.match(app, /case dial/)
   assert.match(app, /ModemDeckDialerPanel/)
   assert.match(app, /\.preferredColorScheme\(ModemDeckAppearance\(rawValue: appearance\)\?\.colorScheme\)/)
-  assert.match(
-    app,
-    /struct ModemDeckSectionTabs[\s\S]*ModemDeckLazySectionHost\([\s\S]*activeSection: activeSection/
-  )
-  assert.doesNotMatch(app, /\.opacity\(section == activeSection \? 1 : 0\)/)
-  assert.doesNotMatch(app, /TabView\(selection:/)
-  assert.match(app, /ModemDeckPadNavigationRail/)
-  assert.match(app, /\.frame\(width: 196\)/)
+  assert.match(app, /get: \{ controller\.selectedSection == \.dial \? \.home : controller\.selectedSection \}/)
   assert.match(app, /struct ModemDeckPadDialerAction/)
-  assert.match(app, /\\\.modemDeckPadDialerAction[\s\S]*controller\.text\("打开拨号盘", "Open dialer"\)/)
+  assert.match(app, /accessibilityLabel: controller\.text\("打开拨号盘", "Open dialer"\)/)
   assert.doesNotMatch(app, /interactiveSpring\(response: 0\.3[48]/)
-  assert.doesNotMatch(app, /\.animation\(dialerAnimation, value: showingDialer\)/)
   assert.match(project, /TARGETED_DEVICE_FAMILY = "1,2";/)
   assert.doesNotMatch(
     project.match(/PBXResourcesBuildPhase section[\s\S]*?End PBXResourcesBuildPhase section/)?.[0] || '',
@@ -288,7 +280,7 @@ test('SwiftUI is the universal iPhone and iPad application root', async () => {
   ]) {
     assert.match(padOrientations, new RegExp(`<string>${orientation}<\\/string>`))
   }
-  assert.match(app, /GeometryReader \{ geometry in[\s\S]*let sceneWidth = geometry\.size\.width \+ geometry\.safeAreaInsets\.leading \+ geometry\.safeAreaInsets\.trailing[\s\S]*sceneWidth >= ModemDeckLayout\.splitWorkspaceMinimumWidth/)
+  assert.match(app, /GeometryReader \{ geometry in[\s\S]*let sceneWidth = geometry\.size\.width \+ geometry\.safeAreaInsets\.leading \+ geometry\.safeAreaInsets\.trailing[\s\S]*let usesSplitWorkspace = sceneWidth >= ModemDeckLayout\.splitWorkspaceMinimumWidth/)
   assert.doesNotMatch(app, /horizontalSizeClass/)
   assert.match(
     app,
@@ -485,18 +477,14 @@ test('native app targets iOS 16 and supports expanding message composers', async
   assert.ok((communication.match(/\.lineLimit\(1\.\.\.5\)/g) || []).length >= 2)
 })
 
-test('native tabs lazily retain an independent NavigationStack per visited module', async () => {
+test('native tabs retain an independent NavigationStack per module', async () => {
   const app = await source('ios/App/App/ModemDeckApp.swift')
 
-  assert.match(app, /struct ModemDeckSectionRoot[\s\S]*NavigationStack/)
-  assert.match(app, /struct ModemDeckLazySectionHost: UIViewControllerRepresentable/)
-  assert.match(app, /var sections: \[ModemDeckSection: UIHostingController<ModemDeckSectionRoot>\]/)
-  assert.match(app, /if let existing = sections\[section\] \{ return existing \}/)
-  assert.match(app, /container\.show\([\s\S]*sectionController\(for: activeSection/)
-  assert.match(app, /\.animation\(nil, value: activeSection\)/)
-  assert.match(app, /\.onChange\(of: activeSection\)[\s\S]*resignFirstResponder/)
-  assert.equal((app.match(/ModemDeckSectionTabs\(controller: controller\)/g) || []).length, 1)
-  assert.doesNotMatch(app, /\.opacity\(section == activeSection/)
+  assert.match(app, /struct ModemDeckSectionRoot[\s\S]*NavigationStack\(path: \$navigation\.path\)/)
+  assert.match(app, /final class ModemDeckShellNavigation: ObservableObject[\s\S]*if let existing = paths\[section\] \{ return existing \}/)
+  assert.match(app, /@StateObject private var navigation = ModemDeckShellNavigation\(\)/)
+  assert.match(app, /navigation: navigation\.navigation\(for: section\)/)
+  assert.match(app, /\.onChange\(of: controller\.selectedSection\)[\s\S]{0,200}resignFirstResponder/)
   assert.doesNotMatch(app, /NavigationView \{\s*destination\(for: controller\.selectedSection\)/)
 })
 
@@ -599,7 +587,8 @@ test('native communication density keeps compact visuals and full touch targets'
   assert.match(app, /static let controlHitSize: CGFloat = 44/)
   assert.match(app, /static let controlVisualSize: CGFloat = 36/)
   assert.match(app, /static let listRowMinHeight: CGFloat = 80/)
-  assert.match(app, /struct ModemDeckSearchField[\s\S]*\.font\(\.subheadline\)/)
+  // Search is the system field, sized and styled by the platform.
+  assert.match(app, /\.searchable\(\s*text: \$query,\s*placement: \.navigationBarDrawer\(displayMode: \.automatic\)/)
   assert.match(app, /struct ModemDeckSegmentPicker[\s\S]*\.font\(\.caption\.weight/)
   assert.match(app, /accessibilityAddTraits\(active \? \.isSelected : \[\]\)/)
   assert.ok((communication.match(/ModemDeckCollectionHeader\(/g) || []).length >= 2)
@@ -650,25 +639,24 @@ test('native phone detail screens enable the standard left-edge back gesture', a
   assert.match(settings, /ModemDeckSettingsDetailScaffold[\s\S]*\.modemDeckInteractiveBack\(showsBackButton\)/)
 })
 
-test('phone tab bar slides over a fixed navigation container instead of resizing pushed pages', async () => {
-  const [app, routes, calls, settings] = await Promise.all([
+test('conversations and selection hide the system tab bar natively', async () => {
+  const [app, communication, routes] = await Promise.all([
     source('ios/App/App/ModemDeckApp.swift'),
-    source('ios/App/App/ModemDeckListInteraction.swift'),
-    source('ios/App/App/ModemDeckCallViews.swift'),
-    source('ios/App/App/ModemDeckSettingsView.swift')
+    source('ios/App/App/ModemDeckCommunicationViews.swift'),
+    source('ios/App/App/ModemDeckListInteraction.swift')
   ])
 
-  // Resizing the stack mid-push left the conversation composer clipped and broke edge swipes.
-  assert.match(app, /sectionTabs[\s\S]{0,600}\.overlay\(alignment: \.bottom\) \{ phoneBottomChrome \}/)
-  assert.match(app, /if showsTabBar \{[\s\S]*ModemDeckPhoneTabBar[\s\S]*\.transition\(\.move\(edge: \.bottom\)\)/)
-  assert.match(app, /\.animation\(reduceMotion \? nil : [^,]+, value: showsTabBar\)/)
-  assert.match(app, /\.safeAreaInset\(edge: \.bottom, spacing: 0\)[\s\S]*includesTabBar \? chrome\.tabBar : 0/)
-  assert.match(app, /ModemDeckImmersiveScreenModifier[\s\S]*ModemDeckBottomChromeClearance\(includesTabBar: false\)/)
-  assert.match(app, /destination\s*\.modemDeckTabBarClearance\(\)/)
-  assert.match(app, /if route\.opensConversation \{[\s\S]*\} else \{[\s\S]*\.modemDeckTabBarClearance\(\)/)
+  // The system hides the tab bar and resizes the page together, keeping transitions and swipe-back.
+  assert.match(app, /func modemDeckTabBarVisible\(_ visible: Bool\) -> some View \{\s*if visible \{ self \} else \{ toolbar\(\.hidden, for: \.tabBar\) \}/)
+  assert.match(app, /func modemDeckImmersiveScreen\(_ pushed: Bool = true\) -> some View \{\s*modemDeckTabBarVisible\(!pushed\)/)
+  // A conversation embedded beside its list leaves the tab bar or sidebar alone.
+  assert.match(communication, /\.modemDeckImmersiveScreen\(showsBackButton\)/)
+  // Selection's toolbar takes the tab bar's place.
+  assert.match(app, /private var toolbar: some View \{[\s\S]*\.toolbar\(\.hidden, for: \.tabBar\)/)
+  // A collapsed call sits above the tab bar, or above the composer when it steps aside.
+  assert.match(app, /\.safeAreaInset\(edge: \.bottom, spacing: 0\) \{\s*if let call = miniCall \{\s*ModemDeckMiniCallBar/)
+  assert.doesNotMatch(app, /modemDeckTabBarClearance|ModemDeckBottomChrome|immersiveScreenCount/)
   assert.match(routes, /var opensConversation: Bool \{\s*if case \.message = self/)
-  assert.match(calls, /ModemDeckRecordingDetailView\([^)]*onDeleted[^\n]*\n\s*\)\s*\.modemDeckTabBarClearance\(\)/)
-  assert.match(settings, /settingsDestination\(section\)\s*\.modemDeckTabBarClearance\(\)/)
 })
 
 test('native iPad communication workspaces mirror the Web list-detail geometry', async () => {
@@ -683,20 +671,18 @@ test('native iPad communication workspaces mirror the Web list-detail geometry',
   // iPhone Duo's unfolded display is phone idiom, so layout follows the scene, not the device.
   assert.doesNotMatch(app, /userInterfaceIdiom|isPad/)
   assert.match(calls, /presentsAsPadPanel = horizontalSizeClass == \.regular && verticalSizeClass == \.regular/)
-  // iPhone Duo's trailing status-bar column hosts section navigation instead of the tab bar or rail.
-  assert.match(app, /insets\.trailing >= ModemDeckLayout\.statusColumnMinimumWidth && insets\.leading < 1/)
-  // Column items share the system clock's axis under the camera, not the inset's centre.
-  assert.match(app, /static let statusColumnAxisFromTrailingEdge: CGFloat = 48/)
-  assert.match(app, /\.padding\(\.trailing, 6 \+ axisInset\)/)
-  assert.match(app, /if let statusColumnWidth \{[\s\S]*ModemDeckStatusColumnNavigation[\s\S]*\.ignoresSafeArea\(\.keyboard\)[\s\S]*\.ignoresSafeArea\(\.container, edges: \.trailing\)[\s\S]*\} else if usesSplitWorkspace \{/)
+  // iPhone Duo's status column is the system tab view's own; nothing custom draws over it.
+  assert.doesNotMatch(app, /statusColumn/)
   // Short stages keep every call control visible without scrolling.
   assert.match(calls, /let compact = available\.size\.height < ModemDeckCallStageLayout\.compactHeight/)
   assert.match(calls, /dynamicTypeSize\.isAccessibilitySize \? 2 : oneRow \? 4 : \(kinds\.count == 4 \? 2 : 3\)/)
-  assert.match(app, /ModemDeckPadNavigationRail/)
+  // List columns are proportional to the screen, between a usable minimum and a readable maximum.
+  assert.match(app, /static func listColumnWidth\(forContentWidth width: CGFloat\) -> CGFloat \{\s*min\(400, max\(320, \(width \* 0\.36\)\.rounded\(\)\)\)/)
+  assert.match(communication, /\.frame\(maxWidth: ModemDeckLayout\.readableContentWidth\)/)
   assert.match(communication, /selectedContactID/)
   assert.match(communication, /selectedThreadID/)
   assert.ok(
-    (communication.match(/\.frame\(width: ModemDeckLayout\.padListWidth\)/g) || []).length >= 2
+    (communication.match(/\.modemDeckListColumn\(\)/g) || []).length >= 2
   )
   assert.ok(
     (communication.match(/showsBackButton: false/g) || []).length >= 2
@@ -704,7 +690,7 @@ test('native iPad communication workspaces mirror the Web list-detail geometry',
   assert.match(calls, /selectedCallID/)
   assert.match(calls, /selectedRecordingID/)
   assert.ok(
-    (calls.match(/\.frame\(width: ModemDeckLayout\.padListWidth\)/g) || []).length >= 2
+    (calls.match(/\.modemDeckListColumn\(\)/g) || []).length >= 2
   )
   assert.ok((calls.match(/showsBackButton: false/g) || []).length >= 2)
 })
@@ -969,7 +955,6 @@ test('native layouts adapt to the space and text size instead of clipping', asyn
 
   // Dialing belongs to Recents and Calls, and never duplicates the iPad rail's Dial button.
   assert.match(app, /section == \.home \|\| section == \.calls \? padDialerAction : nil/)
-  assert.match(app, /sectionTabs\(headerDialer: false\)/)
 
   // Unknown callers are named once, missed calls use the missed glyph, labels are localized.
   assert.match(calls, /displayName == call\.remoteNumber \? directionText : call\.remoteNumber/)
@@ -1006,7 +991,6 @@ test('native interaction feedback follows platform conventions', async () => {
 
   // Selection: a title-row header and a toolbar in the tab bar's place, which hides.
   assert.match(app, /enum ModemDeckBatchActionBarPart \{\s*\/\/\/[^\n]*\n\s*case header/)
-  assert.match(app, /\.onAppear \{ controller\?\.enterImmersiveScreen\(\) \}/)
   for (const bar of ['contactBatchBar', 'messageBatchBar']) {
     assert.match(communication, new RegExp(`if selecting \\{ ${bar}\\(\\.header\\) \\}`))
   }
@@ -1014,9 +998,6 @@ test('native interaction feedback follows platform conventions', async () => {
     assert.match(calls, new RegExp(`if selecting \\{ ${bar}\\(\\.header\\) \\}`))
   }
 
-  // The Duo column shows selection by shape and steps aside for the keyboard.
-  assert.match(app, /\.fill\(selected \? Color\.mdAccentSoft : Color\.clear\)/)
-  assert.match(app, /\.opacity\(keyboardVisible \? 0 : 1\)/)
 
   // Settings: inset-grouped, account first, distinct diagnostics, status-first pairing.
   assert.match(settings, /func modemDeckSettingsGroup\(\) -> some View/)

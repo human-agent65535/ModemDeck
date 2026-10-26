@@ -77,11 +77,6 @@ final class ModemDeckSessionController: ObservableObject {
         }
     }
     @Published private(set) var listInteractionRevision = 0
-    /// Number of visible full-screen conversation surfaces; the iPhone tab bar hides while > 0.
-    @Published private(set) var immersiveScreenCount = 0
-
-    func enterImmersiveScreen() { immersiveScreenCount += 1 }
-    func leaveImmersiveScreen() { immersiveScreenCount = max(0, immersiveScreenCount - 1) }
     @Published var callsFilter = "all"
     @Published private(set) var callsNavigationRevision = 0
     @Published private(set) var requestedMessageThreadKey: String?

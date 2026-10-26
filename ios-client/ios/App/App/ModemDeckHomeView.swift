@@ -114,14 +114,13 @@ struct ModemDeckHomeView: View {
         Group {
             if usesSplitWorkspace {
                 HStack(spacing: 0) {
-                    activityColumn.frame(width: ModemDeckLayout.padListWidth)
+                    activityColumn.modemDeckListColumn()
                     Rectangle().fill(Color.mdBorder).frame(width: 1)
                     detail
                 }
             } else { activityColumn }
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .task(id: activitySource) {
             let source = activitySource
             preparingActivity = true

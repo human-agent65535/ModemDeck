@@ -118,16 +118,6 @@ struct ModemDeckRouteContent: View {
 
     private var missingDetail: some View {
         VStack(spacing: 0) {
-            if showsBackButton {
-                Button { dismiss() } label: {
-                    Label(controller.text("返回", "Back"), systemImage: "chevron.left")
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 14)
-                .background(Color.mdSurface)
-            }
             ModemDeckStateView(
                 icon: "doc", title: controller.text("条目已不可用", "Item Unavailable"),
                 detail: controller.text("该条目可能已在另一台设备上删除。", "This item may have been deleted on another device.")
@@ -135,7 +125,6 @@ struct ModemDeckRouteContent: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .modemDeckInteractiveBack(showsBackButton)
     }
 }

@@ -43,7 +43,7 @@ struct ModemDeckContactsView: View {
             if usesSplitWorkspace {
                 HStack(spacing: 0) {
                     contactList
-                        .frame(width: ModemDeckLayout.padListWidth)
+                        .modemDeckListColumn()
                     Rectangle().fill(Color.mdBorder).frame(width: 1)
                     contactDetail
                 }
@@ -52,7 +52,6 @@ struct ModemDeckContactsView: View {
             }
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .overlay(alignment: .bottom) {
             ModemDeckInlineError(message: store.errorMessage)
                 .padding(.horizontal, 16)
@@ -89,7 +88,7 @@ struct ModemDeckContactsView: View {
 
     private var contactList: some View {
         VStack(spacing: 0) {
-            ModemDeckCollectionHeader(controller: controller, title: controller.text("联系人", "Contacts"), query: $query) {
+            ModemDeckCollectionHeader(controller: controller, title: controller.text("联系人", "Contacts"), query: $query, selecting: selecting) {
                 ModemDeckCollectionHeaderButton(icon: "person.badge.plus", title: controller.text("新建联系人", "New contact"), disabled: !controller.isOnline) {
                     editingContact = nil
                     editorOpen = true
@@ -212,7 +211,6 @@ struct ModemDeckContactsView: View {
 
         return ModemDeckBatchActionBar(
             part: part,
-            controller: controller,
             selectedCount: contacts.count,
             totalCount: filteredContacts.count,
             busy: batchBusy,
@@ -651,97 +649,122 @@ struct ModemDeckIdentityHeader: View {
     var moreActionsTitle = "More actions"
     var actions: [ModemDeckHeaderAction] = []
     var copyItems: [ModemDeckCopyItem] = []
-    let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            if showsBackButton {
-                Button(action: dismiss) {
-                    Image(systemName: "chevron.left")
-                        .font(.title3.weight(.semibold))
-                        .foregroundColor(.mdText)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, -6)
-                .accessibilityLabel(backTitle)
-            }
-
-            HStack(spacing: 10) {
-                if let channel {
-                    ModemDeckCommunicationAvatar(
-                        channel: channel,
-                        name: title,
-                        address: subtitle,
-                        avatarSource: avatarSource,
-                        contactBound: contactBound,
-                        size: 44
-                    )
-                } else {
-                    ModemDeckAvatar(name: title, avatarSource: avatarSource, size: 44)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.headline)
-                        .foregroundColor(.mdText)
-                        .lineLimit(1)
-                        .accessibilityAddTraits(.isHeader)
-                    if showsSubtitle {
-                        Text(subtitle)
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundColor(.mdMuted)
-                            .lineLimit(1)
+        if showsBackButton {
+            // Pushed: the system bar carries the back button, the identity in its centre and the
+            // actions at its trailing edge, as in Messages and Contacts.
+            Color.clear
+                .frame(height: 0)
+                .accessibilityHidden(true)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        identity(avatarSize: 32, compact: true)
+                    }
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        ForEach(inlineActions) { item in
+                            barButton(item)
+                        }
+                        if !menuActions.isEmpty || !destructiveActions.isEmpty {
+                            moreMenu
+                        }
                     }
                 }
+        } else {
+            // Beside its list on a wide screen, the detail titles its own column.
+            HStack(spacing: 10) {
+                identity(avatarSize: 44, compact: false)
+                    .layoutPriority(1)
+                Spacer(minLength: 4)
+                ForEach(inlineActions) { item in
+                    headerButton(item)
+                }
+                if !menuActions.isEmpty || !destructiveActions.isEmpty {
+                    moreMenu
+                        .frame(width: 44, height: 44)
+                }
             }
-            .contentShape(Rectangle())
-            .modemDeckCopyMenu(copyItems)
-            .layoutPriority(1)
-            Spacer(minLength: 4)
-            // Identity comes first: one primary action at most, the rest behind "…".
-            ForEach(inlineActions) { item in
-                headerButton(item)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .frame(minHeight: 64)
+            // Large text grows the header; the cap keeps the action row usable.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+            .background(Color.mdBackground)
+            .overlay(alignment: .bottom) { ModemDeckHairline() }
+        }
+    }
+
+    private func identity(avatarSize: CGFloat, compact: Bool) -> some View {
+        HStack(spacing: compact ? 8 : 10) {
+            if let channel {
+                ModemDeckCommunicationAvatar(
+                    channel: channel,
+                    name: title,
+                    address: subtitle,
+                    avatarSource: avatarSource,
+                    contactBound: contactBound,
+                    size: avatarSize
+                )
+            } else {
+                ModemDeckAvatar(name: title, avatarSource: avatarSource, size: avatarSize)
             }
-            if !menuActions.isEmpty || !destructiveActions.isEmpty {
-                Menu {
-                    ForEach(menuActions) { item in
-                        Button(action: item.action) {
+            VStack(alignment: compact ? .leading : .leading, spacing: compact ? 0 : 2) {
+                Text(title)
+                    .font(compact ? .subheadline.weight(.semibold) : .headline)
+                    .foregroundColor(.mdText)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                if showsSubtitle {
+                    Text(subtitle)
+                        .font((compact ? Font.caption : .subheadline).monospacedDigit())
+                        .foregroundColor(.mdMuted)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .contentShape(Rectangle())
+        .modemDeckCopyMenu(copyItems)
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            ForEach(menuActions) { item in
+                Button(action: item.action) {
+                    Label(item.title, systemImage: item.icon)
+                }
+                .disabled(item.disabled || item.busy)
+            }
+            if !destructiveActions.isEmpty {
+                Section {
+                    ForEach(destructiveActions) { item in
+                        Button(role: .destructive, action: item.action) {
                             Label(item.title, systemImage: item.icon)
                         }
                         .disabled(item.disabled || item.busy)
                     }
-                    if !destructiveActions.isEmpty {
-                        Section {
-                            ForEach(destructiveActions) { item in
-                                Button(role: .destructive, action: item.action) {
-                                    Label(item.title, systemImage: item.icon)
-                                }
-                                .disabled(item.disabled || item.busy)
-                            }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3.weight(.regular))
-                        .foregroundColor(.mdAccent)
-                        .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
                 }
-                .accessibilityLabel(moreActionsTitle)
-                .accessibilityIdentifier("detail-more-actions")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .foregroundColor(.mdAccent)
+        }
+        .accessibilityLabel(moreActionsTitle)
+        .accessibilityIdentifier("detail-more-actions")
+    }
+
+    private func barButton(_ item: ModemDeckHeaderAction) -> some View {
+        Button(action: item.action) {
+            if item.busy {
+                ProgressView()
+            } else {
+                Image(systemName: item.icon)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(minHeight: 64)
-        // Large text grows the header; the cap keeps the action row usable.
-        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-        .background(Color.mdSurface)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.mdBorder).frame(height: 1)
-        }
+        .disabled(item.disabled || item.busy)
+        .accessibilityLabel(item.title)
     }
 
     private var inlineActions: [ModemDeckHeaderAction] {
@@ -841,9 +864,7 @@ struct ModemDeckContactDetailView: View {
                         value: displayedContact.primaryPhone?.displayNumber ?? ""
                     )
                 ]
-            ) {
-                presentationMode.wrappedValue.dismiss()
-            }
+            )
 
             ScrollView {
                 VStack(spacing: 0) {
@@ -921,7 +942,6 @@ struct ModemDeckContactDetailView: View {
             }
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .modemDeckInteractiveBack(showsBackButton)
         .onChange(of: contact) { displayedContact = $0 }
         .sheet(isPresented: $editorOpen) {
@@ -1410,9 +1430,7 @@ struct ModemDeckDirectMessageView: View {
                         value: number
                     )
                 ]
-            ) {
-                presentationMode.wrappedValue.dismiss()
-            }
+            )
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(sentMessages) { message in
@@ -1446,9 +1464,8 @@ struct ModemDeckDirectMessageView: View {
             composer
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .modemDeckInteractiveBack()
-        .modemDeckImmersiveScreen(controller)
+        .modemDeckImmersiveScreen()
         // An edited draft is a new message; an unedited one is a retry.
         .onChange(of: content) { _ in sendAttempt = UUID().uuidString }
         .task {
@@ -1762,7 +1779,7 @@ struct ModemDeckMessagesView: View {
             if usesSplitWorkspace {
                 HStack(spacing: 0) {
                     messageList
-                        .frame(width: ModemDeckLayout.padListWidth)
+                        .modemDeckListColumn()
                     Rectangle().fill(Color.mdBorder).frame(width: 1)
                     conversationDetail
                 }
@@ -1771,7 +1788,6 @@ struct ModemDeckMessagesView: View {
             }
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .overlay(alignment: .bottom) {
             ModemDeckInlineError(message: store.errorMessage)
                 .padding(.horizontal, 16)
@@ -1849,7 +1865,7 @@ struct ModemDeckMessagesView: View {
 
     private var messageList: some View {
         VStack(spacing: 0) {
-            ModemDeckCollectionHeader(controller: controller, title: controller.text("消息", "Messages"), query: $query) {
+            ModemDeckCollectionHeader(controller: controller, title: controller.text("消息", "Messages"), query: $query, selecting: selecting) {
                 ModemDeckCollectionHeaderButton(icon: "square.and.pencil", title: controller.text("新建短信", "New message"), disabled: !controller.isOnline) {
                     composeOpen = true
                 }
@@ -1992,7 +2008,6 @@ struct ModemDeckMessagesView: View {
 
         return ModemDeckBatchActionBar(
             part: part,
-            controller: controller,
             selectedCount: selected.count,
             totalCount: filteredThreads.count,
             busy: batchBusy,
@@ -2427,9 +2442,7 @@ struct ModemDeckConversationView: View {
                         value: thread.peer
                     )
                 ]
-            ) {
-                presentationMode.wrappedValue.dismiss()
-            }
+            )
 
             if !mutationError.isEmpty {
                 ModemDeckInlineError(message: mutationError)
@@ -2516,6 +2529,9 @@ struct ModemDeckConversationView: View {
                                 .onDisappear { bottomVisible = false }
                         }
                         .padding(14)
+                        // Long lines stay readable on wide screens instead of spanning them.
+                        .frame(maxWidth: ModemDeckLayout.readableContentWidth)
+                        .frame(maxWidth: .infinity)
                     }
                     .modemDeckConversationAnchor(initialUnreadMessageID == nil ? .bottom : .top)
                     // A lazy stack needs a layout pass to resolve message heights.
@@ -2636,14 +2652,15 @@ struct ModemDeckConversationView: View {
                 )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .frame(maxWidth: ModemDeckLayout.readableContentWidth)
+                .frame(maxWidth: .infinity)
                 .background(.bar)
                 .overlay(alignment: .top) { ModemDeckHairline() }
             }
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .modemDeckInteractiveBack(showsBackButton)
-        .modemDeckImmersiveScreen(controller)
+        .modemDeckImmersiveScreen(showsBackButton)
         .task {
             await store.load()
             initialLoadFinished = true

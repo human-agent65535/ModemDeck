@@ -7,13 +7,12 @@ call audio remain native platform services.
 ## UAT milestone
 
 - Implements the approved native design with five destinations: Recents,
-  Messages, Contacts, Calls, and Settings. Compact layouts use bottom tabs;
-  scenes at least 900 pt wide (iPad, and iPhone Duo's unfolded display in
-  landscape) use a labelled sidebar with retained list/detail state. Layout
-  follows the scene size rather than the device idiom. When iPhone Duo puts the
-  status bar in a trailing column (cover screen, or the unfolded screen held
-  wide), section navigation moves into that column in place of the tab bar or
-  sidebar.
+  Messages, Contacts, Calls, and Settings, in the system tab view: a tab bar on
+  iPhone, a collapsible sidebar on iPad, and the system's vertical tab bar in
+  iPhone Duo's status-bar column. Pages use system large titles, toolbars and
+  search; scenes at least 900 pt wide show list and detail side by side, with a
+  list column proportional to the width. Layout follows the scene size rather
+  than the device idiom.
 - Calls shares one list across All, Missed, and Recorded filters. Call details
   retain every recording segment; More → Manage recordings keeps independent
   recording search, favorites, playback and batch deletion available.

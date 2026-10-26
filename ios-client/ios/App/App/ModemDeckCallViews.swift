@@ -299,7 +299,6 @@ struct ModemDeckDialerPage: View {
             ModemDeckDialerView(controller: controller)
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
     }
 }
 
@@ -730,7 +729,7 @@ struct ModemDeckCallsView: View {
             if usesSplitWorkspace {
                 HStack(spacing: 0) {
                     callListColumn
-                        .frame(width: ModemDeckLayout.padListWidth)
+                        .modemDeckListColumn()
                     Rectangle().fill(Color.mdBorder).frame(width: 1)
                     callDetail
                 }
@@ -739,7 +738,6 @@ struct ModemDeckCallsView: View {
             }
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .overlay(alignment: .bottom) {
             ModemDeckInlineError(message: store.errorMessage)
                 .padding(.horizontal, 16)
@@ -773,7 +771,7 @@ struct ModemDeckCallsView: View {
 
     private var callListColumn: some View {
         VStack(spacing: 0) {
-            ModemDeckCollectionHeader(controller: controller, title: controller.text("通话", "Calls"), query: $query) {}
+            ModemDeckCollectionHeader(controller: controller, title: controller.text("通话", "Calls"), query: $query, selecting: selecting) {}
             filterBar
             callList
         }
@@ -912,7 +910,6 @@ struct ModemDeckCallsView: View {
 
         return ModemDeckBatchActionBar(
             part: part,
-            controller: controller,
             selectedCount: selected.count,
             totalCount: filteredCalls.count,
             busy: batchBusy,
@@ -1132,7 +1129,6 @@ struct ModemDeckCallRecordRow: View {
 struct ModemDeckRecordingsView: View {
     @ObservedObject var controller: ModemDeckSessionController
     var showsBackButton = false
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var store: ModemDeckCallsStore
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
     @Environment(\.modemDeckNavigate) private var navigate
@@ -1188,7 +1184,7 @@ struct ModemDeckRecordingsView: View {
             if usesSplitWorkspace {
                 HStack(spacing: 0) {
                     recordingListColumn
-                        .frame(width: ModemDeckLayout.padListWidth)
+                        .modemDeckListColumn()
                     Rectangle().fill(Color.mdBorder).frame(width: 1)
                     recordingDetail
                 }
@@ -1197,7 +1193,6 @@ struct ModemDeckRecordingsView: View {
             }
         }
         .background(Color.mdBackground)
-        .navigationBarHidden(true)
         .modemDeckInteractiveBack(showsBackButton)
         .overlay(alignment: .bottom) {
             ModemDeckInlineError(message: store.errorMessage)
@@ -1227,8 +1222,7 @@ struct ModemDeckRecordingsView: View {
     private var recordingListColumn: some View {
         VStack(spacing: 0) {
             ModemDeckCollectionHeader(controller: controller, title: controller.text("录音管理", "Recordings"), query: $query,
-                backAction: showsBackButton ? { dismiss() } : nil,
-                backAccessibilityText: controller.text("返回通话", "Back to Calls")) {}
+                selecting: selecting) {}
             HStack(spacing: ModemDeckLayout.toolbarGap) {
                 Text(controller.text("\(filteredRecordings.count) 条录音", "\(filteredRecordings.count) recordings"))
                     .font(.subheadline).foregroundColor(.mdMuted)
@@ -1342,7 +1336,6 @@ struct ModemDeckRecordingsView: View {
 
         return ModemDeckBatchActionBar(
             part: part,
-            controller: controller,
             selectedCount: selected.count,
             totalCount: filteredRecordings.count,
             busy: batchBusy,
@@ -1683,9 +1676,7 @@ struct ModemDeckCallDetailView: View {
                         value: call.remoteNumber
                     )
                 ]
-            ) {
-                presentationMode.wrappedValue.dismiss()
-            }
+            )
 
             if !mutationError.isEmpty {
                 ModemDeckInlineError(message: mutationError)
@@ -1774,7 +1765,6 @@ struct ModemDeckCallDetailView: View {
                                         onChanged: onChanged,
                                         onDeleted: { _ in onChanged() }
                                     )
-                                    .modemDeckTabBarClearance()
                                 } label: {
                                     HStack(spacing: 12) {
                                         Image(systemName: recording.playable ? "waveform.circle.fill" : "waveform.circle")
@@ -1809,7 +1799,6 @@ struct ModemDeckCallDetailView: View {
             }
             .background(Color.mdBackground)
         }
-        .navigationBarHidden(true)
         .modemDeckInteractiveBack(showsBackButton)
         .onChange(of: call) { value in
             favorite = value.favorite
@@ -2119,9 +2108,7 @@ struct ModemDeckRecordingDetailView: View {
                         value: recording.call.remoteNumber
                     )
                 ]
-            ) {
-                presentationMode.wrappedValue.dismiss()
-            }
+            )
 
             if !mutationError.isEmpty {
                 ModemDeckInlineError(message: mutationError)
@@ -2219,7 +2206,6 @@ struct ModemDeckRecordingDetailView: View {
             }
             .background(Color.mdBackground)
         }
-        .navigationBarHidden(true)
         .modemDeckInteractiveBack(showsBackButton)
         .onChange(of: recording) { favorite = $0.favorite }
         .alert(
@@ -2652,7 +2638,9 @@ struct ModemDeckActiveCallView: View {
             GeometryReader { available in
                 // Short stages (iPhone Duo's cover screen, iPhone SE) tighten the identity block
                 // so the controls fit without scrolling.
-                let compact = available.size.height < ModemDeckCallStageLayout.compactHeight
+                // Accessibility text sizes take the same tighter stage, so the larger labels fit.
+                let compact = available.size.height < ModemDeckCallStageLayout.compactHeight ||
+                    dynamicTypeSize.isAccessibilitySize
                 let controlsInOneRow = available.size.width >= ModemDeckCallStageLayout.oneRowControlsWidth
                 let keypadKey = ModemDeckCallStageLayout.keypadKey(for: available.size)
                 ScrollView {
@@ -2671,7 +2659,8 @@ struct ModemDeckActiveCallView: View {
                                         action: sendDTMF
                                     )
                                 } else if !controlKinds.isEmpty {
-                                    auxiliaryControls(oneRow: controlsInOneRow, compact: compact)
+                                    auxiliaryControls(oneRow: controlsInOneRow, compact: compact,
+                                                      width: available.size.width)
                                 }
                             }
                             ModemDeckInlineError(message: callController.errorMessage)
@@ -2830,7 +2819,7 @@ struct ModemDeckActiveCallView: View {
         controller.text("接通后可用", "Available once connected")
     }
 
-    private func auxiliaryControls(oneRow: Bool, compact: Bool = false) -> some View {
+    private func auxiliaryControls(oneRow: Bool, compact: Bool = false, width: CGFloat = 0) -> some View {
         let kinds = controlKinds
         // Four controls sit in one row when they fit, otherwise in a balanced 2×2 grid.
         let columns = dynamicTypeSize.isAccessibilitySize ? 2 : oneRow ? 4 : (kinds.count == 4 ? 2 : 3)
@@ -2838,7 +2827,9 @@ struct ModemDeckActiveCallView: View {
         let rows: [[ControlKind]] = stride(from: 0, to: kinds.count, by: columns).map { start in
             Array(kinds[start..<min(start + columns, kinds.count)])
         }
-        let cellWidth: CGFloat = dynamicTypeSize.isAccessibilitySize ? 128 : 84
+        // At accessibility sizes two wide cells keep labels on one line instead of hyphenating.
+        let cellWidth: CGFloat = dynamicTypeSize.isAccessibilitySize
+            ? max(128, min(180, (width - ModemDeckSpacing.md) / 2)) : 84
         return VStack(spacing: compact ? ModemDeckSpacing.sm : ModemDeckSpacing.lg) {
             ForEach(rows.indices, id: \.self) { index in
                 HStack(alignment: .top, spacing: ModemDeckSpacing.md) {
