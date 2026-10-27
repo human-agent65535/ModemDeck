@@ -295,7 +295,7 @@ struct ModemDeckDialerPage: View {
     @ObservedObject var controller: ModemDeckSessionController
     var body: some View {
         VStack(spacing: 0) {
-            ModemDeckPageHeader(title: controller.text("拨号", "Dial"))
+            ModemDeckPageHeader(title: controller.text("拨号", "Dial"), controller: controller)
             ModemDeckDialerView(controller: controller)
         }
         .background(Color.mdBackground)
@@ -824,7 +824,6 @@ struct ModemDeckCallsView: View {
             if !shortScene { filterBar }
             callList
         }
-        .modemDeckFloatingKeypad(hidden: selecting)
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if selecting { callBatchBar() }
@@ -1287,7 +1286,8 @@ struct ModemDeckRecordingsView: View {
     private var recordingListColumn: some View {
         VStack(spacing: 0) {
             ModemDeckCollectionHeader(
-                controller: controller, title: controller.text("录音管理", "Recordings"), query: $query, selecting: selecting
+                controller: controller, title: controller.text("录音管理", "Recordings"), query: $query, selecting: selecting,
+                showsSettings: false
             ) {
                 // Short scenes cannot spare a filter row, so the filters join the bar.
                 if shortScene { recordingFilters(inToolbar: true) }
@@ -1304,7 +1304,6 @@ struct ModemDeckRecordingsView: View {
 
             recordingList
         }
-        .modemDeckFloatingKeypad(hidden: selecting)
         .background(Color.mdBackground)
         .toolbar {
             if let close, !selecting {

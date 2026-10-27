@@ -106,9 +106,13 @@ final class CommunicationUXTests: XCTestCase {
         }
     }
 
-    /// A section in the system tab bar (iPhone) or sidebar (iPad), found by its title.
+    /// A section in the system tab bar (iPhone) or sidebar (iPad), found by its title. Settings is
+    /// a sheet opened from each page's leading button; leaving it for a section closes it first.
     private func section(_ app: XCUIApplication, _ id: String) -> XCUIElement {
-        let title = ["home": "最近", "messages": "消息", "contacts": "联系人", "calls": "通话", "settings": "设置"][id]!
+        if id == "settings" { return app.buttons["open-settings"].firstMatch }
+        let done = app.buttons["settings-done"]
+        if done.exists { done.tap() }
+        let title = ["home": "最近", "messages": "消息", "contacts": "联系人", "calls": "通话"][id]!
         let tab = app.tabBars.buttons[title]
         if tab.exists { return tab }
         // Badges extend the label ("消息, 1"), in the sidebar and in the floating tab bar.
@@ -318,16 +322,16 @@ final class CommunicationUXTests: XCTestCase {
         app.buttons["录音管理"].firstMatch.tap()
         XCTAssertTrue(app.buttons["recording-uat-recording-example"].waitForExistence(timeout: 4))
         backButton(app).tap()
-        app.buttons["打开拨号盘"].firstMatch.tap()
+        app.buttons["拨号"].firstMatch.tap()
         XCTAssertTrue(app.buttons["dial-key-1"].waitForExistence(timeout: 3))
         for key in ["1", "2", "0", "2", "5", "5", "5", "0", "1", "0", "1"] { app.buttons["dial-key-" + key].tap() }
         let number = app.textFields["dial-number"]
         XCTAssertEqual(number.value as? String, "12025550101")
         capture("refresh-dialer-draft", app: app)
         app.buttons["dialer-collapse"].tap()
-        // The keypad floats over every communication list; its draft survives switching sections.
+        // The keypad sits apart at the tab bar's end; its draft survives switching sections.
         section(app, "messages").tap()
-        app.buttons["打开拨号盘"].firstMatch.tap()
+        app.buttons["拨号"].firstMatch.tap()
         XCTAssertTrue(number.waitForExistence(timeout: 3))
         XCTAssertEqual(number.value as? String, "12025550101")
         app.buttons["dial-delete"].tap()
@@ -348,7 +352,7 @@ final class CommunicationUXTests: XCTestCase {
         capture("refresh-calls-dark", app: app)
         section(app, "home").tap()
         capture("refresh-recents-dark", app: app)
-        app.buttons["打开拨号盘"].firstMatch.tap()
+        app.buttons["拨号"].firstMatch.tap()
         XCTAssertTrue(app.buttons["dial-recording-status"].exists)
         capture("refresh-dialer-dark", app: app)
     }

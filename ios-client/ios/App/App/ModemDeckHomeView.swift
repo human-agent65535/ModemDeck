@@ -140,10 +140,9 @@ struct ModemDeckHomeView: View {
 
     private var activityColumn: some View {
         VStack(spacing: 0) {
-            ModemDeckPageHeader(title: controller.text("最近", "Recents"))
+            ModemDeckPageHeader(title: controller.text("最近", "Recents"), controller: controller)
             activityList
         }
-        .modemDeckFloatingKeypad()
     }
 
     /// Accessibility sizes stack the counters as full-width rows so labels and counts stay whole.

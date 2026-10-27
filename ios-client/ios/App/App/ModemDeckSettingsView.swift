@@ -51,7 +51,7 @@ struct ModemDeckSettingsView: View {
 
     private var titledDirectory: some View {
         VStack(spacing: 0) {
-            ModemDeckPageHeader(title: controller.text("设置", "Settings"))
+            ModemDeckPageHeader(title: controller.text("设置", "Settings"), controller: controller)
             settingsDirectory
         }
     }

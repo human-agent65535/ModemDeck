@@ -253,12 +253,12 @@ test('SwiftUI is the universal iPhone and iPad application root', async () => {
   assert.match(app, /case dial/)
   assert.match(app, /ModemDeckDialerPanel/)
   assert.match(app, /\.preferredColorScheme\(ModemDeckAppearance\(rawValue: appearance\)\?\.colorScheme\)/)
-  assert.match(app, /get: \{ controller\.selectedSection == \.dial \? \.home : controller\.selectedSection \}/)
-  assert.match(app, /struct ModemDeckPadDialerAction/)
-  assert.match(app, /accessibilityLabel: controller\.text\("打开拨号盘", "Open dialer"\)/)
-  // The keypad floats over every communication list instead of sitting in two toolbars.
-  assert.match(app, /struct ModemDeckFloatingKeypadModifier/)
-  assert.match(app, /section == \.settings \? nil : padDialerAction/)
+  // Four tabs and the keypad set apart at the tab bar's end; the keypad and Settings are sheets.
+  assert.match(app, /get: \{ tabSection\(controller\.selectedSection\) \}/)
+  assert.match(app, /if section == \.dial \{ openDialer\(\) \} else \{ controller\.selectedSection = section \}/)
+  assert.match(app, /value: ModemDeckSection\.dial, role: \.search/)
+  assert.match(app, /\.sheet\(isPresented: \$showingSettings\) \{ settingsSheet \}/)
+  assert.doesNotMatch(app, /ModemDeckFloatingKeypad|ModemDeckPadDialerAction/)
   assert.doesNotMatch(app, /interactiveSpring\(response: 0\.3[48]/)
   assert.match(project, /TARGETED_DEVICE_FAMILY = "1,2";/)
   assert.doesNotMatch(
@@ -287,7 +287,7 @@ test('SwiftUI is the universal iPhone and iPad application root', async () => {
   assert.doesNotMatch(app, /horizontalSizeClass/)
   assert.match(
     app,
-    /static var contentSections: \[ModemDeckSection\] \{\s*\[\.home, \.messages, \.contacts, \.calls, \.settings\]/
+    /static var tabSections: \[ModemDeckSection\] \{\s*\[\.home, \.messages, \.contacts, \.calls\]/
   )
   assert.doesNotMatch(app, /ModemDeckMoreSheet|case more|showingMore/)
   assert.match(runner, /MODEMDECK_SIMULATOR_FAMILY/)
@@ -389,7 +389,7 @@ test('native recents keeps real line identities and shortcuts into the shared ca
   assert.match(home, /ModemDeckHomeLineGrid\([\s\S]*lines: controller\.bootstrap\?\.lines \?\? \[\]/)
   assert.match(app, /private struct ModemDeckHomeLineCard/)
   assert.match(home, /controller\.openCalls\(filter: filter\)/)
-  assert.match(home, /ModemDeckPageHeader\(title: controller\.text\("最近", "Recents"\)\)/)
+  assert.match(home, /ModemDeckPageHeader\(title: controller\.text\("最近", "Recents"\), controller: controller\)/)
   assert.doesNotMatch(app + home, /ModemDeckHomeSummaryGrid|unreadMessageCount|missedCallCount|onlineLineCount/)
 })
 
@@ -975,8 +975,8 @@ test('native layouts adapt to the space and text size instead of clipping', asyn
   assert.match(app, /static let headerGlyphMaximumSize = DynamicTypeSize\.xxxLarge/)
   assert.match(home, /AnyLayout\(VStackLayout\(spacing: 8\)\)/)
 
-  // The floating keypad is on every communication list, not Settings.
-  assert.match(app, /section == \.settings \? nil : padDialerAction/)
+  // Top-level pages open Settings from their leading edge; pushed Recordings keeps its back button.
+  assert.match(app, /ToolbarItem\(placement: \.topBarLeading\) \{\s*ModemDeckSettingsButton/)
 
   // Unknown callers are named once, missed calls use the missed glyph, labels are localized.
   assert.match(calls, /displayName == call\.remoteNumber \? directionText : call\.remoteNumber/)

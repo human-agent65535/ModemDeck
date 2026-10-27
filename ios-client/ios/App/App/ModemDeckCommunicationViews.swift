@@ -148,7 +148,6 @@ struct ModemDeckContactsView: View {
             }
             .background(Color.mdBackground)
         }
-        .modemDeckFloatingKeypad(hidden: selecting)
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if selecting { contactBatchBar() }
@@ -1850,7 +1849,6 @@ struct ModemDeckMessagesView: View {
             if !shortScene { filterBar }
             threadList
         }
-        .modemDeckFloatingKeypad(hidden: selecting)
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if selecting { messageBatchBar() }

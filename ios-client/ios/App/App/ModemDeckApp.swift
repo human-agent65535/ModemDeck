@@ -455,9 +455,6 @@ enum ModemDeckLayout {
     /// A phone screen this wide on its short side is iPhone Duo unfolded, which may rotate;
     /// the cover display and single-screen phones are well below it.
     static let landscapePhoneMinimumShortSide: CGFloat = 600
-    static let floatingKeypadSize: CGFloat = 60
-    /// The keypad's height and margins, kept free below a list's last row.
-    static let floatingKeypadClearance: CGFloat = 84
     /// Comfortable reading width for conversations and forms on wide screens.
     static let readableContentWidth: CGFloat = 720
 
@@ -499,13 +496,16 @@ private struct ModemDeckUsesSplitWorkspaceKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-struct ModemDeckPadDialerAction {
-    let accessibilityLabel: String
-    let open: () -> Void
+private struct ModemDeckTrailingBarColumnKey: EnvironmentKey {
+    static let defaultValue = false
 }
 
-private struct ModemDeckPadDialerActionKey: EnvironmentKey {
-    static let defaultValue: ModemDeckPadDialerAction? = nil
+private struct ModemDeckOpenSettingsKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+private struct ModemDeckCloseSettingsKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
 }
 
 extension EnvironmentValues {
@@ -534,9 +534,23 @@ extension EnvironmentValues {
     /// Short scenes keep collection pages to one bar: filters and search join the toolbar.
     var modemDeckShortScene: Bool { modemDeckTitleDisplayMode == .inline }
 
-    var modemDeckPadDialerAction: ModemDeckPadDialerAction? {
-        get { self[ModemDeckPadDialerActionKey.self] }
-        set { self[ModemDeckPadDialerActionKey.self] = newValue }
+    /// The scene keeps a trailing column for the status bar and trailing bar buttons (iPhone Duo).
+    var modemDeckTrailingBarColumn: Bool {
+        get { self[ModemDeckTrailingBarColumnKey.self] }
+        set { self[ModemDeckTrailingBarColumnKey.self] = newValue }
+    }
+
+    /// Settings opens from a button at the leading edge of each top-level page, which lets the
+    /// tab bar hold four sections and the keypad.
+    var modemDeckOpenSettings: (() -> Void)? {
+        get { self[ModemDeckOpenSettingsKey.self] }
+        set { self[ModemDeckOpenSettingsKey.self] = newValue }
+    }
+
+    /// Set while Settings is presented, for its Done button.
+    var modemDeckCloseSettings: (() -> Void)? {
+        get { self[ModemDeckCloseSettingsKey.self] }
+        set { self[ModemDeckCloseSettingsKey.self] = newValue }
     }
 }
 
@@ -781,8 +795,10 @@ enum ModemDeckSection: String, CaseIterable, Identifiable {
         }
     }
 
-    static var contentSections: [ModemDeckSection] {
-        [.home, .messages, .contacts, .calls, .settings]
+    /// The tab bar's sections. The keypad sits apart at its end and Settings opens from each
+    /// page's leading button; five sections plus the keypad would push both behind More.
+    static var tabSections: [ModemDeckSection] {
+        [.home, .messages, .contacts, .calls]
     }
 
     static var initialSection: ModemDeckSection {
@@ -847,7 +863,7 @@ private final class ModemDeckShellNavigation: ObservableObject {
 private struct ModemDeckSectionRoot: View {
     let section: ModemDeckSection
     @ObservedObject var controller: ModemDeckSessionController
-    let padDialerAction: ModemDeckPadDialerAction?
+    let openSettings: (() -> Void)?
     @ObservedObject var navigation: ModemDeckSectionNavigation
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
 
@@ -856,6 +872,7 @@ private struct ModemDeckSectionRoot: View {
             if usesSplitWorkspace, navigation.page == .recordings {
                 ModemDeckRecordingsView(controller: controller, close: { navigation.page = nil })
                     .environment(\.modemDeckSplitNavigation, navigation.pageNavigation)
+                    .environment(\.modemDeckOpenSettings, nil)
             } else if usesSplitWorkspace {
                 // Side by side, the page's split view owns navigation: pushes land in its detail
                 // column, which keeps this section's path.
@@ -904,8 +921,7 @@ private struct ModemDeckSectionRoot: View {
                 }
             }
         }
-        // Every communication list carries the floating keypad; Settings does not.
-        .environment(\.modemDeckPadDialerAction, section == .settings ? nil : padDialerAction)
+        .environment(\.modemDeckOpenSettings, openSettings)
         .onChange(of: controller.callsNavigationRevision) { _ in
             if section == .calls {
                 navigation.path.removeAll()
@@ -948,6 +964,7 @@ private struct ModemDeckAdaptiveShell: View {
             let sceneHeight = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
             ModemDeckWorkspaceShell(controller: controller, callExpanded: $callExpanded)
                 .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
+                .environment(\.modemDeckTrailingBarColumn, geometry.safeAreaInsets.trailing > 0)
                 .environment(
                     \.modemDeckTitleDisplayMode,
                     sceneHeight < ModemDeckLayout.largeTitleMinimumHeight ? .inline : .large
@@ -969,6 +986,7 @@ private struct ModemDeckWorkspaceShell: View {
     @Binding var callExpanded: Bool
     @StateObject private var navigation = ModemDeckShellNavigation()
     @State private var showingDialer: Bool
+    @State private var showingSettings = false
     private let badges: ModemDeckSectionBadgeSource
 
     init(controller: ModemDeckSessionController, callExpanded: Binding<Bool>) {
@@ -988,11 +1006,16 @@ private struct ModemDeckWorkspaceShell: View {
                 .presentationDetents([.height(640), .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingSettings) { settingsSheet }
         .onReceive(controller.callController.$call) { call in
             if call != nil { showingDialer = false }
         }
-        .onAppear { navigation.shownSection = tabSection(controller.selectedSection) }
+        .onAppear {
+            navigation.shownSection = tabSection(controller.selectedSection)
+            presentRequestedSettings()
+        }
         .onChange(of: controller.selectedSection) { section in
+            presentRequestedSettings()
             UIApplication.shared.sendAction(
                 #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
             )
@@ -1001,7 +1024,7 @@ private struct ModemDeckWorkspaceShell: View {
     }
 
     private func tabSection(_ section: ModemDeckSection) -> ModemDeckSection {
-        section == .dial ? .home : section
+        section == .dial || section == .settings ? .home : section
     }
 
     /// Closes swipe actions left open in the section the user just left, for taps on the tab bar
@@ -1019,11 +1042,14 @@ private struct ModemDeckWorkspaceShell: View {
         }
     }
 
-    /// The dialer is a sheet, not a tab; a request for it shows Recents underneath.
+    /// The dialer and Settings are sheets, not tabs; a request for either keeps the current
+    /// section underneath, and the keypad's tab bar button opens the dialer without leaving it.
     private var selection: Binding<ModemDeckSection> {
         Binding(
-            get: { controller.selectedSection == .dial ? .home : controller.selectedSection },
-            set: { controller.selectedSection = $0 }
+            get: { tabSection(controller.selectedSection) },
+            set: { section in
+                if section == .dial { openDialer() } else { controller.selectedSection = section }
+            }
         )
     }
 
@@ -1031,34 +1057,58 @@ private struct ModemDeckWorkspaceShell: View {
     private var tabs: some View {
         if #available(iOS 18.0, *) {
             TabView(selection: selection) {
-                ForEach(ModemDeckSection.contentSections) { section in
+                ForEach(ModemDeckSection.tabSections) { section in
                     Tab(section.title(controller), systemImage: section.systemImage, value: section) {
                         tabContent(section)
                     }
                     .badge(badges.count(for: section))
                 }
+                // The system sets this one button apart at the end of the tab bar.
+                Tab(controller.text("拨号", "Dial"), systemImage: "circle.grid.3x3.fill",
+                    value: ModemDeckSection.dial, role: .search) {
+                    Color.mdBackground
+                }
             }
             .tabViewStyle(.sidebarAdaptable)
         } else {
             TabView(selection: selection) {
-                ForEach(ModemDeckSection.contentSections) { section in
+                ForEach(ModemDeckSection.tabSections) { section in
                     tabContent(section)
                         .tabItem { Label(section.title(controller), systemImage: section.systemImage) }
                         .badge(badges.count(for: section))
                         .tag(section)
                 }
+                Color.mdBackground
+                    .tabItem { Label(controller.text("拨号", "Dial"), systemImage: "circle.grid.3x3.fill") }
+                    .tag(ModemDeckSection.dial)
             }
         }
+    }
+
+    private var settingsSheet: some View {
+        ModemDeckSectionRoot(
+            section: .settings,
+            controller: controller,
+            openSettings: nil,
+            navigation: navigation.navigation(for: .settings)
+        )
+        // A sheet is too narrow for two columns, and Settings returns with Done.
+        .environment(\.modemDeckUsesSplitWorkspace, false)
+        .environment(\.modemDeckCloseSettings, { showingSettings = false })
+    }
+
+    /// Settings is no longer a tab; a request for it, such as a test's initial section, opens the sheet.
+    private func presentRequestedSettings() {
+        guard controller.selectedSection == .settings else { return }
+        controller.selectedSection = .home
+        showingSettings = true
     }
 
     private func tabContent(_ section: ModemDeckSection) -> some View {
         ModemDeckSectionRoot(
             section: section,
             controller: controller,
-            padDialerAction: ModemDeckPadDialerAction(
-                accessibilityLabel: controller.text("打开拨号盘", "Open dialer"),
-                open: openDialer
-            ),
+            openSettings: { showingSettings = true },
             navigation: navigation.navigation(for: section)
         )
         // A collapsed call stays one tap away above the tab bar, and above a conversation's
@@ -1154,7 +1204,7 @@ struct ModemDeckSplitColumns<ListColumn: View, DetailColumn: View>: View {
                 .modemDeckRemovingSidebarToggle()
         } detail: {
             ModemDeckSplitDetailStack(controller: controller, navigation: navigation ?? ModemDeckSectionNavigation()) {
-                detail()
+                detail().modifier(ModemDeckDetailSettingsButton(controller: controller))
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -1166,6 +1216,27 @@ private extension View {
     /// The list column always shows; there is nothing for a sidebar toggle to hide.
     @ViewBuilder func modemDeckRemovingSidebarToggle() -> some View {
         if #available(iOS 17.0, *) { toolbar(removing: .sidebarToggle) } else { self }
+    }
+}
+
+/// iPhone Duo keeps a trailing column beside its screens, and the system moves a full-width
+/// page's trailing bar buttons there. Side by side, Settings joins the detail's bar so it lands
+/// in that column too, as it does folded; scenes without the column keep it at the list's leading edge.
+private struct ModemDeckDetailSettingsButton: ViewModifier {
+    @ObservedObject var controller: ModemDeckSessionController
+    @Environment(\.modemDeckOpenSettings) private var openSettings
+    @Environment(\.modemDeckTrailingBarColumn) private var trailingBarColumn
+
+    func body(content: Content) -> some View {
+        if trailingBarColumn, let openSettings {
+            content.toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ModemDeckSettingsButton(title: controller.text("设置", "Settings"), open: openSettings)
+                }
+            }
+        } else {
+            content
+        }
     }
 }
 
@@ -1396,7 +1467,12 @@ struct ModemDeckLoadErrorState: View {
 /// Gives a top-level page the system large title. It draws nothing itself.
 struct ModemDeckPageHeader: View {
     let title: String
+    @ObservedObject var controller: ModemDeckSessionController
     @Environment(\.modemDeckTitleDisplayMode) private var titleDisplayMode
+    @Environment(\.modemDeckOpenSettings) private var openSettings
+    @Environment(\.modemDeckCloseSettings) private var closeSettings
+    @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
+    @Environment(\.modemDeckTrailingBarColumn) private var trailingBarColumn
 
     var body: some View {
         Color.clear
@@ -1404,72 +1480,36 @@ struct ModemDeckPageHeader: View {
             .accessibilityHidden(true)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(titleDisplayMode)
-    }
-}
-
-/// The keypad floats at the bottom trailing corner of every communication list, above the
-/// tab bar and a minimized call, so dialing is one tap from anywhere without a tab of its own.
-/// Pushed pages cover it, and it steps aside while the list is selecting.
-private struct ModemDeckFloatingKeypadModifier: ViewModifier {
-    let hidden: Bool
-    @Environment(\.modemDeckPadDialerAction) private var action
-
-    private var shown: Bool { action != nil && !hidden }
-
-    func body(content: Content) -> some View {
-        content
-            // Keeps the last row scrollable clear of the button.
-            .modifier(ModemDeckBottomScrollClearance(height: shown ? ModemDeckLayout.floatingKeypadClearance : 0))
-            .overlay(alignment: .bottomTrailing) {
-                if let action, shown {
-                    Button(action: action.open) {
-                        Image(systemName: "circle.grid.3x3.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: ModemDeckLayout.floatingKeypadSize, height: ModemDeckLayout.floatingKeypadSize)
-                            .modifier(ModemDeckFloatingKeypadSurface())
+            .toolbar {
+                if let openSettings, !(usesSplitWorkspace && trailingBarColumn) {
+                    ToolbarItem(placement: .topBarLeading) {
+                        ModemDeckSettingsButton(title: controller.text("设置", "Settings"), open: openSettings)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 16)
-                    .accessibilityLabel(action.accessibilityLabel)
-                    .accessibilityIdentifier("open-dialer")
-                    .transition(.scale.combined(with: .opacity))
+                }
+                if let closeSettings {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(controller.text("完成", "Done"), action: closeSettings)
+                            .accessibilityIdentifier("settings-done")
+                    }
                 }
             }
-            .animation(.easeOut(duration: 0.2), value: shown)
     }
 }
 
-private struct ModemDeckBottomScrollClearance: ViewModifier {
-    let height: CGFloat
+/// Opens Settings from the leading edge of a top-level page.
+struct ModemDeckSettingsButton: View {
+    let title: String
+    let open: () -> Void
 
-    func body(content: Content) -> some View {
-        if #available(iOS 17.0, *) {
-            content.contentMargins(.bottom, height, for: .scrollContent)
-        } else {
-            content
+    var body: some View {
+        Button(action: open) {
+            Image(systemName: "gearshape")
         }
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("open-settings")
     }
 }
 
-private struct ModemDeckFloatingKeypadSurface: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.tint(.mdAccent).interactive(), in: .circle)
-        } else {
-            content
-                .background(Circle().fill(Color.mdAccent))
-                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
-        }
-    }
-}
-
-extension View {
-    func modemDeckFloatingKeypad(hidden: Bool = false) -> some View {
-        modifier(ModemDeckFloatingKeypadModifier(hidden: hidden))
-    }
-}
 
 /// A list row's title and date share a line; at accessibility sizes the title wraps and the
 /// date moves below it instead of truncating the name to a few characters.
@@ -1515,8 +1555,13 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
     @Binding var query: String
     var selecting = false
     var primary: ModemDeckCollectionPrimaryAction? = nil
+    /// Pushed pages such as Recordings have a back button where Settings would go.
+    var showsSettings = true
     @ViewBuilder var actions: () -> Actions
     @Environment(\.modemDeckTitleDisplayMode) private var titleDisplayMode
+    @Environment(\.modemDeckOpenSettings) private var openSettings
+    @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
+    @Environment(\.modemDeckTrailingBarColumn) private var trailingBarColumn
     @State private var searchOpen = false
     @State private var searchPresented = false
 
@@ -1545,6 +1590,11 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
                 presented: $searchPresented
             ))
             .toolbar {
+                if showsSettings, let openSettings, !(usesSplitWorkspace && trailingBarColumn) {
+                    ToolbarItem(placement: .topBarLeading) {
+                        ModemDeckSettingsButton(title: controller.text("设置", "Settings"), open: openSettings)
+                    }
+                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if showsSearchButton {
                         Button {
