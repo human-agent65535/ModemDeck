@@ -38,8 +38,16 @@ sudo ./install.sh
 | 多线路总览：在线状态、默认线路与流量 | ![桌面端多线路总览](docs/images/readme-dashboard.jpg) | ![手机端多线路活动列表](docs/images/readme-dashboard-mobile.jpg) |
 | 按线路消息：未读、收藏与联系人动作 | ![桌面端按线路短信会话](docs/images/readme-messages.jpg) | ![手机端短信会话与线路标签](docs/images/readme-messages-mobile.jpg) |
 | 通话记录：详情与录音片段 | ![桌面端通话详情与录音片段](docs/images/readme-calls.jpg) | ![手机端通话详情与录音片段](docs/images/readme-calls-mobile.jpg) |
-| 模拟来电：录音开关已开启 | ![桌面端模拟来电与录音开关](docs/images/readme-simulated-call.jpg) | ![手机端模拟来电与录音开关](docs/images/readme-simulated-call-mobile.jpg) |
+| 模拟来电：接听或拒接 | ![桌面端模拟来电](docs/images/readme-simulated-call.jpg) | ![手机端模拟来电](docs/images/readme-simulated-call-mobile.jpg) |
 | 多路通话：两条线路同时占用与切换 | ![桌面端多路通话线路切换](docs/images/readme-multi-call.jpg) | ![手机端多路通话线路切换](docs/images/readme-multi-call-mobile.jpg) |
+
+### 原生 iOS 客户端
+
+| iPhone 消息 | iPhone 拨号：呼叫或发短信 | iPhone Duo 外屏 |
+| --- | --- | --- |
+| ![iPhone 消息列表与底部标签栏](docs/images/readme-ios-messages.jpg) | ![iPhone 拨号盘匹配联系人并可发短信](docs/images/readme-ios-keypad.jpg) | ![iPhone Duo 外屏，按钮位于右侧栏](docs/images/readme-ios-duo-cover.jpg) |
+
+![iPad 双栏通话详情与录音](docs/images/readme-ios-ipad-calls.jpg)
 
 ## 路线图
 
@@ -238,8 +246,16 @@ covered in the [deployment guide](deploy/README.md).
 | Multi-line overview: status, default line, and traffic | ![Desktop multi-line overview](docs/images/readme-dashboard.jpg) | ![Mobile multi-line activity](docs/images/readme-dashboard-mobile.jpg) |
 | Line-aware messages: unread state, favorites, and contact actions | ![Desktop line-aware message conversation](docs/images/readme-messages.jpg) | ![Mobile message conversation with line label](docs/images/readme-messages-mobile.jpg) |
 | Call history: details and recording segments | ![Desktop call details and recording segments](docs/images/readme-calls.jpg) | ![Mobile call details and recording segments](docs/images/readme-calls-mobile.jpg) |
-| Simulated incoming call: recording enabled | ![Desktop simulated incoming call with recording enabled](docs/images/readme-simulated-call.jpg) | ![Mobile simulated incoming call with recording enabled](docs/images/readme-simulated-call-mobile.jpg) |
+| Simulated incoming call: answer or decline | ![Desktop simulated incoming call](docs/images/readme-simulated-call.jpg) | ![Mobile simulated incoming call](docs/images/readme-simulated-call-mobile.jpg) |
 | Concurrent calls: two busy lines and call switching | ![Desktop concurrent-call line switcher](docs/images/readme-multi-call.jpg) | ![Mobile concurrent-call line switcher](docs/images/readme-multi-call-mobile.jpg) |
+
+### Native iOS client
+
+| iPhone messages | iPhone keypad: call or text | iPhone Duo outer screen |
+| --- | --- | --- |
+| ![iPhone message list with the tab bar](docs/images/readme-ios-messages.jpg) | ![iPhone keypad matching a contact, with call and text](docs/images/readme-ios-keypad.jpg) | ![iPhone Duo outer screen with buttons in the side column](docs/images/readme-ios-duo-cover.jpg) |
+
+![iPad two-column call details with a recording](docs/images/readme-ios-ipad-calls.jpg)
 
 ## Roadmap
 
