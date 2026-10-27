@@ -338,6 +338,7 @@ struct ModemDeckDialerView: View {
     @ObservedObject private var contactsStore: ModemDeckContactsStore
     @ObservedObject private var draft: ModemDeckDialDraft
     @State private var showingContacts = false
+    @State private var messagingNumber = false
     @State private var contactQuery = ""
     @State private var recordingError = ""
     @State private var validationAttempted = false
@@ -359,6 +360,10 @@ struct ModemDeckDialerView: View {
     private var lines: [ModemDeckLine] { controller.voiceDialLines }
     private var selectedLine: ModemDeckLine? { lines.first { $0.id == draft.selectedLineID } }
     private var dialTarget: ModemDeckDialTarget { normalizeModemDeckDialTarget(draft.number) }
+    private var canMessage: Bool {
+        !draft.number.isEmpty && dialTarget.error == .none && controller.isOnline &&
+            controller.bootstrap?.capabilities.message == true
+    }
     private var matchedContact: ModemDeckContact? {
         contactsStore.contacts.modemDeckContact(id: nil, number: draft.number)
     }
@@ -438,6 +443,23 @@ struct ModemDeckDialerView: View {
             await loadRecordingPreference()
         }
         .sheet(isPresented: $showingContacts) { contactPicker }
+        .sheet(isPresented: $messagingNumber) {
+            NavigationStack {
+                ModemDeckDirectMessageView(
+                    number: dialTarget.normalized,
+                    displayName: matchedContact?.displayName ?? draft.number,
+                    avatarSource: matchedContact?.avatar,
+                    contactBound: matchedContact != nil,
+                    controller: controller,
+                    preferredLineID: matchedContact?.preferredLineId
+                )
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(controller.text("关闭", "Close")) { messagingNumber = false }
+                    }
+                }
+            }
+        }
     }
 
     private var numberSection: some View {
@@ -555,11 +577,21 @@ struct ModemDeckDialerView: View {
 
     private func actionRow(callSize: CGFloat) -> some View {
         HStack(spacing: 14) {
-            Button { showingContacts = true } label: {
-                Image(systemName: "person.crop.circle")
-                    .font(.title2).frame(width: 44, height: 56)
+            // A typed number can be texted as well as called; before that, pick a contact.
+            if canMessage {
+                Button { messagingNumber = true } label: {
+                    Image(systemName: "message")
+                        .font(.title2).frame(width: 44, height: 56)
+                }
+                .accessibilityLabel(controller.text("发短信", "Send message"))
+                .accessibilityIdentifier("dial-message")
+            } else {
+                Button { showingContacts = true } label: {
+                    Image(systemName: "person.crop.circle")
+                        .font(.title2).frame(width: 44, height: 56)
+                }
+                .accessibilityLabel(controller.text("选择联系人", "Choose contact"))
             }
-            .accessibilityLabel(controller.text("选择联系人", "Choose contact"))
             Spacer(minLength: 0)
             // Round green call key, as in the system Phone keypad.
             Button(action: startCall) {
@@ -671,6 +703,7 @@ struct ModemDeckCallsView: View {
     @StateObject private var store: ModemDeckCallsStore
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
     @Environment(\.modemDeckNavigate) private var navigate
+    @Environment(\.modemDeckShortScene) private var shortScene
     @State private var query = ""
     @State private var lineFilter = ""
     @State private var favoriteOnly = false
@@ -777,10 +810,21 @@ struct ModemDeckCallsView: View {
 
     private var callListColumn: some View {
         VStack(spacing: 0) {
-            ModemDeckCollectionHeader(controller: controller, title: controller.text("通话", "Calls"), query: $query, selecting: selecting) {}
-            filterBar
+            // The dialer is this page's main action; the header places it last.
+            ModemDeckCollectionHeader(
+                controller: controller, title: controller.text("通话", "Calls"), query: $query, selecting: selecting
+            ) {
+                // Short scenes cannot spare a filter row, so the filters join the bar.
+                if shortScene { filtersMenu }
+                Button { navigate(.recordings) } label: {
+                    Image(systemName: "waveform")
+                }
+                .accessibilityLabel(controller.text("录音管理", "Manage recordings"))
+            }
+            if !shortScene { filterBar }
             callList
         }
+        .modemDeckFloatingKeypad(hidden: selecting)
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if selecting { callBatchBar() }
@@ -812,30 +856,40 @@ struct ModemDeckCallsView: View {
         }
     }
 
+    private var kindOptions: [ModemDeckSegmentOption] {
+        [
+            .init(id: "all", title: controller.text("全部", "All")),
+            .init(id: "missed", title: controller.text("未接", "Missed")),
+            .init(id: "recorded", title: controller.text("有录音", "Recorded"))
+        ]
+    }
+
+    /// In a short scene the call-kind choice moves into this menu with the other filters.
+    private var filtersMenu: some View {
+        let kindCount = shortScene && controller.callsFilter != "all" ? 1 : 0
+        return ModemDeckCollectionFilters(controller: controller, line: $lineFilter, favoriteOnly: $favoriteOnly,
+            extraCount: (directionFilter == "all" ? 0 : 1) + kindCount,
+            clearExtra: {
+                directionFilter = "all"
+                if shortScene { controller.callsFilter = "all" }
+            }, inToolbar: shortScene) {
+            if shortScene {
+                Picker(controller.text("类型", "Type"), selection: $controller.callsFilter) {
+                    ForEach(kindOptions) { Text($0.title).tag($0.id) }
+                }
+            }
+            Picker(controller.text("通话方向", "Direction"), selection: $directionFilter) {
+                Text(controller.text("所有方向", "All directions")).tag("all")
+                Text(controller.text("呼入", "Incoming")).tag("incoming")
+                Text(controller.text("呼出", "Outgoing")).tag("outgoing")
+            }
+        }
+    }
+
     private var filterBar: some View {
         HStack(spacing: ModemDeckLayout.toolbarGap) {
-            ModemDeckSegmentPicker(
-                options: [
-                    .init(id: "all", title: controller.text("全部", "All")),
-                    .init(id: "missed", title: controller.text("未接", "Missed")),
-                    .init(id: "recorded", title: controller.text("有录音", "Recorded"))
-                ],
-                selection: $controller.callsFilter, compact: true
-            )
-            ModemDeckCollectionFilters(controller: controller, line: $lineFilter, favoriteOnly: $favoriteOnly,
-                extraCount: directionFilter == "all" ? 0 : 1, clearExtra: { directionFilter = "all" }) {
-                Picker(controller.text("通话方向", "Direction"), selection: $directionFilter) {
-                    Text(controller.text("所有方向", "All directions")).tag("all")
-                    Text(controller.text("呼入", "Incoming")).tag("incoming")
-                    Text(controller.text("呼出", "Outgoing")).tag("outgoing")
-                }
-            }
-            ModemDeckCollectionMenu(controller: controller, selecting: $selecting, busy: batchBusy,
-                selectTitle: controller.text("选择通话", "Select calls"), clearSelection: { selectedIDs.removeAll() }) {
-                Button { navigate(.recordings) } label: {
-                    Label(controller.text("录音管理", "Manage recordings"), systemImage: "waveform")
-                }
-            }
+            ModemDeckSegmentPicker(options: kindOptions, selection: $controller.callsFilter, compact: true)
+            filtersMenu
         }
         .modemDeckListFilterBar()
     }
@@ -1138,6 +1192,7 @@ struct ModemDeckRecordingsView: View {
     @StateObject private var store: ModemDeckCallsStore
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
     @Environment(\.modemDeckNavigate) private var navigate
+    @Environment(\.modemDeckShortScene) private var shortScene
     @State private var query = ""
     @State private var lineFilter = ""
     @State private var favoriteOnly = false
@@ -1147,9 +1202,14 @@ struct ModemDeckRecordingsView: View {
     @State private var batchBusy = false
     @State private var confirmBatchDelete = false
 
-    init(controller: ModemDeckSessionController, showsBackButton: Bool = false) {
+    /// Side by side, Recordings replaces the Calls page instead of being pushed into its
+    /// detail column, and this returns to Calls.
+    var close: (() -> Void)?
+
+    init(controller: ModemDeckSessionController, showsBackButton: Bool = false, close: (() -> Void)? = nil) {
         self.controller = controller
         self.showsBackButton = showsBackButton
+        self.close = close
         _store = StateObject(wrappedValue: controller.callsStore)
     }
 
@@ -1226,27 +1286,48 @@ struct ModemDeckRecordingsView: View {
 
     private var recordingListColumn: some View {
         VStack(spacing: 0) {
-            ModemDeckCollectionHeader(controller: controller, title: controller.text("录音管理", "Recordings"), query: $query,
-                selecting: selecting) {}
-            HStack(spacing: ModemDeckLayout.toolbarGap) {
-                Text(controller.text("\(filteredRecordings.count) 条录音", "\(filteredRecordings.count) recordings"))
-                    .font(.subheadline).foregroundColor(.mdMuted)
-                Spacer(minLength: 0)
-                ModemDeckCollectionFilters(controller: controller, line: $lineFilter, favoriteOnly: $favoriteOnly) {}
-                ModemDeckCollectionMenu(controller: controller, selecting: $selecting, busy: batchBusy,
-                    selectTitle: controller.text("选择录音", "Select recordings"), clearSelection: { selectedIDs.removeAll() }) {}
+            ModemDeckCollectionHeader(
+                controller: controller, title: controller.text("录音管理", "Recordings"), query: $query, selecting: selecting
+            ) {
+                // Short scenes cannot spare a filter row, so the filters join the bar.
+                if shortScene { recordingFilters(inToolbar: true) }
             }
-            .modemDeckListFilterBar()
+            if !shortScene {
+                HStack(spacing: ModemDeckLayout.toolbarGap) {
+                    Text(controller.text("\(filteredRecordings.count) 条录音", "\(filteredRecordings.count) recordings"))
+                        .font(.subheadline).foregroundColor(.mdMuted)
+                    Spacer(minLength: 0)
+                    recordingFilters(inToolbar: false)
+                }
+                .modemDeckListFilterBar()
+            }
 
             recordingList
         }
+        .modemDeckFloatingKeypad(hidden: selecting)
         .background(Color.mdBackground)
+        .toolbar {
+            if let close, !selecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: close) {
+                        Image(systemName: "chevron.backward")
+                    }
+                    .accessibilityLabel(controller.text("通话", "Calls"))
+                    .accessibilityIdentifier("recordings-close")
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if selecting { recordingBatchBar() }
         }
         .overlay(alignment: .top) {
             if selecting { recordingBatchBar(.header) }
         }
+    }
+
+    private func recordingFilters(inToolbar: Bool) -> some View {
+        ModemDeckCollectionFilters(controller: controller, line: $lineFilter, favoriteOnly: $favoriteOnly,
+            inToolbar: inToolbar) {}
     }
 
     @ViewBuilder

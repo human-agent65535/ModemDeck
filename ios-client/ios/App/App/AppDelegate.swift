@@ -20,6 +20,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         return true
     }
 
+    /// Phones stay portrait, but iPhone Duo's unfolded display runs the app wide. Declaring
+    /// landscape there lets a launch made while unfolded start in the wide layout.
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
+        let bounds = (window?.windowScene?.screen ?? UIScreen.main).bounds
+        return min(bounds.width, bounds.height) >= ModemDeckLayout.landscapePhoneMinimumShortSide
+            ? .allButUpsideDown : .portrait
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         ModemDeckPushCoordinator.shared.didRegisterForRemoteNotifications(deviceToken: deviceToken)
     }

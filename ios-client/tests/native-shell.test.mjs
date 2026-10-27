@@ -256,6 +256,9 @@ test('SwiftUI is the universal iPhone and iPad application root', async () => {
   assert.match(app, /get: \{ controller\.selectedSection == \.dial \? \.home : controller\.selectedSection \}/)
   assert.match(app, /struct ModemDeckPadDialerAction/)
   assert.match(app, /accessibilityLabel: controller\.text\("打开拨号盘", "Open dialer"\)/)
+  // The keypad floats over every communication list instead of sitting in two toolbars.
+  assert.match(app, /struct ModemDeckFloatingKeypadModifier/)
+  assert.match(app, /section == \.settings \? nil : padDialerAction/)
   assert.doesNotMatch(app, /interactiveSpring\(response: 0\.3[48]/)
   assert.match(project, /TARGETED_DEVICE_FAMILY = "1,2";/)
   assert.doesNotMatch(
@@ -492,6 +495,10 @@ test('native tabs retain an independent NavigationStack per module', async () =>
   assert.match(app, /\.onChange\(of: controller\.selectedSection\) \{ section in[\s\S]{0,240}closeSwipesInSectionLeft\(for: tabSection\(section\)\)/)
   assert.match(app, /guard tabSection\(controller\.selectedSection\) != left else \{ return \}\s*leftNavigation\.swipeResetRevision &\+= 1/)
   // The side-by-side selection lives on the section, so layout changes carry it across.
+  // Short scenes (iPhone Duo held wide, phones in landscape) keep page titles inline.
+  assert.match(app, /static let largeTitleMinimumHeight: CGFloat = 760/)
+  assert.match(app, /sceneHeight < ModemDeckLayout\.largeTitleMinimumHeight \? \.inline : \.large/)
+  assert.equal((app.match(/\.navigationBarTitleDisplayMode\(titleDisplayMode\)/g) || []).length, 2)
   // It is a separate object, so pages do not redraw on every push or pop.
   assert.match(app, /final class ModemDeckSectionSelection: ObservableObject \{\s*@Published var route: ModemDeckRoute\?/)
   assert.match(app, /\.environmentObject\(navigation\.selection\)/)
@@ -968,8 +975,8 @@ test('native layouts adapt to the space and text size instead of clipping', asyn
   assert.match(app, /static let headerGlyphMaximumSize = DynamicTypeSize\.xxxLarge/)
   assert.match(home, /AnyLayout\(VStackLayout\(spacing: 8\)\)/)
 
-  // Dialing belongs to Recents and Calls, and never duplicates the iPad rail's Dial button.
-  assert.match(app, /section == \.home \|\| section == \.calls \? padDialerAction : nil/)
+  // The floating keypad is on every communication list, not Settings.
+  assert.match(app, /section == \.settings \? nil : padDialerAction/)
 
   // Unknown callers are named once, missed calls use the missed glyph, labels are localized.
   assert.match(calls, /displayName == call\.remoteNumber \? directionText : call\.remoteNumber/)

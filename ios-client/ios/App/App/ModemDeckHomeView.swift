@@ -143,6 +143,7 @@ struct ModemDeckHomeView: View {
             ModemDeckPageHeader(title: controller.text("最近", "Recents"))
             activityList
         }
+        .modemDeckFloatingKeypad()
     }
 
     /// Accessibility sizes stack the counters as full-width rows so labels and counts stay whole.
@@ -238,24 +239,26 @@ struct ModemDeckHomeView: View {
                 .listRowBackground(Color.mdBackground)
             } else {
                 ForEach(activity.days) { day in
-                    Section {
-                        ForEach(day.items) { item in
-                            activityRow(item)
-                                .environment(\.modemDeckRowsShowTimeOnly, true)
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.mdBackground)
-                        }
-                    } header: {
-                        Text(dayTitle(day.id)).font(.caption.weight(.semibold)).foregroundColor(.mdMuted)
-                            .textCase(nil).padding(.vertical, 4)
+                    // Day labels scroll with their rows; a pinned header would keep a second
+                    // band under the bar, which short scenes such as an unfolded Duo cannot spare.
+                    Text(dayTitle(day.id)).font(.caption.weight(.semibold)).foregroundColor(.mdMuted)
+                        .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityAddTraits(.isHeader)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.mdBackground)
+                    ForEach(day.items) { item in
+                        activityRow(item)
+                            .environment(\.modemDeckRowsShowTimeOnly, true)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.mdBackground)
                     }
                 }
             }
         }
         .listStyle(.plain)
-        // Plain lists add a tall default header; keep the first day close to the counters.
-        .environment(\.defaultMinListHeaderHeight, 0)
         .scrollContentBackground(.hidden)
         .environment(\.defaultMinListRowHeight, 0)
         .background(Color.mdBackground)

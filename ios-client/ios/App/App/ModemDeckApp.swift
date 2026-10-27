@@ -449,6 +449,15 @@ enum ModemDeckLayout {
     /// Measured from the scene, not the device idiom: iPhone Duo's unfolded display reports the
     /// phone idiom, and its 951 pt wide scene fits the rail and two columns.
     static let splitWorkspaceMinimumWidth: CGFloat = 900
+    /// Below this scene height (iPhone Duo unfolded and held wide, phones in landscape) a large
+    /// title plus the search field would take a quarter of the screen, so titles stay inline.
+    static let largeTitleMinimumHeight: CGFloat = 760
+    /// A phone screen this wide on its short side is iPhone Duo unfolded, which may rotate;
+    /// the cover display and single-screen phones are well below it.
+    static let landscapePhoneMinimumShortSide: CGFloat = 600
+    static let floatingKeypadSize: CGFloat = 60
+    /// The keypad's height and margins, kept free below a list's last row.
+    static let floatingKeypadClearance: CGFloat = 84
     /// Comfortable reading width for conversations and forms on wide screens.
     static let readableContentWidth: CGFloat = 720
 
@@ -515,6 +524,15 @@ extension EnvironmentValues {
         get { self[ModemDeckUsesSplitWorkspaceKey.self] }
         set { self[ModemDeckUsesSplitWorkspaceKey.self] = newValue }
     }
+
+    /// Large or inline page titles, from the scene's height.
+    var modemDeckTitleDisplayMode: NavigationBarItem.TitleDisplayMode {
+        get { self[ModemDeckTitleDisplayModeKey.self] }
+        set { self[ModemDeckTitleDisplayModeKey.self] = newValue }
+    }
+
+    /// Short scenes keep collection pages to one bar: filters and search join the toolbar.
+    var modemDeckShortScene: Bool { modemDeckTitleDisplayMode == .inline }
 
     var modemDeckPadDialerAction: ModemDeckPadDialerAction? {
         get { self[ModemDeckPadDialerActionKey.self] }
@@ -804,6 +822,10 @@ final class ModemDeckSectionNavigation: ObservableObject {
     let selection = ModemDeckSectionSelection()
     /// Bumped when the user leaves this section, so its open swipe actions close while it is hidden.
     @Published var swipeResetRevision = 0
+    /// Side by side, a page that has its own list and detail (Recordings) replaces the section's
+    /// page rather than nesting in its detail column; `pageNavigation` holds that page's detail path.
+    @Published var page: ModemDeckRoute?
+    private(set) lazy var pageNavigation = ModemDeckSectionNavigation()
 }
 
 /// One navigation path per section for the life of the shell, so a tab returns where it was.
@@ -831,7 +853,10 @@ private struct ModemDeckSectionRoot: View {
 
     var body: some View {
         Group {
-            if usesSplitWorkspace {
+            if usesSplitWorkspace, navigation.page == .recordings {
+                ModemDeckRecordingsView(controller: controller, close: { navigation.page = nil })
+                    .environment(\.modemDeckSplitNavigation, navigation.pageNavigation)
+            } else if usesSplitWorkspace {
                 // Side by side, the page's split view owns navigation: pushes land in its detail
                 // column, which keeps this section's path.
                 destination
@@ -846,26 +871,46 @@ private struct ModemDeckSectionRoot: View {
             }
         }
         .environmentObject(navigation.selection)
-        .environment(\.modemDeckNavigate, { navigation.path.append($0) })
+        .environment(\.modemDeckNavigate, { [usesSplitWorkspace] route in
+            if usesSplitWorkspace, route == .recordings {
+                navigation.pageNavigation.path.removeAll()
+                navigation.page = route
+            } else {
+                navigation.path.append(route)
+            }
+        })
         .environment(\.modemDeckSwipeResetRevision, navigation.swipeResetRevision)
         // Unfolding a Duo, rotating or resizing an iPad keeps what was open: a pushed detail
         // becomes the side-by-side selection, and the selection becomes a push again on the way back.
         .onChange(of: usesSplitWorkspace) { split in
             if split {
+                if let index = navigation.path.firstIndex(of: .recordings) {
+                    navigation.path.removeSubrange(index...)
+                    navigation.page = .recordings
+                }
                 guard navigation.selection.route == nil,
                       let first = navigation.path.first,
                       section.selects(first) else { return }
                 navigation.path.removeFirst()
                 navigation.selection.route = first
-            } else if let selection = navigation.selection.route {
-                navigation.selection.route = nil
-                navigation.path.insert(selection, at: 0)
+            } else {
+                if let selection = navigation.selection.route {
+                    navigation.selection.route = nil
+                    navigation.path.insert(selection, at: 0)
+                }
+                if let page = navigation.page {
+                    navigation.page = nil
+                    navigation.path.append(page)
+                }
             }
         }
-        // Dialing belongs to Recents and Calls; other sections keep their toolbars uncluttered.
-        .environment(\.modemDeckPadDialerAction, section == .home || section == .calls ? padDialerAction : nil)
+        // Every communication list carries the floating keypad; Settings does not.
+        .environment(\.modemDeckPadDialerAction, section == .settings ? nil : padDialerAction)
         .onChange(of: controller.callsNavigationRevision) { _ in
-            if section == .calls { navigation.path.removeAll() }
+            if section == .calls {
+                navigation.path.removeAll()
+                navigation.page = nil
+            }
         }
     }
 
@@ -900,8 +945,13 @@ private struct ModemDeckAdaptiveShell: View {
             // whole scene rather than the inset content width.
             let sceneWidth = geometry.size.width + geometry.safeAreaInsets.leading + geometry.safeAreaInsets.trailing
             let usesSplitWorkspace = sceneWidth >= ModemDeckLayout.splitWorkspaceMinimumWidth
+            let sceneHeight = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
             ModemDeckWorkspaceShell(controller: controller, callExpanded: $callExpanded)
                 .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
+                .environment(
+                    \.modemDeckTitleDisplayMode,
+                    sceneHeight < ModemDeckLayout.largeTitleMinimumHeight ? .inline : .large
+                )
                 .environment(\.modemDeckListColumnWidth, ModemDeckLayout.listColumnWidth(
                     forContentWidth: geometry.size.width
                 ))
@@ -1052,6 +1102,10 @@ private struct ModemDeckSectionBadgeSource: DynamicProperty {
 
 private struct ModemDeckSplitNavigationKey: EnvironmentKey {
     static let defaultValue: ModemDeckSectionNavigation? = nil
+}
+
+private struct ModemDeckTitleDisplayModeKey: EnvironmentKey {
+    static let defaultValue: NavigationBarItem.TitleDisplayMode = .large
 }
 
 private struct ModemDeckInSplitDetailKey: EnvironmentKey {
@@ -1339,37 +1393,81 @@ struct ModemDeckLoadErrorState: View {
     }
 }
 
-/// Gives a top-level page the system large title, with the dialer in the toolbar where
-/// dialing belongs. It draws nothing itself.
+/// Gives a top-level page the system large title. It draws nothing itself.
 struct ModemDeckPageHeader: View {
     let title: String
-    @Environment(\.modemDeckPadDialerAction) private var padDialerAction
+    @Environment(\.modemDeckTitleDisplayMode) private var titleDisplayMode
 
     var body: some View {
         Color.clear
             .frame(height: 0)
             .accessibilityHidden(true)
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                if let padDialerAction {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ModemDeckDialerToolbarButton(action: padDialerAction)
-                    }
-                }
-            }
+            .navigationBarTitleDisplayMode(titleDisplayMode)
     }
 }
 
-struct ModemDeckDialerToolbarButton: View {
-    let action: ModemDeckPadDialerAction
+/// The keypad floats at the bottom trailing corner of every communication list, above the
+/// tab bar and a minimized call, so dialing is one tap from anywhere without a tab of its own.
+/// Pushed pages cover it, and it steps aside while the list is selecting.
+private struct ModemDeckFloatingKeypadModifier: ViewModifier {
+    let hidden: Bool
+    @Environment(\.modemDeckPadDialerAction) private var action
 
-    var body: some View {
-        Button(action: action.open) {
-            Image(systemName: "circle.grid.3x3.fill")
+    private var shown: Bool { action != nil && !hidden }
+
+    func body(content: Content) -> some View {
+        content
+            // Keeps the last row scrollable clear of the button.
+            .modifier(ModemDeckBottomScrollClearance(height: shown ? ModemDeckLayout.floatingKeypadClearance : 0))
+            .overlay(alignment: .bottomTrailing) {
+                if let action, shown {
+                    Button(action: action.open) {
+                        Image(systemName: "circle.grid.3x3.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: ModemDeckLayout.floatingKeypadSize, height: ModemDeckLayout.floatingKeypadSize)
+                            .modifier(ModemDeckFloatingKeypadSurface())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 16)
+                    .accessibilityLabel(action.accessibilityLabel)
+                    .accessibilityIdentifier("open-dialer")
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: shown)
+    }
+}
+
+private struct ModemDeckBottomScrollClearance: ViewModifier {
+    let height: CGFloat
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.contentMargins(.bottom, height, for: .scrollContent)
+        } else {
+            content
         }
-        .accessibilityLabel(action.accessibilityLabel)
-        .accessibilityIdentifier("open-dialer")
+    }
+}
+
+private struct ModemDeckFloatingKeypadSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.tint(.mdAccent).interactive(), in: .circle)
+        } else {
+            content
+                .background(Circle().fill(Color.mdAccent))
+                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+        }
+    }
+}
+
+extension View {
+    func modemDeckFloatingKeypad(hidden: Bool = false) -> some View {
+        modifier(ModemDeckFloatingKeypadModifier(hidden: hidden))
     }
 }
 
@@ -1396,7 +1494,19 @@ struct ModemDeckRowTitleLine<Title: View, Trailing: View>: View {
     }
 }
 
-/// Gives a collection page the system large title, search field and toolbar. While the
+/// The main action of a collection page, always the trailing bar button.
+struct ModemDeckCollectionPrimaryAction {
+    let icon: String
+    let title: String
+    var disabled = false
+    let action: () -> Void
+}
+
+/// Gives every collection page the same title, search and bar. From leading to trailing the
+/// bar holds: search (short scenes, where the drawer would cost a row), the page's other
+/// buttons (the filters too in short scenes), then its main action or the dialer. Pages have
+/// few buttons, so all stay visible rather than behind a More menu that costs a second tap.
+/// Selection starts with a long press on a row, so no page offers a Select button. While the
 /// page is selecting, the selection bar's header supplies the title and buttons instead.
 /// The page keeps its query and filters when a retained tab is revisited.
 struct ModemDeckCollectionHeader<Actions: View>: View {
@@ -1404,8 +1514,13 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
     let title: String
     @Binding var query: String
     var selecting = false
+    var primary: ModemDeckCollectionPrimaryAction? = nil
     @ViewBuilder var actions: () -> Actions
-    @Environment(\.modemDeckPadDialerAction) private var dialerAction
+    @Environment(\.modemDeckTitleDisplayMode) private var titleDisplayMode
+    @State private var searchOpen = false
+    @State private var searchPresented = false
+
+    private var minimizedSearch: Bool { titleDisplayMode == .inline }
 
     var body: some View {
         if selecting {
@@ -1421,17 +1536,34 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
             .frame(height: 0)
             .accessibilityHidden(true)
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.large)
-            .searchable(
-                text: $query,
-                placement: .navigationBarDrawer(displayMode: .automatic),
-                prompt: controller.text("搜索", "Search")
-            )
+            .navigationBarTitleDisplayMode(titleDisplayMode)
+            .modifier(ModemDeckCollectionSearch(
+                query: $query,
+                prompt: controller.text("搜索", "Search"),
+                minimized: minimizedSearch,
+                open: $searchOpen,
+                presented: $searchPresented
+            ))
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if showsSearchButton {
+                        Button {
+                            searchOpen = true
+                            // Activate once the drawer exists so the field takes focus.
+                            DispatchQueue.main.async { searchPresented = true }
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                        }
+                        .accessibilityLabel(controller.text("搜索", "Search"))
+                        .accessibilityIdentifier("collection-search")
+                    }
                     actions()
-                    if let dialerAction {
-                        ModemDeckDialerToolbarButton(action: dialerAction)
+                    if let primary {
+                        Button(action: primary.action) {
+                            Image(systemName: primary.icon)
+                        }
+                        .disabled(primary.disabled)
+                        .accessibilityLabel(primary.title)
                     }
                 }
             }
@@ -1441,20 +1573,42 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
                 )
             }
     }
+
+    private var showsSearchButton: Bool {
+        guard #available(iOS 17.0, *) else { return false }
+        return minimizedSearch && !searchOpen && query.isEmpty
+    }
 }
 
-struct ModemDeckCollectionHeaderButton: View {
-    let icon: String
-    let title: String
-    var disabled = false
-    let action: () -> Void
+/// The search drawer below the bar. A short scene opens the drawer only while searching,
+/// from the header's search button; the system's minimized toolbar search overflows the
+/// list column of a split view.
+private struct ModemDeckCollectionSearch: ViewModifier {
+    @Binding var query: String
+    let prompt: String
+    let minimized: Bool
+    @Binding var open: Bool
+    @Binding var presented: Bool
 
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            if minimized && !open && query.isEmpty {
+                content
+            } else {
+                content
+                    .searchable(
+                        text: $query,
+                        isPresented: $presented,
+                        placement: .navigationBarDrawer(displayMode: minimized ? .always : .automatic),
+                        prompt: prompt
+                    )
+                    .onChange(of: presented) { active in
+                        if !active && query.isEmpty { open = false }
+                    }
+            }
+        } else {
+            content.searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: prompt)
         }
-        .disabled(disabled)
-        .accessibilityLabel(title)
     }
 }
 
@@ -1464,6 +1618,8 @@ struct ModemDeckCollectionFilters<Extra: View>: View {
     @Binding var favoriteOnly: Bool
     var extraCount = 0
     var clearExtra: () -> Void = {}
+    /// In the navigation bar the filters use the bar's own button style, not the row's chip.
+    var inToolbar = false
     @ViewBuilder var extra: () -> Extra
 
     private var count: Int { (line.isEmpty ? 0 : 1) + (favoriteOnly ? 1 : 0) + extraCount }
@@ -1486,6 +1642,20 @@ struct ModemDeckCollectionFilters<Extra: View>: View {
                 }
             }
         } label: {
+            if inToolbar {
+                Image(systemName: count > 0
+                      ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+            } else {
+                filterButtonLabel
+            }
+        }
+        .accessibilityIdentifier("collection-filters")
+        .accessibilityLabel(controller.text("筛选", "Filters"))
+        .accessibilityValue(count > 0 ? controller.text("\(count) 项筛选", "\(count) filters") : controller.text("未筛选", "No filters"))
+        .accessibilityAddTraits(count > 0 ? .isSelected : [])
+    }
+
+    private var filterButtonLabel: some View {
             HStack(spacing: 3) {
                 Image(systemName: "line.3.horizontal.decrease").font(.body.weight(.medium))
                 if count > 0 { Text("\(count)").font(.caption.weight(.bold)) }
@@ -1496,11 +1666,6 @@ struct ModemDeckCollectionFilters<Extra: View>: View {
             .background(count > 0 ? Color.mdAccentSoft : .clear)
             .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
             .contentShape(Rectangle())
-        }
-        .accessibilityIdentifier("collection-filters")
-        .accessibilityLabel(controller.text("筛选", "Filters"))
-        .accessibilityValue(count > 0 ? controller.text("\(count) 项筛选", "\(count) filters") : controller.text("未筛选", "No filters"))
-        .accessibilityAddTraits(count > 0 ? .isSelected : [])
     }
 }
 
@@ -1686,31 +1851,6 @@ struct ModemDeckSelectionMark: View {
 }
 
 /// Long press is the primary selection gesture; this menu also supports switch control and keyboard users.
-struct ModemDeckCollectionMenu<Actions: View>: View {
-    @ObservedObject var controller: ModemDeckSessionController
-    @Binding var selecting: Bool
-    let busy: Bool
-    let selectTitle: String
-    let clearSelection: () -> Void
-    @ViewBuilder var actions: () -> Actions
-
-    var body: some View {
-        Menu {
-            Button {
-                selecting.toggle()
-                clearSelection()
-            } label: {
-                Label(selecting ? controller.text("完成", "Done") : selectTitle, systemImage: selecting ? "checkmark" : "checklist")
-            }
-            actions()
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
-        .disabled(busy)
-        .accessibilityLabel(controller.text("更多操作", "More actions"))
-    }
-}
-
 struct ModemDeckBatchCopyMenu: View {
     @ObservedObject var controller: ModemDeckSessionController
     let items: [ModemDeckCopyItem]

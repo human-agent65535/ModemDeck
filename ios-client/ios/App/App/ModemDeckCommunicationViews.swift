@@ -94,14 +94,14 @@ struct ModemDeckContactsView: View {
 
     private var contactList: some View {
         VStack(spacing: 0) {
-            ModemDeckCollectionHeader(controller: controller, title: controller.text("联系人", "Contacts"), query: $query, selecting: selecting) {
-                ModemDeckCollectionHeaderButton(icon: "person.badge.plus", title: controller.text("新建联系人", "New contact"), disabled: !controller.isOnline) {
+            ModemDeckCollectionHeader(
+                controller: controller, title: controller.text("联系人", "Contacts"), query: $query, selecting: selecting,
+                primary: .init(icon: "person.badge.plus", title: controller.text("新建联系人", "New contact"),
+                               disabled: !controller.isOnline) {
                     editingContact = nil
                     editorOpen = true
                 }
-                ModemDeckCollectionMenu(controller: controller, selecting: $selecting, busy: batchBusy,
-                    selectTitle: controller.text("选择联系人", "Select contacts"), clearSelection: { selectedIDs.removeAll() }) {}
-            }
+            ) {}
 
             Group {
                 if store.loading && store.contacts.isEmpty {
@@ -148,6 +148,7 @@ struct ModemDeckContactsView: View {
             }
             .background(Color.mdBackground)
         }
+        .modemDeckFloatingKeypad(hidden: selecting)
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if selecting { contactBatchBar() }
@@ -1705,6 +1706,7 @@ struct ModemDeckMessagesView: View {
     @StateObject private var store: ModemDeckMessagesStore
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
     @Environment(\.modemDeckNavigate) private var navigate
+    @Environment(\.modemDeckShortScene) private var shortScene
     @State private var query = ""
     @State private var statusFilter = "all"
     @State private var lineFilter = ""
@@ -1830,14 +1832,25 @@ struct ModemDeckMessagesView: View {
 
     private var messageList: some View {
         VStack(spacing: 0) {
-            ModemDeckCollectionHeader(controller: controller, title: controller.text("消息", "Messages"), query: $query, selecting: selecting) {
-                ModemDeckCollectionHeaderButton(icon: "square.and.pencil", title: controller.text("新建短信", "New message"), disabled: !controller.isOnline) {
-                    composeOpen = true
+            ModemDeckCollectionHeader(
+                controller: controller, title: controller.text("消息", "Messages"), query: $query, selecting: selecting,
+                primary: .init(icon: "square.and.pencil", title: controller.text("新建短信", "New message"),
+                               disabled: !controller.isOnline) { composeOpen = true }
+            ) {
+                // Short scenes cannot spare a filter row, so the filters join the bar.
+                if shortScene { filtersMenu }
+                Button(action: markAllMessagesRead) {
+                    Image(systemName: "envelope.open")
                 }
+                .disabled(!controller.isOnline || shownUnreadThreads.isEmpty || batchBusy)
+                .accessibilityLabel(markReadNarrowedToShownThreads
+                    ? controller.text("将显示的对话标为已读", "Mark Shown as Read")
+                    : controller.text("全部标为已读", "Mark All Read"))
             }
-            filterBar
+            if !shortScene { filterBar }
             threadList
         }
+        .modemDeckFloatingKeypad(hidden: selecting)
         .background(Color.mdBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if selecting { messageBatchBar() }
@@ -1868,31 +1881,36 @@ struct ModemDeckMessagesView: View {
         }
     }
 
+    private var statusOptions: [ModemDeckSegmentOption] {
+        [
+            .init(id: "all", title: controller.text("全部", "All")),
+            .init(id: "unread", title: controller.text("未读", "Unread")),
+            .init(id: "read", title: controller.text("已读", "Read"))
+        ]
+    }
+
     private var filterBar: some View {
         HStack(spacing: ModemDeckLayout.toolbarGap) {
-            ModemDeckSegmentPicker(
-                options: [
-                    .init(id: "all", title: controller.text("全部", "All")),
-                    .init(id: "unread", title: controller.text("未读", "Unread")),
-                    .init(id: "read", title: controller.text("已读", "Read"))
-                ],
-                selection: $statusFilter, compact: true
-            )
-            ModemDeckCollectionFilters(controller: controller, line: $lineFilter, favoriteOnly: $favoriteOnly) {}
-            ModemDeckCollectionMenu(controller: controller, selecting: $selecting, busy: batchBusy,
-                selectTitle: controller.text("选择消息", "Select messages"), clearSelection: { selectedIDs.removeAll() }) {
-                Button(action: markAllMessagesRead) {
-                    Label(
-                        markReadNarrowedToShownThreads
-                            ? controller.text("将显示的对话标为已读", "Mark Shown as Read")
-                            : controller.text("全部标为已读", "Mark All Read"),
-                        systemImage: "envelope.open"
-                    )
-                }
-                .disabled(!controller.isOnline || shownUnreadThreads.isEmpty)
-            }
+            ModemDeckSegmentPicker(options: statusOptions, selection: $statusFilter, compact: true)
+            filtersMenu
         }
         .modemDeckListFilterBar()
+    }
+
+    /// In a short scene the read-state choice moves into this menu with the other filters.
+    private var filtersMenu: some View {
+        ModemDeckCollectionFilters(
+            controller: controller, line: $lineFilter, favoriteOnly: $favoriteOnly,
+            extraCount: shortScene && statusFilter != "all" ? 1 : 0,
+            clearExtra: { statusFilter = "all" },
+            inToolbar: shortScene
+        ) {
+            if shortScene {
+                Picker(controller.text("状态", "Status"), selection: $statusFilter) {
+                    ForEach(statusOptions) { Text($0.title).tag($0.id) }
+                }
+            }
+        }
     }
 
     @ViewBuilder
