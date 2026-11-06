@@ -273,12 +273,15 @@ func (s *Session) socketCaptureLoop() error {
 		if len(encoded) == 0 || len(encoded) > maxOpusPayloadBytes {
 			return ErrCodec
 		}
-		if err := s.socket.transport.Write(s.ctx, SocketFrame(sequence, timestamp, encoded)); err != nil {
-			return err
-		}
+		// Count the frame before writing it so a peer that has already read the
+		// frame never observes a stale SentPackets; undo the count if the write fails.
 		level, _ := PCMLevels(pcm[:s.format.FrameBytes()])
 		s.stats.outputDBFS.Store(int64(level))
 		s.stats.sentPackets.Add(1)
+		if err := s.socket.transport.Write(s.ctx, SocketFrame(sequence, timestamp, encoded)); err != nil {
+			s.stats.sentPackets.Add(^uint64(0))
+			return err
+		}
 		sequence++
 		timestamp += 320
 		pcm = pcm[s.format.FrameBytes():]
