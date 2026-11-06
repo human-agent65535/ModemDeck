@@ -41,7 +41,6 @@ type OperationStore interface {
 type Options struct {
 	Checker    ReleaseChecker
 	Manifests  ManifestLoader
-	Digests    DigestResolver
 	Runtime    Runtime
 	Operations OperationStore
 	Now        func() time.Time
@@ -50,7 +49,6 @@ type Options struct {
 type Controller struct {
 	checker    ReleaseChecker
 	manifests  ManifestLoader
-	digests    DigestResolver
 	runtime    Runtime
 	operations OperationStore
 	now        func() time.Time
@@ -85,7 +83,7 @@ type WorkerRequest struct {
 }
 
 func New(options Options) (*Controller, error) {
-	if options.Checker == nil || options.Manifests == nil || options.Digests == nil ||
+	if options.Checker == nil || options.Manifests == nil ||
 		options.Runtime == nil || options.Operations == nil {
 		return nil, errors.New("complete OTA controller dependencies are required")
 	}
@@ -96,7 +94,6 @@ func New(options Options) (*Controller, error) {
 	return &Controller{
 		checker:    options.Checker,
 		manifests:  options.Manifests,
-		digests:    options.Digests,
 		runtime:    options.Runtime,
 		operations: options.Operations,
 		now:        now,
@@ -274,10 +271,10 @@ func (controller *Controller) plan(ctx context.Context) (Plan, error) {
 		return Plan{}, err
 	}
 	targets := []Target{
-		{Name: "api", Service: "api", Image: manifest.Images.API, Version: result.LatestVersion, ImageEnv: "MODEMDECK_IMAGE", RefEnv: "MODEMDECK_API_IMAGE_REF", VersionEnv: "MODEMDECK_API_VERSION", DigestEnv: "MODEMDECK_API_DIGEST"},
-		{Name: "web", Service: "modemdeck", Image: manifest.Images.Web, Version: result.LatestVersion, ImageEnv: "MODEMDECK_WEB_IMAGE", RefEnv: "MODEMDECK_WEB_IMAGE_REF", VersionEnv: "MODEMDECK_WEB_VERSION", DigestEnv: "MODEMDECK_WEB_DIGEST"},
-		{Name: "hardware", Service: "hardware", Image: manifest.Images.Hardware, Version: result.LatestVersion, ImageEnv: "MODEMDECK_HARDWARE_IMAGE", RefEnv: "MODEMDECK_HARDWARE_IMAGE_REF", VersionEnv: "MODEMDECK_HARDWARE_VERSION", DigestEnv: "MODEMDECK_HARDWARE_DIGEST"},
-		{Name: "updater", Service: "updater", Image: manifest.Images.Updater, Version: result.LatestVersion, ImageEnv: "MODEMDECK_UPDATER_IMAGE", RefEnv: "MODEMDECK_UPDATER_IMAGE_REF", VersionEnv: "MODEMDECK_UPDATER_VERSION", DigestEnv: "MODEMDECK_UPDATER_DIGEST"},
+		{Name: "api", Service: "api", Image: manifest.Images.API, Version: result.LatestVersion, Digest: manifest.Digests.API, ImageEnv: "MODEMDECK_IMAGE", RefEnv: "MODEMDECK_API_IMAGE_REF", VersionEnv: "MODEMDECK_API_VERSION", DigestEnv: "MODEMDECK_API_DIGEST"},
+		{Name: "web", Service: "modemdeck", Image: manifest.Images.Web, Version: result.LatestVersion, Digest: manifest.Digests.Web, ImageEnv: "MODEMDECK_WEB_IMAGE", RefEnv: "MODEMDECK_WEB_IMAGE_REF", VersionEnv: "MODEMDECK_WEB_VERSION", DigestEnv: "MODEMDECK_WEB_DIGEST"},
+		{Name: "hardware", Service: "hardware", Image: manifest.Images.Hardware, Version: result.LatestVersion, Digest: manifest.Digests.Hardware, ImageEnv: "MODEMDECK_HARDWARE_IMAGE", RefEnv: "MODEMDECK_HARDWARE_IMAGE_REF", VersionEnv: "MODEMDECK_HARDWARE_VERSION", DigestEnv: "MODEMDECK_HARDWARE_DIGEST"},
+		{Name: "updater", Service: "updater", Image: manifest.Images.Updater, Version: result.LatestVersion, Digest: manifest.Digests.Updater, ImageEnv: "MODEMDECK_UPDATER_IMAGE", RefEnv: "MODEMDECK_UPDATER_IMAGE_REF", VersionEnv: "MODEMDECK_UPDATER_VERSION", DigestEnv: "MODEMDECK_UPDATER_DIGEST"},
 	}
 	if controller.runtime.Managed("cloudflared") {
 		targets = append(targets, Target{
@@ -290,39 +287,12 @@ func (controller *Controller) plan(ctx context.Context) (Plan, error) {
 			DigestEnv:  "MODEMDECK_CLOUDFLARED_DIGEST",
 		})
 	}
-	type digestResult struct {
-		index  int
-		digest string
-		exists bool
-		err    error
-	}
-	digestResults := make(chan digestResult, len(targets))
-	digestRequests := 0
+	// Every digest comes from the signed manifest. Mutable registry tags are
+	// never trusted to decide what runs on the device.
 	for index := range targets {
-		if targets[index].Digest != "" {
-			continue
+		if !digestPattern.MatchString(targets[index].Digest) {
+			return Plan{}, ErrManifestUnavailable
 		}
-		digestRequests++
-		go func(index int) {
-			digest, exists, err := controller.digests.Resolve(
-				ctx,
-				targets[index].Image,
-				targets[index].Version,
-			)
-			digestResults <- digestResult{
-				index: index, digest: digest, exists: exists, err: err,
-			}
-		}(index)
-	}
-	for range digestRequests {
-		resolved := <-digestResults
-		if resolved.err != nil {
-			return Plan{}, resolved.err
-		}
-		if !resolved.exists {
-			return Plan{}, ErrRegistryUnavailable
-		}
-		targets[resolved.index].Digest = resolved.digest
 	}
 
 	components := make([]updatecheck.Component, 0, len(targets))

@@ -72,13 +72,16 @@ func buildController() (*ota.Controller, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	manifests, err := ota.NewHTTPManifestLoader(os.Getenv("MODEMDECK_RELEASE_MANIFEST_URL_TEMPLATE"), nil)
+	if err != nil {
+		return nil, "", err
+	}
 	controller, err := ota.New(ota.Options{
 		Checker: newDeploymentReleaseChecker(
 			filepath.Join(stateDir, ota.InstalledVersionFilename),
 			firstNonempty(os.Getenv("MODEMDECK_CURRENT_VERSION"), version),
 		),
-		Manifests:  ota.NewHTTPManifestLoader(os.Getenv("MODEMDECK_RELEASE_MANIFEST_URL_TEMPLATE"), nil),
-		Digests:    ota.NewGHCRResolver("", "", nil),
+		Manifests:  manifests,
 		Runtime:    runtime,
 		Operations: ota.NewFileOperationStore(stateDir),
 	})

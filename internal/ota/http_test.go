@@ -19,7 +19,6 @@ func TestUpdaterHTTPBoundaryRequiresBearerTokenExceptForHealth(t *testing.T) {
 			CheckedAt:      "2026-08-02T00:00:00Z",
 		}},
 		Manifests:  fakeManifestLoader{},
-		Digests:    fakeResolver{},
 		Runtime:    &fakeRuntime{},
 		Operations: &memoryOperationStore{},
 	})
@@ -60,7 +59,6 @@ func TestUpdaterHTTPApplyRejectsUnknownInput(t *testing.T) {
 	controller, err := New(Options{
 		Checker:    fakeChecker{},
 		Manifests:  fakeManifestLoader{},
-		Digests:    fakeResolver{},
 		Runtime:    &fakeRuntime{},
 		Operations: &memoryOperationStore{},
 	})
@@ -96,7 +94,6 @@ func TestUpdaterHTTPForwardsManualRefresh(t *testing.T) {
 			},
 		},
 		Manifests:  fakeManifestLoader{},
-		Digests:    fakeResolver{},
 		Runtime:    &fakeRuntime{},
 		Operations: &memoryOperationStore{},
 	})

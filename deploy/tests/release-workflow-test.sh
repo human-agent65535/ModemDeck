@@ -123,4 +123,19 @@ grep -Fq 'run: make check' "$checks_workflow" ||
 grep -Fq 'persist-credentials: false' "$checks_workflow" ||
     fail "checks workflow persists repository credentials"
 
+# OTA trusts only a manifest that pins every image digest and carries a
+# signature the updater's embedded key accepts.
+for signing_contract in \
+    'secrets.MODEMDECK_RELEASE_SIGNING_KEY' \
+    'openssl pkeyutl -sign -rawin' \
+    '-inkey deploy/release-signing-key.pub' \
+    '.schema_version = 3' \
+    'dist/release-manifest.json.sig'
+do
+    grep -Fq -- "$signing_contract" "$workflow" ||
+        fail "release manifest signing contract is missing: ${signing_contract}"
+done
+[ -f "${repo_dir}/deploy/release-signing-key.pub" ] ||
+    fail "release signing public key is missing"
+
 printf '%s\n' "release-workflow-test: ok"

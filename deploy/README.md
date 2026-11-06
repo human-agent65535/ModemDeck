@@ -142,7 +142,8 @@ owner's GHCR namespace:
 - `ghcr.io/OWNER/modemdeck-updater:vX.Y.Z` for the updater
 - `ghcr.io/OWNER/modemdeck-hardware:vX.Y.Z` for the Hardware runtime
 
-The workflow uses the repository `GITHUB_TOKEN`; it needs no registry secret.
+The workflow uses the repository `GITHUB_TOKEN` for GHCR. It also needs the
+`MODEMDECK_RELEASE_SIGNING_KEY` Actions secret (see below).
 Each image also receives a `sha-COMMIT` tag and GitHub build-provenance
 attestation. Deployments and update tooling must resolve and retain the
 published digest instead of following a mutable tag. The workflow deliberately
@@ -159,9 +160,35 @@ source. Never move or recreate a published release tag.
 each container's runtime inputs with the previous published stable release.
 Draft releases and tags without a published release cannot supply retained images.
 Changed containers are rebuilt; unchanged multi-architecture manifests are copied to the new tag
-without rebuilding. The updater resolves that shared tag for every container
-and compares immutable digests, so only containers whose image actually changed
-are replaced.
+without rebuilding. The updater compares each container's immutable digest from
+the signed manifest, so only containers whose image actually changed are
+replaced.
+
+### Signed release manifest
+
+After the images are published, the workflow's `Sign release manifest` job
+resolves every component digest under the release tag and writes
+`release-manifest.json` (schema 3: `deploy/release-manifest.json` plus the
+`release` tag and per-image `digests`). It signs those exact bytes with
+Ed25519 and attaches the manifest and `release-manifest.json.sig` (base64
+signature) to the tag's GitHub Release, creating a draft Release when none
+exists yet.
+
+The updater downloads both files from the Release, accepts the manifest only
+if the signature verifies against a public key compiled into the updater
+(`internal/ota/signing.go`, mirrored in `deploy/release-signing-key.pub`) and
+its `release` matches the version being installed, and then deploys exactly
+the pinned digests. It never resolves image tags from the registry. This keeps
+a tampered registry tag or release asset from reaching devices; it does not
+protect against someone who can run this repository's workflows, since the
+private key is a workflow secret.
+
+Store the PEM PKCS#8 Ed25519 private key as the `MODEMDECK_RELEASE_SIGNING_KEY`
+repository secret; the workflow fails without it. To rotate the key, add the new
+public key to `trustedReleaseSigningKeys` and ship a release still signed with
+the old key, then replace the secret and remove the old public key in a later
+release. Devices running an updater from before signed manifests resolve tags
+the old way until they install a release with this updater.
 
 Run `make deployment-check` for deployment verification. It runs a pinned
 ShellCheck container as well as the deployment tests, so the checks do not

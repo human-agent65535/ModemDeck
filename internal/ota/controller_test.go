@@ -157,15 +157,6 @@ func (loader fakeManifestLoader) Load(context.Context, string) (ReleaseManifest,
 	return loader.manifest, nil
 }
 
-type fakeResolver struct {
-	digests map[string]string
-}
-
-func (resolver fakeResolver) Resolve(_ context.Context, image, tag string) (string, bool, error) {
-	digest, ok := resolver.digests[image+":"+tag]
-	return digest, ok, nil
-}
-
 type fakeRuntime struct {
 	cloudflared bool
 	images      map[string]string
@@ -214,12 +205,7 @@ func newTestController(
 	hardwareDigest string,
 ) *Controller {
 	t.Helper()
-	digests := map[string]string{
-		manifest.Images.API + ":v2.0.0":      testDigest("a"),
-		manifest.Images.Web + ":v2.0.0":      testDigest("b"),
-		manifest.Images.Hardware + ":v2.0.0": hardwareDigest,
-		manifest.Images.Updater + ":v2.0.0":  testDigest("c"),
-	}
+	manifest.Digests.Hardware = hardwareDigest
 	controller, err := New(Options{
 		Checker: fakeChecker{result: updatecheck.Result{
 			Status:         updatecheck.StatusUpdateAvailable,
@@ -228,7 +214,6 @@ func newTestController(
 			CheckedAt:      "2026-08-01T00:00:00Z",
 		}},
 		Manifests:  fakeManifestLoader{manifest: manifest},
-		Digests:    fakeResolver{digests: digests},
 		Runtime:    runtime,
 		Operations: &memoryOperationStore{},
 		Now: func() time.Time {
@@ -243,7 +228,8 @@ func newTestController(
 
 func testManifest(cloudflaredDigest string) ReleaseManifest {
 	var manifest ReleaseManifest
-	manifest.SchemaVersion = 2
+	manifest.SchemaVersion = 3
+	manifest.Release = "v2.0.0"
 	manifest.Images.API = "ghcr.io/human-agent65535/modemdeck"
 	manifest.Images.Web = "ghcr.io/human-agent65535/modemdeck-web"
 	manifest.Images.Hardware = "ghcr.io/human-agent65535/modemdeck-hardware"
@@ -251,6 +237,10 @@ func testManifest(cloudflaredDigest string) ReleaseManifest {
 	manifest.Cloudflared.Image = "cloudflare/cloudflared"
 	manifest.Cloudflared.Version = "2026.10.3"
 	manifest.Cloudflared.Digest = cloudflaredDigest
+	manifest.Digests.API = testDigest("a")
+	manifest.Digests.Web = testDigest("b")
+	manifest.Digests.Hardware = testDigest("e")
+	manifest.Digests.Updater = testDigest("c")
 	return manifest
 }
 
