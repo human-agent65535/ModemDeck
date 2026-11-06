@@ -23,7 +23,7 @@ test('runtime state applies active recording truth without another request', asy
   assert.doesNotMatch(runtime, /refreshRecordingWorkspace\(false\)/)
 })
 
-test('pre-connect recording is read-only and active calls keep recording controls without live segments', async () => {
+test('outgoing calls can toggle recording before answer and active calls keep recording controls without live segments', async () => {
   const [surface, dialer, history, recordings] = await Promise.all([
     source('../src/components/CallSurface.vue'),
     source('../src/components/DialerPanel.vue'),
@@ -32,7 +32,8 @@ test('pre-connect recording is read-only and active calls keep recording control
   ])
 
   assert.doesNotMatch(surface, /recordingSegments|call-surface__recording-segments|CallRecordingSegment|AudioLines/)
-  assert.match(surface, /const recordingAdjustable = computed\(\(\) => !isTestCall\.value && active\.value && owned\.value && !occupied\.value\)/)
+  assert.match(surface, /!isTestCall\.value && \(active\.value \|\| outgoingBeforeAnswer\.value\) && owned\.value && !occupied\.value/)
+  assert.match(surface, /direction === 'outgoing' &&\s*callState\.pendingAction !== 'dial'/)
   assert.match(surface, /callState\.outgoingRecordingEnabled/)
   assert.match(surface, /<p v-if="recordingLabel" class="call-surface__recording" role="status">/)
   assert.match(surface, /void setCallRecordingEnabled\(!callRecordingState\.enabled\)/)

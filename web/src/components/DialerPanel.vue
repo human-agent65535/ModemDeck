@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
+  Circle,
   Delete,
   LoaderCircle,
   Minus,
@@ -26,7 +27,8 @@ import {
 import {
   dialerRecordingState,
   rememberCallRecordingPreference,
-  resetDialerRecording
+  resetDialerRecording,
+  setDialerRecording
 } from '../state/recording'
 import {
   bootstrapResource,
@@ -465,6 +467,10 @@ async function placeCall(): Promise<void> {
   beginDraft()
 }
 
+function changeRecording(): void {
+  setDialerRecording(!dialerRecordingState.enabled)
+}
+
 function restoreDialogFocus(): void {
   const target = callReturnFocus?.isConnected
     ? callReturnFocus
@@ -704,6 +710,21 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="dialer-primary-actions keypad-action-grid">
+              <button
+                class="dialer-recording-action keypad-action-item"
+                :class="{ 'is-active': dialerRecordingState.enabled }"
+                type="button"
+                :disabled="dialerRecordingState.status !== 'ready' || callState.pendingAction === 'dial'"
+                :title="dialerRecordingState.error || t('dialer.recording')"
+                :aria-label="t('dialer.recording')"
+                :aria-pressed="dialerRecordingState.enabled"
+                @click="changeRecording"
+              >
+                <span class="dialer-recording-action__icon" aria-hidden="true">
+                  <Circle :size="20" fill="currentColor" />
+                </span>
+                <small>{{ t('calls.record') }}</small>
+              </button>
               <span class="dialer-primary-action keypad-action-item">
                 <button
                   class="call-button"
@@ -1075,6 +1096,51 @@ onBeforeUnmount(() => {
 
 .dialer-primary-action {
   grid-column: 2;
+}
+
+/* Per-call recording starts from the account default, as on iOS. */
+.dialer-recording-action {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  background: transparent;
+}
+
+.dialer-recording-action__icon {
+  display: inline-flex;
+  width: var(--keypad-action-secondary-size);
+  height: var(--keypad-action-secondary-size);
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  transition:
+    color var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard),
+    border-color var(--motion-base) var(--ease-standard);
+}
+
+.dialer-recording-action:not(.is-active):hover:not(:disabled)
+  .dialer-recording-action__icon {
+  background: var(--control-muted);
+}
+
+.dialer-recording-action.is-active .dialer-recording-action__icon {
+  color: var(--on-accent);
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.dialer-recording-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.dialer-recording-action > small {
+  color: inherit;
+  white-space: nowrap;
 }
 
 .dialer-primary-action .call-button {

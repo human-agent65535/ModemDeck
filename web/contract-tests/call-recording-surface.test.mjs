@@ -6,7 +6,7 @@ import ts from 'typescript'
 
 const source = readFileSync(new URL('../src/components/CallSurface.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
 const ast = ts.createSourceFile('surface.ts', source, ts.ScriptTarget.Latest, true)
-const names = new Set(['isTestCall', 'owned', 'busy', 'active', 'recordingAdjustable', 'recordingControlReady', 'recordingLabel'])
+const names = new Set(['isTestCall', 'owned', 'busy', 'active', 'outgoingBeforeAnswer', 'recordingAdjustable', 'recordingControlReady', 'recordingLabel'])
 const selected = ast.statements.filter(statement =>
   (ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration => names.has(declaration.name.getText(ast)))) ||
   (ts.isFunctionDeclaration(statement) && statement.name?.text === 'toggleRecording')
@@ -17,7 +17,7 @@ function harness() {
   const ctx = vm.createContext({
     computed: get => ({ get value() { return get() } }),
     callTestSession: { value: null },
-    session: { value: { id: 'call-1', phase: 'dialing' } },
+    session: { value: { id: 'call-1', phase: 'dialing', direction: 'outgoing' } },
     terminal: { value: false }, occupied: { value: false },
     callState: { owned: true, busy: false, pendingAction: '', outgoingRecordingEnabled: undefined },
     callRecordingState: { callID: 'call-1', status: 'ready', segmentsStatus: 'ready', enabled: false, recordingStatus: 'off', busy: false },
@@ -28,7 +28,7 @@ function harness() {
   return { ctx, changes, value: name => vm.runInContext(`${name}.value`, ctx), toggle: () => vm.runInContext('toggleRecording()', ctx) }
 }
 for (const enabled of [true, false]) {
-  test(`recording snapshot (${enabled}) stays read-only through prepare/connect/dial/ring`, () => {
+  test(`recording (${enabled}) is read-only while preparing and adjustable once the outgoing call dials`, () => {
     const h = harness()
     h.ctx.callState.pendingAction = 'dial'
     h.ctx.callState.outgoingRecordingEnabled = enabled
@@ -39,15 +39,31 @@ for (const enabled of [true, false]) {
     assert.deepEqual(h.changes, [])
     h.ctx.callState.pendingAction = ''
     h.ctx.callRecordingState.enabled = enabled
+    // Matches iOS: the server accepts the change before answer and applies it when the call connects.
     for (const phase of ['connecting', 'dialing', 'ringing-out']) {
       h.ctx.session.value.phase = phase
       assert.equal(h.value('recordingLabel'), enabled ? 'dialer.recordingEnabled' : 'dialer.recordingDisabled')
-      assert.equal(h.value('recordingAdjustable'), false)
+      assert.equal(h.value('recordingAdjustable'), true)
       h.toggle()
     }
-    assert.deepEqual(h.changes, [])
+    assert.deepEqual(h.changes, [!enabled, !enabled, !enabled])
   })
 }
+test('incoming calls stay read-only until answered', () => {
+  const h = harness()
+  h.ctx.session.value.direction = 'incoming'
+  for (const phase of ['ringing', 'connecting']) {
+    h.ctx.session.value.phase = phase
+    assert.equal(h.value('recordingAdjustable'), false)
+    h.toggle()
+  }
+  assert.deepEqual(h.changes, [])
+})
+test('pre-answer toggle reports that it is applying', () => {
+  const h = harness()
+  h.ctx.callRecordingState.busy = true
+  assert.equal(h.value('recordingLabel'), 'calls.applyingRecording')
+})
 test('active toggle uses server state and waits for authority, busy operations and ownership', () => {
   const h = harness()
   h.ctx.session.value.phase = 'active'

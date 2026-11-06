@@ -73,11 +73,13 @@ test('pre-call delete stays in the number field and the call action owns a foote
   assert.doesNotMatch(dialer, /class="dialer-actions"/)
 })
 
-test('recording is a default status note, and native call actions remain accessible', async () => {
+test('recording starts from the default and can be toggled per call, and native call actions remain accessible', async () => {
   const dialer = await source('../src/components/DialerPanel.vue')
   const call = await source('../src/components/CallSurface.vue')
   assert.match(dialer, /class="dialer-recording-note"/)
-  assert.doesNotMatch(dialer, /dialer-recording-action|changeRecording/)
+  // Per-call recording matches iOS: start from the default, toggle before dialing.
+  assert.match(dialer, /class="dialer-recording-action keypad-action-item"[\s\S]*:aria-pressed="dialerRecordingState\.enabled"[\s\S]*@click="changeRecording"/)
+  assert.match(dialer, /setDialerRecording\(!dialerRecordingState\.enabled\)/)
   // The record control keeps its place for the whole call and is disabled until it applies.
   assert.match(call, /v-if="!isTestCall"\s*class="call-control call-control--recording"[\s\S]*!recordingAdjustable \|\|[\s\S]*@click="toggleRecording"/)
   assert.match(call, /<template v-if="incoming">[\s\S]*call-primary-action--start[\s\S]*@click="rejectCall"[\s\S]*call-primary-action--end[\s\S]*@click="answerCall"/)

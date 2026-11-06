@@ -116,7 +116,7 @@ test('ringing calls animate the central call action and remain restorable when m
   assert.match(ui, /uiState\.callMinimized = true/)
   assert.match(dialer, /showingCall \? minimizeCallSurface\(\) : closeDialer\(\)/)
   assert.match(dialer, /<Minus v-if="showingCall"/)
-  assert.match(callSurface, /recordingAdjustable = computed\(\(\) => !isTestCall\.value && active\.value/)
+  assert.match(callSurface, /!isTestCall\.value && \(active\.value \|\| outgoingBeforeAnswer\.value\)/)
   assert.match(callSurface, /:disabled="\s*!recordingAdjustable \|\|/)
 })
 

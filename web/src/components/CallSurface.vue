@@ -146,7 +146,18 @@ const occupiedDescription = computed(() =>
     : t('calls.lineInUseDescription')
 )
 const active = computed(() => session.value?.phase === 'active')
-const recordingAdjustable = computed(() => !isTestCall.value && active.value && owned.value && !occupied.value)
+// Outgoing calls can change recording while dialing or ringing, as on iOS; the server applies it on answer.
+const outgoingBeforeAnswer = computed(() => {
+  const phase = session.value?.phase
+  return (
+    session.value?.direction === 'outgoing' &&
+    callState.pendingAction !== 'dial' &&
+    (phase === 'dialing' || phase === 'ringing-out' || phase === 'ringing' || phase === 'connecting')
+  )
+})
+const recordingAdjustable = computed(
+  () => !isTestCall.value && (active.value || outgoingBeforeAnswer.value) && owned.value && !occupied.value
+)
 const recordingControlReady = computed(() =>
   callRecordingState.callID === session.value.id &&
   callRecordingState.status === 'ready' &&
@@ -160,6 +171,7 @@ const recordingLabel = computed(() => {
   }
   if (callRecordingState.callID !== session.value.id) return ''
   if (!active.value) {
+    if (callRecordingState.busy) return t('calls.applyingRecording')
     return callRecordingState.status === 'ready'
       ? t(callRecordingState.enabled ? 'dialer.recordingEnabled' : 'dialer.recordingDisabled')
       : ''
