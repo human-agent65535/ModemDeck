@@ -232,6 +232,29 @@ func TestSessionAndProtectedAPI(t *testing.T) {
 	}
 }
 
+type principalRequiringAuthenticator struct {
+	*apiTestAuthenticator
+}
+
+func (principalRequiringAuthenticator) RequiresPrincipal() bool { return true }
+
+func TestMultiUserSessionWithoutPrincipalIsRejected(t *testing.T) {
+	t.Parallel()
+
+	authenticator, sessionToken, _ := newAPIAuthenticator(t)
+	repository := &fakeRepository{lines: []store.LineSummary{}}
+	api, err := New(repository, Options{
+		Authenticator: principalRequiringAuthenticator{authenticator},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	api.ServeHTTP(recorder, authorizedAPIRequest(http.MethodGet, "/api/v1/bootstrap", nil, sessionToken, ""))
+	assertAPIError(t, recorder, http.StatusUnauthorized, "authentication_required")
+}
+
 func TestAccountSessionsListAndRevocation(t *testing.T) {
 	t.Parallel()
 

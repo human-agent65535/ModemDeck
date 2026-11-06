@@ -382,6 +382,58 @@ func TestIOSPairingCredentialHasNoTimeExpiry(t *testing.T) {
 	}
 }
 
+func TestUnredeemedIOSPairingCredentialExpires(t *testing.T) {
+	t.Parallel()
+
+	repository, database := newContactTestStore(t)
+	ctx := context.Background()
+	if created, err := repository.CreateAdminIfAbsent(ctx, auth.AdminCredentials{
+		Username:     "owner",
+		PasswordHash: "owner-hash",
+	}); err != nil || !created {
+		t.Fatalf("CreateAdminIfAbsent() = %t, %v", created, err)
+	}
+	member, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:          "member",
+		PasswordHash:      "member-hash",
+		IOSPairingEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+	digest := mobilepairing.TokenDigest{4, 5, 6}
+	if _, err := repository.CreateIOSPairingCredential(ctx, member.ID, digest); err != nil {
+		t.Fatalf("CreateIOSPairingCredential() error = %v", err)
+	}
+	if _, found, err := repository.IOSPairingPrincipalByTokenDigest(ctx, digest); err != nil || !found {
+		t.Fatalf("fresh IOSPairingPrincipalByTokenDigest() = %t, %v", found, err)
+	}
+	if _, err := database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_ios_pairing_credentials
+		 SET created_at = datetime('now', '-16 minutes')
+		 WHERE user_id = ?`,
+		member.ID,
+	); err != nil {
+		t.Fatalf("age pairing credential: %v", err)
+	}
+
+	if _, found, err := repository.IOSPairingPrincipalByTokenDigest(ctx, digest); err != nil || found {
+		t.Fatalf("expired IOSPairingPrincipalByTokenDigest() = %t, %v", found, err)
+	}
+	if confirmed, err := repository.ConfirmIOSPairingCredential(
+		ctx,
+		digest,
+		mobilepairing.DeviceInfo{Name: "iPhone"},
+	); err != nil || confirmed {
+		t.Fatalf("expired ConfirmIOSPairingCredential() = %t, %v", confirmed, err)
+	}
+	status, err := repository.IOSPairingStatus(ctx, member.ID)
+	if err != nil || status.Pending != nil || status.HasCredential {
+		t.Fatalf("IOSPairingStatus() = %+v, %v", status, err)
+	}
+}
+
 func TestIOSPushTargetsAreScopedByLineAndTokenKind(t *testing.T) {
 	t.Parallel()
 

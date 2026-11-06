@@ -534,9 +534,10 @@ func TestAuthenticateRefreshesLatestSessionMetadata(t *testing.T) {
 	}
 }
 
-func TestAuthenticateHasNoTimeExpiry(t *testing.T) {
+func TestAuthenticateExpiresOnlyIdleSessions(t *testing.T) {
 	ctx := context.Background()
 	createdAt := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	lastSeenAt := createdAt.Add(20 * 365 * 24 * time.Hour)
 	sessionToken, sessionDigest := mustSessionToken(t, 0xe1)
 	_, csrfDigest := mustCSRFToken(t, 0xe2)
 	repository := newMemoryRepository()
@@ -544,16 +545,22 @@ func TestAuthenticateHasNoTimeExpiry(t *testing.T) {
 		SessionTokenDigest: sessionDigest,
 		CSRFTokenDigest:    csrfDigest,
 		CreatedAt:          createdAt,
+		LastSeenAt:         lastSeenAt,
 	}
 	service := mustService(t, repository)
-	service.now = func() time.Time { return createdAt.Add(20 * 365 * 24 * time.Hour) }
+	service.now = func() time.Time { return lastSeenAt.Add(SessionIdleTimeout - time.Minute) }
 
 	authentication, err := service.Authenticate(ctx, sessionToken)
 	if err != nil {
-		t.Fatalf("Authenticate() old session error = %v", err)
+		t.Fatalf("Authenticate() old but active session error = %v", err)
 	}
 	if !authentication.CreatedAt.Equal(createdAt) {
 		t.Fatalf("CreatedAt = %s, want %s", authentication.CreatedAt, createdAt)
+	}
+
+	service.now = func() time.Time { return lastSeenAt.Add(SessionIdleTimeout) }
+	if _, err := service.Authenticate(ctx, sessionToken); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("Authenticate() idle session error = %v, want %v", err, ErrUnauthenticated)
 	}
 
 	repository.sessions[sessionDigest] = SessionRecord{

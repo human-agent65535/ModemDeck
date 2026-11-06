@@ -275,7 +275,9 @@ func (s *Store) IOSPairingPrincipalByTokenDigest(
 				AND user.ios_pairing_enabled = 1
 		 LEFT JOIN modemdeck_user_profile_contacts AS profile
 			ON profile.user_id = user.id
-		 WHERE credential.token_digest = ?`,
+		 WHERE credential.token_digest = ?
+			AND (credential.activated_at IS NOT NULL
+				OR credential.created_at >= datetime('now', '-15 minutes'))`,
 		digest[:],
 	).Scan(
 		&principal.UserID,
@@ -372,6 +374,12 @@ func iosDeviceSQL(device mobilepairing.DeviceInfo) (assignments, changed string,
 	return strings.Join(set, ",\n\t\t\t"), strings.Join(differs, "\n\t\t\t\tOR "), args
 }
 
+// An issued QR code is a bearer credential. Until a device redeems it, it
+// stays usable only briefly so an unscanned code or a screenshot of it does
+// not become a permanent account credential.
+const iosPairingCredentialLive = `(activated_at IS NOT NULL
+				OR created_at >= datetime('now', '-15 minutes'))`
+
 const iosPairingUserAllowed = `EXISTS (
 				SELECT 1
 				FROM modemdeck_users AS user
@@ -421,6 +429,7 @@ func (s *Store) ConfirmIOSPairingCredential(
 			updated_at = CURRENT_TIMESTAMP
 		 WHERE token_digest = ?
 			AND activated_at IS NULL
+			AND `+iosPairingCredentialLive+`
 			AND `+iosPairingUserAllowed,
 		slices.Concat(deviceArgs, []any{hasDevice, digest[:]})...,
 	)
@@ -494,6 +503,7 @@ func (s *Store) IOSPairingStatus(
 			last_seen_at
 		 FROM modemdeck_ios_pairing_credentials
 		 WHERE user_id = ?
+			AND `+iosPairingCredentialLive+`
 		 ORDER BY activated_at IS NULL DESC,
 			COALESCE(last_seen_at, activated_at, created_at) DESC,
 			created_at DESC,

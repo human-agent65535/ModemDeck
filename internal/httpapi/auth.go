@@ -20,9 +20,9 @@ const (
 	csrfHeaderName    = "X-ModemDeck-CSRF"
 	maxUsernameRunes  = 64
 	maxPasswordBytes  = 1024
-	// Browsers cap persistent cookies even when the server-side session has no
-	// TTL. Reissuing these cookies during session inspection keeps active
-	// devices signed in without turning this transport limit into auth policy.
+	// Browsers cap persistent cookies. Reissuing these cookies during session
+	// inspection keeps active devices signed in; the server-side idle timeout
+	// (auth.SessionIdleTimeout), not this transport limit, is the auth policy.
 	persistentCookieLifetime = 400 * 24 * time.Hour
 )
 
@@ -417,8 +417,15 @@ func (api *API) authorizeAPI(response http.ResponseWriter, request *http.Request
 		return false
 	}
 	ctx := contextWithCallLeaseSession(request.Context(), sessionToken)
-	if principal, exists := authentication.Principal(); exists {
+	principal, exists := authentication.Principal()
+	if exists {
 		ctx = auth.ContextWithPrincipal(ctx, principal)
+	} else if api.authenticatorRequiresPrincipal() {
+		// Handlers treat a missing principal as unrestricted single-admin
+		// access. A multi-user session must never reach them without one.
+		api.logger.Error("authenticated session has no user principal")
+		writeError(response, http.StatusUnauthorized, "authentication_required", "Authentication is required", "")
+		return false
 	}
 	*request = *request.WithContext(ctx)
 	if request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions {
@@ -429,6 +436,15 @@ func (api *API) authorizeAPI(response http.ResponseWriter, request *http.Request
 		return false
 	}
 	return true
+}
+
+type principalRequirement interface {
+	RequiresPrincipal() bool
+}
+
+func (api *API) authenticatorRequiresPrincipal() bool {
+	requirement, ok := api.authenticator.(principalRequirement)
+	return ok && requirement.RequiresPrincipal()
 }
 
 func (api *API) requestAuthentication(

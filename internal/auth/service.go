@@ -23,6 +23,11 @@ const (
 	maximumAccessIPBytes   = 64
 	maximumAccessHostBytes = 255
 	sessionMetadataRefresh = 5 * time.Minute
+	// SessionIdleTimeout ends a browser session that has not been used for
+	// this long. Active sessions are kept alive by the metadata refresh above,
+	// so devices in regular use stay signed in while a stolen or forgotten
+	// cookie stops working on its own.
+	SessionIdleTimeout = 30 * 24 * time.Hour
 )
 
 type AdminCredentials struct {
@@ -184,6 +189,14 @@ func NewService(repository Repository) (*Service, error) {
 		random:     rand.Reader,
 		now:        time.Now,
 	}, nil
+}
+
+// RequiresPrincipal reports whether every valid session carries a user
+// principal. Callers use it to reject a session without one instead of
+// treating a missing principal as unrestricted access.
+func (s *Service) RequiresPrincipal() bool {
+	_, multiUser := s.repository.(MultiUserRepository)
+	return multiUser
 }
 
 func (s *Service) Status(ctx context.Context) (AdminStatus, error) {
@@ -552,7 +565,7 @@ func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authent
 		if err != nil {
 			return Authentication{}, repositoryError(op, err)
 		}
-		if !found {
+		if !found || s.sessionIdleExpired(record.CreatedAt, record.LastSeenAt) {
 			return Authentication{}, newError(op, CodeUnauthenticated, nil)
 		}
 		authentication, err := s.authenticationFromUserSession(record, principal)
@@ -567,7 +580,7 @@ func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authent
 	if err != nil {
 		return Authentication{}, repositoryError(op, err)
 	}
-	if !found {
+	if !found || s.sessionIdleExpired(record.CreatedAt, record.LastSeenAt) {
 		return Authentication{}, newError(op, CodeUnauthenticated, nil)
 	}
 
@@ -582,6 +595,14 @@ func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authent
 		csrfDigest:    record.CSRFTokenDigest,
 		authenticated: true,
 	}, nil
+}
+
+func (s *Service) sessionIdleExpired(createdAt, lastSeenAt time.Time) bool {
+	lastUsed := lastSeenAt
+	if lastUsed.IsZero() || createdAt.After(lastUsed) {
+		lastUsed = createdAt
+	}
+	return !lastUsed.IsZero() && s.now().Sub(lastUsed) >= SessionIdleTimeout
 }
 
 func (s *Service) authenticationFromUserSession(
