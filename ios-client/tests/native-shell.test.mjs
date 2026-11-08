@@ -676,8 +676,8 @@ test('conversations and selection hide the system tab bar natively', async () =>
   assert.match(app, /content\.modemDeckTabBarVisible\(!pushed \|\| inSplitDetail\)/)
   // A conversation embedded beside its list leaves the tab bar or sidebar alone.
   assert.match(communication, /\.modemDeckImmersiveScreen\(showsBackButton\)/)
-  // Selection's toolbar takes the tab bar's place.
-  assert.match(app, /private var toolbar: some View \{[\s\S]*\.toolbar\(\.hidden, for: \.tabBar\)/)
+  // Selection's actions sit in the system bottom toolbar, in the tab bar's place.
+  assert.match(app, /ToolbarItemGroup\(placement: \.bottomBar\) \{\s*actions\s*\}\s*\}\s*\.toolbar\(\.hidden, for: \.tabBar\)/)
   // A collapsed call sits above the tab bar, or above the composer when it steps aside.
   assert.match(app, /\.safeAreaInset\(edge: \.bottom, spacing: 0\) \{\s*if let call = miniCall \{\s*ModemDeckMiniCallBar/)
   assert.doesNotMatch(app, /modemDeckTabBarClearance|ModemDeckBottomChrome|immersiveScreenCount/)
@@ -882,10 +882,8 @@ test('native communication lists expose Web-equivalent batch mutations', async (
     calls,
     /private var selectedRecordings:[\s\S]*?filteredRecordings\.filter \{ selectedIDs\.contains\(\$0\.id\) \}/
   )
-  assert.ok(
-    ((communication + calls).match(/\.safeAreaInset\(edge: \.bottom, spacing: 0\)/g) || [])
-      .length >= 4
-  )
+  // Every list hands its selection to the system bars, which iPhone Duo moves into its trailing column.
+  assert.doesNotMatch(communication + calls, /BatchBar\(\)\s*\}\s*\}\s*\.overlay|safeAreaInset\(edge: \.bottom, spacing: 0\) \{\s*if selecting/)
 
   for (const path of [
     '/api/v1/messages/threads/state',
@@ -1011,13 +1009,13 @@ test('native interaction feedback follows platform conventions', async () => {
   assert.doesNotMatch(communication, /contactBound: contactBound,\s*unread: unread,/)
   assert.match(home, /\.environment\(\\\.modemDeckRowsShowTimeOnly, true\)/)
 
-  // Selection: a title-row header and a toolbar in the tab bar's place, which hides.
-  assert.match(app, /enum ModemDeckBatchActionBarPart \{\s*\/\/\/[^\n]*\n\s*case header/)
+  // Selection: the system navigation bar and bottom toolbar, with no drawn bar of our own.
+  assert.doesNotMatch(app, /ModemDeckBatchActionBarPart/)
   for (const bar of ['contactBatchBar', 'messageBatchBar']) {
-    assert.match(communication, new RegExp(`if selecting \\{ ${bar}\\(\\.header\\) \\}`))
+    assert.match(communication, new RegExp(`if selecting \\{ ${bar}\\(\\) \\}`))
   }
   for (const bar of ['callBatchBar', 'recordingBatchBar']) {
-    assert.match(calls, new RegExp(`if selecting \\{ ${bar}\\(\\.header\\) \\}`))
+    assert.match(calls, new RegExp(`if selecting \\{ ${bar}\\(\\) \\}`))
   }
 
 

@@ -149,11 +149,8 @@ struct ModemDeckContactsView: View {
             .background(Color.mdBackground)
         }
         .background(Color.mdBackground)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selecting { contactBatchBar() }
-        }
         .overlay(alignment: .top) {
-            if selecting { contactBatchBar(.header) }
+            if selecting { contactBatchBar() }
         }
     }
 
@@ -171,7 +168,7 @@ struct ModemDeckContactsView: View {
                     selectedContactID = contact.id
                 } else { navigate(.contact(contact.id)) }
             },
-            beginSelection: { selecting = true; selectedIDs = [contact.id] },
+            beginSelection: { withAnimation(.easeInOut(duration: 0.25)) { selecting = true; selectedIDs = [contact.id] } },
             toggleFavorite: {
                 let saved = try await controller.api.updateContact(
                     id: contact.id,
@@ -211,12 +208,11 @@ struct ModemDeckContactsView: View {
         }
     }
 
-    private func contactBatchBar(_ part: ModemDeckBatchActionBarPart = .toolbar) -> some View {
+    private func contactBatchBar() -> some View {
         let contacts = selectedContacts
         let allFavorite = !contacts.isEmpty && contacts.allSatisfy(\.favorite)
 
         return ModemDeckBatchActionBar(
-            part: part,
             selectedCount: contacts.count,
             totalCount: filteredContacts.count,
             busy: batchBusy,
@@ -227,12 +223,11 @@ struct ModemDeckContactsView: View {
             selectAll: toggleAllContacts,
             done: endContactSelection
         ) {
-            if contacts.count == 1, let contact = contacts.first {
-                ModemDeckBatchCopyMenu(controller: controller, items: [
+            // Copy stays in place and only enables for a single item, so the bar never reflows.
+            ModemDeckBatchCopyMenu(controller: controller, items: contacts.count == 1 ? contacts.first.map { contact in [
                     .init(label: controller.text("复制联系人", "Copy Contact"), value: contact.displayName),
                     .init(label: controller.text("复制号码", "Copy Number"), value: contact.phones.map(\.displayNumber).joined(separator: "\n"))
-                ])
-            }
+            ] } ?? [] : [])
             ModemDeckBatchActionButton(
                 title: allFavorite
                     ? controller.text("取消收藏", "Unfavorite")
@@ -286,8 +281,10 @@ struct ModemDeckContactsView: View {
     }
 
     private func endContactSelection() {
-        selecting = false
-        selectedIDs.removeAll()
+        withAnimation(.easeInOut(duration: 0.25)) {
+            selecting = false
+            selectedIDs.removeAll()
+        }
     }
 
     private func deleteSelectedContacts() {
@@ -1850,11 +1847,8 @@ struct ModemDeckMessagesView: View {
             threadList
         }
         .background(Color.mdBackground)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selecting { messageBatchBar() }
-        }
         .overlay(alignment: .top) {
-            if selecting { messageBatchBar(.header) }
+            if selecting { messageBatchBar() }
         }
     }
 
@@ -1968,7 +1962,7 @@ struct ModemDeckMessagesView: View {
                     selectedThreadID = thread.id
                 } else { navigate(.message(thread.id)) }
             },
-            beginSelection: { selecting = true; selectedIDs = [thread.id] },
+            beginSelection: { withAnimation(.easeInOut(duration: 0.25)) { selecting = true; selectedIDs = [thread.id] } },
             toggleRead: { try await store.mutate(unread ? .read : .unread, threads: [thread]) },
             toggleFavorite: { try await store.mutate(thread.favorite ? .unfavorite : .favorite, threads: [thread]) },
             delete: { try await store.mutate(.delete, threads: [thread]) }
@@ -1980,7 +1974,7 @@ struct ModemDeckMessagesView: View {
         }
     }
 
-    private func messageBatchBar(_ part: ModemDeckBatchActionBarPart = .toolbar) -> some View {
+    private func messageBatchBar() -> some View {
         let selected = selectedThreads
         let hasUnread = selected.contains {
             $0.unreadCount > 0 || $0.markedUnread
@@ -1988,7 +1982,6 @@ struct ModemDeckMessagesView: View {
         let allFavorite = !selected.isEmpty && selected.allSatisfy(\.favorite)
 
         return ModemDeckBatchActionBar(
-            part: part,
             selectedCount: selected.count,
             totalCount: filteredThreads.count,
             busy: batchBusy,
@@ -1999,12 +1992,11 @@ struct ModemDeckMessagesView: View {
             selectAll: toggleAllThreads,
             done: endMessageSelection
         ) {
-            if selected.count == 1, let thread = selected.first {
-                ModemDeckBatchCopyMenu(controller: controller, items: [
+            // Copy stays in place and only enables for a single item, so the bar never reflows.
+            ModemDeckBatchCopyMenu(controller: controller, items: selected.count == 1 ? selected.first.map { thread in [
                     .init(label: controller.text("复制联系人", "Copy Contact"), value: displayName(for: thread)),
                     .init(label: controller.text("复制号码", "Copy Number"), value: thread.peer)
-                ])
-            }
+            ] } ?? [] : [])
             ModemDeckBatchActionButton(
                 title: hasUnread
                     ? controller.text("标为已读", "Mark Read")
@@ -2038,8 +2030,10 @@ struct ModemDeckMessagesView: View {
     }
 
     private func endMessageSelection() {
-        selecting = false
-        selectedIDs.removeAll()
+        withAnimation(.easeInOut(duration: 0.25)) {
+            selecting = false
+            selectedIDs.removeAll()
+        }
     }
 
     private func mutateSelectedThreads(_ action: ModemDeckMessageThreadAction) {

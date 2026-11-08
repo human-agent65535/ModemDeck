@@ -1564,15 +1564,26 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
     @Environment(\.modemDeckTrailingBarColumn) private var trailingBarColumn
     @State private var searchOpen = false
     @State private var searchPresented = false
+    /// Briefly true after selection ends. iPhone Duo lays bar buttons out in the trailing
+    /// column; restored before the tab bar returns, they spread out for a frame and then
+    /// collapse. Holding them back until the tab bar is in place keeps the column still.
+    @State private var barButtonsSettling = false
 
     private var minimizedSearch: Bool { titleDisplayMode == .inline }
 
     var body: some View {
-        if selecting {
-            // The selection bar's header owns the title and bar buttons while selecting.
-            Color.clear.frame(height: 0).accessibilityHidden(true)
-        } else {
-            page
+        Group {
+            if selecting {
+                // The selection bar's header owns the title and bar buttons while selecting.
+                Color.clear.frame(height: 0).accessibilityHidden(true)
+            } else {
+                page
+            }
+        }
+        .onChange(of: selecting) { selecting in
+            guard !selecting else { return }
+            barButtonsSettling = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { barButtonsSettling = false }
         }
     }
 
@@ -1590,30 +1601,32 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
                 presented: $searchPresented
             ))
             .toolbar {
-                if showsSettings, let openSettings, !(usesSplitWorkspace && trailingBarColumn) {
+                if !barButtonsSettling, showsSettings, let openSettings, !(usesSplitWorkspace && trailingBarColumn) {
                     ToolbarItem(placement: .topBarLeading) {
                         ModemDeckSettingsButton(title: controller.text("设置", "Settings"), open: openSettings)
                     }
                 }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if showsSearchButton {
-                        Button {
-                            searchOpen = true
-                            // Activate once the drawer exists so the field takes focus.
-                            DispatchQueue.main.async { searchPresented = true }
-                        } label: {
-                            Image(systemName: "magnifyingglass")
+                if !barButtonsSettling {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        if showsSearchButton {
+                            Button {
+                                searchOpen = true
+                                // Activate once the drawer exists so the field takes focus.
+                                DispatchQueue.main.async { searchPresented = true }
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                            }
+                            .accessibilityLabel(controller.text("搜索", "Search"))
+                            .accessibilityIdentifier("collection-search")
                         }
-                        .accessibilityLabel(controller.text("搜索", "Search"))
-                        .accessibilityIdentifier("collection-search")
-                    }
-                    actions()
-                    if let primary {
-                        Button(action: primary.action) {
-                            Image(systemName: primary.icon)
+                        actions()
+                        if let primary {
+                            Button(action: primary.action) {
+                                Image(systemName: primary.icon)
+                            }
+                            .disabled(primary.disabled)
+                            .accessibilityLabel(primary.title)
                         }
-                        .disabled(primary.disabled)
-                        .accessibilityLabel(primary.title)
                     }
                 }
             }
@@ -1912,19 +1925,16 @@ struct ModemDeckBatchCopyMenu: View {
         } label: {
             ModemDeckBatchToolbarLabel(title: controller.text("复制", "Copy"), icon: "doc.on.doc")
         }
+        .disabled(items.allSatisfy { $0.value.isEmpty })
         .accessibilityLabel(controller.text("复制", "Copy"))
     }
 }
 
-enum ModemDeckBatchActionBarPart {
-    /// "Select All · N selected · Done", laid over the page title while selecting.
-    case header
-    /// The selection's actions, in the tab bar's place as in Mail and Photos.
-    case toolbar
-}
-
+/// While a list is selecting, the system bars carry the selection: "Select All · N selected ·
+/// Done" in the navigation bar and the actions in the bottom toolbar, in the tab bar's place
+/// as in Mail and Photos. Using the system bars lets iPhone Duo move them into its trailing
+/// column like every other bar button. The view itself draws nothing.
 struct ModemDeckBatchActionBar<Actions: View>: View {
-    let part: ModemDeckBatchActionBarPart
     let selectedCount: Int
     let totalCount: Int
     let busy: Bool
@@ -1937,7 +1947,6 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
     private let actions: Actions
 
     init(
-        part: ModemDeckBatchActionBarPart = .toolbar,
         selectedCount: Int,
         totalCount: Int,
         busy: Bool,
@@ -1949,7 +1958,6 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
         done: @escaping () -> Void,
         @ViewBuilder actions: () -> Actions
     ) {
-        self.part = part
         self.selectedCount = selectedCount
         self.totalCount = totalCount
         self.busy = busy
@@ -1967,14 +1975,6 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
     }
 
     var body: some View {
-        switch part {
-        case .header: header
-        case .toolbar: toolbar
-        }
-    }
-
-    /// The navigation bar becomes "Select All · N selected · Done", as in Mail.
-    private var header: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
@@ -1995,21 +1995,11 @@ struct ModemDeckBatchActionBar<Actions: View>: View {
                             .accessibilityIdentifier("selection-done")
                     }
                 }
+                ToolbarItemGroup(placement: .bottomBar) {
+                    actions
+                }
             }
-    }
-
-    /// The toolbar takes the tab bar's place: the tab bar steps aside while selecting.
-    private var toolbar: some View {
-        HStack(alignment: .top, spacing: 4) {
-            actions
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .frame(minHeight: 56, alignment: .top)
-        .frame(maxWidth: .infinity)
-        .background(.bar, ignoresSafeAreaEdges: .bottom)
-        .overlay(alignment: .top) { ModemDeckHairline() }
-        .toolbar(.hidden, for: .tabBar)
+            .toolbar(.hidden, for: .tabBar)
     }
 }
 
@@ -2021,35 +2011,22 @@ struct ModemDeckBatchActionButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            ModemDeckBatchToolbarLabel(title: title, icon: icon, destructive: destructive)
+        Button(role: destructive ? .destructive : nil, action: action) {
+            ModemDeckBatchToolbarLabel(title: title, icon: icon)
         }
-        .buttonStyle(.plain)
+        .tint(destructive ? .mdDanger : nil)
         .disabled(disabled)
-        .opacity(disabled ? 0.4 : 1)
     }
 }
 
-/// A toolbar item: glyph over a short caption, no tile behind it.
+/// A bar button's glyph; the title is its accessibility label, as in the system toolbars.
 struct ModemDeckBatchToolbarLabel: View {
     let title: String
     let icon: String
-    var destructive = false
 
     var body: some View {
-        VStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.title3)
-                .frame(height: 24)
-            Text(title)
-                .font(.caption2.weight(.medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-        }
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        .foregroundColor(destructive ? .mdDanger : .mdAccent)
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .contentShape(Rectangle())
+        Label(title, systemImage: icon)
+            .labelStyle(.iconOnly)
     }
 }
 

@@ -825,11 +825,8 @@ struct ModemDeckCallsView: View {
             callList
         }
         .background(Color.mdBackground)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selecting { callBatchBar() }
-        }
         .overlay(alignment: .top) {
-            if selecting { callBatchBar(.header) }
+            if selecting { callBatchBar() }
         }
     }
 
@@ -948,7 +945,7 @@ struct ModemDeckCallsView: View {
                     selectedCallID = call.id
                 } else { navigate(.call(call.id)) }
             },
-            beginSelection: { selecting = true; selectedIDs = [call.id] },
+            beginSelection: { withAnimation(.easeInOut(duration: 0.25)) { selecting = true; selectedIDs = [call.id] } },
             toggleRead: call.missed ? { try await store.mutate(call.read ? .unread : .read, calls: [call]) } : nil,
             toggleFavorite: { try await store.mutate(call.favorite ? .unfavorite : .favorite, calls: [call]) },
             delete: { try await store.mutate(.delete, calls: [call]) }
@@ -960,7 +957,7 @@ struct ModemDeckCallsView: View {
         }
     }
 
-    private func callBatchBar(_ part: ModemDeckBatchActionBarPart = .toolbar) -> some View {
+    private func callBatchBar() -> some View {
         let selected = selectedCalls
         let missed = selected.filter(\.missed)
         // Any unread missed call makes "Mark Read" the primary action, as in Messages.
@@ -968,7 +965,6 @@ struct ModemDeckCallsView: View {
         let allFavorite = !selected.isEmpty && selected.allSatisfy(\.favorite)
 
         return ModemDeckBatchActionBar(
-            part: part,
             selectedCount: selected.count,
             totalCount: filteredCalls.count,
             busy: batchBusy,
@@ -979,21 +975,19 @@ struct ModemDeckCallsView: View {
             selectAll: toggleAllCalls,
             done: endCallSelection
         ) {
-            if selected.count == 1, let call = selected.first {
-                ModemDeckBatchCopyMenu(controller: controller, items: [
+            // Copy stays in place and only enables for a single item, so the bar never reflows.
+            ModemDeckBatchCopyMenu(controller: controller, items: selected.count == 1 ? selected.first.map { call in [
                     .init(label: controller.text("复制联系人", "Copy Contact"), value: displayName(for: call)),
                     .init(label: controller.text("复制号码", "Copy Number"), value: call.remoteNumber)
-                ])
-            }
-            if !missed.isEmpty {
-                ModemDeckBatchActionButton(
-                    title: missedHasUnread
-                        ? controller.text("标为已读", "Mark Read")
-                        : controller.text("标为未读", "Mark Unread"),
-                    icon: missedHasUnread ? "phone.badge.checkmark" : "phone.badge.waveform",
-                    disabled: batchBusy || !controller.isOnline
-                ) { mutateSelectedCalls(missedHasUnread ? .read : .unread, calls: missed) }
-            }
+            ] } ?? [] : [])
+            // Read state applies to missed calls; it stays in the bar, disabled for other calls.
+            ModemDeckBatchActionButton(
+                title: missed.isEmpty || missedHasUnread
+                    ? controller.text("标为已读", "Mark Read")
+                    : controller.text("标为未读", "Mark Unread"),
+                icon: missed.isEmpty || missedHasUnread ? "phone.badge.checkmark" : "phone.badge.waveform",
+                disabled: missed.isEmpty || batchBusy || !controller.isOnline
+            ) { mutateSelectedCalls(missedHasUnread ? .read : .unread, calls: missed) }
             ModemDeckBatchActionButton(
                 title: allFavorite
                     ? controller.text("取消收藏", "Unfavorite")
@@ -1020,8 +1014,10 @@ struct ModemDeckCallsView: View {
     }
 
     private func endCallSelection() {
-        selecting = false
-        selectedIDs.removeAll()
+        withAnimation(.easeInOut(duration: 0.25)) {
+            selecting = false
+            selectedIDs.removeAll()
+        }
     }
 
     private func mutateSelectedCalls(
@@ -1316,11 +1312,8 @@ struct ModemDeckRecordingsView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selecting { recordingBatchBar() }
-        }
         .overlay(alignment: .top) {
-            if selecting { recordingBatchBar(.header) }
+            if selecting { recordingBatchBar() }
         }
     }
 
@@ -1404,7 +1397,7 @@ struct ModemDeckRecordingsView: View {
                     selectedRecordingID = recording.id
                 } else { navigate(.recording(recording.id)) }
             },
-            beginSelection: { selecting = true; selectedIDs = [recording.id] },
+            beginSelection: { withAnimation(.easeInOut(duration: 0.25)) { selecting = true; selectedIDs = [recording.id] } },
             toggleFavorite: { try await store.mutate(recording.favorite ? .unfavorite : .favorite, recordings: [recording]) },
             delete: { try await store.mutate(.delete, recordings: [recording]) }
         ) { actions in
@@ -1415,12 +1408,11 @@ struct ModemDeckRecordingsView: View {
         }
     }
 
-    private func recordingBatchBar(_ part: ModemDeckBatchActionBarPart = .toolbar) -> some View {
+    private func recordingBatchBar() -> some View {
         let selected = selectedRecordings
         let allFavorite = !selected.isEmpty && selected.allSatisfy(\.favorite)
 
         return ModemDeckBatchActionBar(
-            part: part,
             selectedCount: selected.count,
             totalCount: filteredRecordings.count,
             busy: batchBusy,
@@ -1431,12 +1423,11 @@ struct ModemDeckRecordingsView: View {
             selectAll: toggleAllRecordings,
             done: endRecordingSelection
         ) {
-            if selected.count == 1, let recording = selected.first {
-                ModemDeckBatchCopyMenu(controller: controller, items: [
+            // Copy stays in place and only enables for a single item, so the bar never reflows.
+            ModemDeckBatchCopyMenu(controller: controller, items: selected.count == 1 ? selected.first.map { recording in [
                     .init(label: controller.text("复制联系人", "Copy Contact"), value: displayName(for: recording)),
                     .init(label: controller.text("复制号码", "Copy Number"), value: recording.call.remoteNumber)
-                ])
-            }
+            ] } ?? [] : [])
             ModemDeckBatchActionButton(
                 title: allFavorite
                     ? controller.text("取消收藏", "Unfavorite")
@@ -1463,8 +1454,10 @@ struct ModemDeckRecordingsView: View {
     }
 
     private func endRecordingSelection() {
-        selecting = false
-        selectedIDs.removeAll()
+        withAnimation(.easeInOut(duration: 0.25)) {
+            selecting = false
+            selectedIDs.removeAll()
+        }
     }
 
     private func mutateSelectedRecordings(_ action: ModemDeckRecordingBatchAction) {
