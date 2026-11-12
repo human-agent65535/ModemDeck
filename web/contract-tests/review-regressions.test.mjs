@@ -71,12 +71,13 @@ test('contact transfers fetch every page without resetting the visible contact l
 })
 
 test('switching APN devices clears the draft and an outstanding confirmation cannot change its target', async () => {
-  const names = ['selectLine', 'resetLineServices', 'editProfile', 'saveProfile', 'isCurrentLineServiceRequest']
+  const names = ['selectLine', 'resetLineServices', 'editProfile', 'profileDraftSignature', 'saveProfile', 'isCurrentLineServiceRequest']
   const bindings = { lineServiceGeneration: 0, t: key => key, activateNetworkSelection() {},
     loadActiveLineService: async () => {}, loadProfiles: async () => {}, showSuccess() {}, showError() {} }
   for (const key of ['selectedLineID', 'requestedDeviceLineID', 'simStatus', 'simLoadStatus', 'simError', 'profiles',
     'profileLoadStatus', 'profileError', 'ussdStatus', 'ussdLoadStatus', 'ussdError', 'ussdResult', 'editingProfileID',
-    'profileName', 'profileAPN', 'profileIPFamily', 'profileUser', 'profilePassword', 'profilePending', 'deviceDetailOpen']) {
+    'profileName', 'profileAPN', 'profileIPFamily', 'profileUser', 'profilePassword', 'profilePending', 'profileBaseline',
+    'deviceDetailOpen']) {
     bindings[key] = ref('')
   }
   bindings.selectedLineID.value = 'line-a'
@@ -90,6 +91,11 @@ test('switching APN devices clears the draft and an outstanding confirmation can
   context.selectLine({ id: 'line-b' }, false)
   assert.equal(bindings.profileAPN.value, '')
   assert.equal(bindings.editingProfileID.value, null)
+  // A form just loaded or reset is clean; an edit makes it differ from its baseline.
+  assert.equal(context.profileDraftSignature(), bindings.profileBaseline.value)
+  bindings.profileAPN.value = 'edited.private'
+  assert.notEqual(context.profileDraftSignature(), bindings.profileBaseline.value)
+  bindings.profileAPN.value = ''
   confirm(true)
   await pending
 })

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import {
   AlertCircle,
   AudioLines,
@@ -170,6 +171,7 @@ const profileIPFamily = ref('ipv4v6')
 const profileUser = ref('')
 const profilePassword = ref('')
 const profilePending = ref(false)
+const profileBaseline = ref(profileDraftSignature())
 const profileIPFamilyOptions = [
   { value: 'ipv4', label: 'IPv4' },
   { value: 'ipv6', label: 'IPv6' },
@@ -767,6 +769,9 @@ function selectLine(line: LineSummary, openDetail = true): void {
   void loadActiveLineService()
 }
 
+// The navigation updateDeviceRoute last started; chooseLine waits for it.
+let deviceNavigation: Promise<unknown> = Promise.resolve()
+
 function updateDeviceRoute(lineID: string, replace = false): void {
   const query = { ...route.query }
   if (lineID) query.device = lineID
@@ -777,8 +782,9 @@ function updateDeviceRoute(lineID: string, replace = false): void {
     params: { section: 'devices' },
     query
   }
-  if (replace) void router.replace(location)
-  else void router.push(location)
+  deviceNavigation = (replace ? router.replace(location) : router.push(location)).catch(
+    () => undefined
+  )
 }
 
 function resetLineServices(): void {
@@ -1220,6 +1226,44 @@ function editProfile(profile?: ConnectionProfile): void {
   profileIPFamily.value = profile?.ip_family || 'ipv4v6'
   profileUser.value = profile?.user || ''
   profilePassword.value = ''
+  profileBaseline.value = profileDraftSignature()
+}
+
+// The profile form is an explicit-save form: Save is available only once a
+// field differs from what was loaded into it.
+function profileDraftSignature(): string {
+  return JSON.stringify([
+    profileName.value.trim(),
+    profileAPN.value.trim(),
+    profileIPFamily.value,
+    profileUser.value.trim(),
+    profilePassword.value
+  ])
+}
+const profileDirty = computed(() => profileDraftSignature() !== profileBaseline.value)
+
+// Module name, line identity and the connection profile are drafts until
+// saved. Choosing another device or leaving the page asks before dropping them.
+const deviceDraftsDirty = computed(
+  () => moduleNameDirty.value || lineIdentityDirty.value || profileDirty.value
+)
+let discardAlreadyConfirmed = false
+const confirmDiscardDeviceDrafts = useUnsavedChangesGuard(
+  () => !discardAlreadyConfirmed && deviceDraftsDirty.value
+)
+
+async function chooseLine(line: LineSummary): Promise<void> {
+  if (line.id && line.id !== selectedLineID.value) {
+    if (!(await confirmDiscardDeviceDrafts())) return
+  }
+  // The route change selectLine makes must not ask a second time.
+  discardAlreadyConfirmed = true
+  try {
+    selectLine(line)
+    await deviceNavigation
+  } finally {
+    discardAlreadyConfirmed = false
+  }
 }
 
 async function saveProfile(): Promise<void> {
@@ -1410,7 +1454,7 @@ onMounted(() => {
                 : undefined
             "
             actions
-            @select="selectLine(line)"
+            @select="chooseLine(line)"
             @make-default="makeDefault(line)"
             @delete="deleteHistoricalModule(line)"
           />
@@ -2132,7 +2176,11 @@ onMounted(() => {
                       autocomplete="new-password"
                     />
                   </label>
-                  <button class="primary-action" type="submit" :disabled="profilePending">
+                  <button
+                    class="primary-action"
+                    type="submit"
+                    :disabled="profilePending || !profileDirty"
+                  >
                     <LoaderCircle v-if="profilePending" class="spin" :size="16" />
                     <Save v-else :size="16" />
                     {{ t('common.save') }}

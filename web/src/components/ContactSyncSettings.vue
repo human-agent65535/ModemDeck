@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -64,6 +65,11 @@ const initialResourcesReady = computed(
 
 const connected = computed(() => Boolean(googleToken.value))
 const clientIDValid = computed(() => validGoogleClientID(clientID.value))
+// The Client ID is saved explicitly: Save is available only when it differs
+// from the stored value, and leaving with an unsaved edit asks first.
+const savedClientID = ref('')
+const clientIDDirty = computed(() => clientID.value.trim() !== savedClientID.value)
+useUnsavedChangesGuard(clientIDDirty)
 const currentOrigin = computed(() =>
   typeof window === 'undefined' ? '' : window.location.origin
 )
@@ -90,6 +96,7 @@ function saveGoogleClientID(notify = false): boolean {
     return false
   }
   window.localStorage.setItem(GOOGLE_CLIENT_STORAGE_KEY, clientID.value.trim())
+  savedClientID.value = clientID.value.trim()
   if (notify) showSuccess(t('contactSync.googleClientIDSaved'))
   return true
 }
@@ -294,7 +301,8 @@ async function exportVCard(): Promise<void> {
 }
 
 onMounted(() => {
-  clientID.value = window.localStorage.getItem(GOOGLE_CLIENT_STORAGE_KEY) || ''
+  savedClientID.value = (window.localStorage.getItem(GOOGLE_CLIENT_STORAGE_KEY) || '').trim()
+  clientID.value = savedClientID.value
   void waitForInitialLoad([() => loadBootstrap(), () => loadContacts()])
 })
 </script>
@@ -338,7 +346,7 @@ onMounted(() => {
             <button
               class="secondary-button"
               type="button"
-              :disabled="googleBusy || connected || !clientIDValid"
+              :disabled="googleBusy || connected || !clientIDValid || !clientIDDirty"
               @click="saveGoogleClientID(true)"
             >
               <Save :size="15" />
