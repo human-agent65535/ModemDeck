@@ -1653,7 +1653,7 @@ func TestStaleSnapshotDoesNotDropNewBrowserClaim(t *testing.T) {
 	}
 }
 
-func TestFailedReleaseIsNotRetriedWithoutNewAuthoritativeState(t *testing.T) {
+func TestFailedReleaseIsRetriedUntilTheSnapshotDropsTheCall(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
@@ -1676,19 +1676,70 @@ func TestFailedReleaseIsNotRetriedWithoutNewAuthoritativeState(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = now.Add(11 * time.Second)
-	first := manager.expiredCalls()
-	if len(first) != 1 {
-		t.Fatalf("first expiration = %+v", first)
+	for attempt := 1; attempt <= 3; attempt++ {
+		due := manager.expiredCalls()
+		if len(due) != 1 || due[0].callID != "call-1" {
+			t.Fatalf("attempt %d: due = %+v, want call-1", attempt, due)
+		}
+		if again := manager.expiredCalls(); len(again) != 0 {
+			t.Fatalf("attempt %d: repeated within the lease duration = %+v", attempt, again)
+		}
+		manager.endExpiredCall(context.Background(), due[0].callID, due[0].record)
+		if callID := <-controller.ended; callID != "call-1" {
+			t.Fatalf("attempt %d: ended call = %q, want call-1", attempt, callID)
+		}
+		<-reports
+		now = now.Add(11 * time.Second)
 	}
-	manager.endExpiredCall(context.Background(), first[0].callID, first[0].record)
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-2"); !errors.Is(err, ErrCallNotActive) {
+		t.Fatalf("claim while ending = %v, want ErrCallNotActive", err)
+	}
+
+	calls.mu.Lock()
+	delete(calls.calls, "call-1")
+	calls.mu.Unlock()
+	if err := manager.ReconcileAuthoritativeCalls(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Hour)
+	if due := manager.expiredCalls(); len(due) != 0 {
+		t.Fatalf("retry after the call ended = %+v, want none", due)
+	}
+}
+
+func TestRevokedCallIsEndedAgainWhenTheFirstHangupFailed(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.November, 12, 9, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {ID: "call-1", LineID: "line-1", Direction: "incoming", Phase: "ringing"},
+	}}
+	controller := &fakeController{ended: make(chan string, 1)}
+	manager, err := newInitializedManager(calls, controller, Options{
+		Duration: 10 * time.Second,
+		Now:      func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(context.Background(), "call-1", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	// The revoking caller makes the first attempt itself. It is given one lease
+	// duration before the manager steps in.
+	if revoked, err := manager.RevokeHolder("session-1"); err != nil || len(revoked) != 1 {
+		t.Fatalf("revocation = %v, %v; want [call-1]", revoked, err)
+	}
+	if due := manager.expiredCalls(); len(due) != 0 {
+		t.Fatalf("retry before the lease duration = %+v, want none", due)
+	}
+	now = now.Add(11 * time.Second)
+	due := manager.expiredCalls()
+	if len(due) != 1 || due[0].callID != "call-1" {
+		t.Fatalf("due after the lease duration = %+v, want call-1", due)
+	}
+	manager.endExpiredCall(context.Background(), due[0].callID, due[0].record)
 	if callID := <-controller.ended; callID != "call-1" {
 		t.Fatalf("ended call = %q, want call-1", callID)
-	}
-	<-reports
-
-	now = now.Add(time.Hour)
-	if expired := manager.expiredCalls(); len(expired) != 0 {
-		t.Fatalf("failed release was retried without a new call state = %+v", expired)
 	}
 }
 

@@ -416,8 +416,9 @@ func adminOnlyAPIPath(path, method string) bool {
 }
 
 // writeCallRevocationFailure reports that an access change was stored but the
-// user's active calls could not be ended. The administrator must not be told the
-// revocation is complete while a call the user no longer may control is live.
+// user's active calls could not be ended yet. The administrator must not be told
+// the revocation is complete while a call the user no longer may control is
+// live; the call ownership manager keeps ending it until the hardware confirms.
 func (api *API) writeCallRevocationFailure(
 	response http.ResponseWriter,
 	operation string,
@@ -430,7 +431,7 @@ func (api *API) writeCallRevocationFailure(
 		response,
 		http.StatusInternalServerError,
 		"call_revocation_failed",
-		"The change was saved, but the user's active calls could not be ended",
+		"The change was saved, but the user's active calls could not be ended yet; ending them is being retried",
 		"",
 	)
 }

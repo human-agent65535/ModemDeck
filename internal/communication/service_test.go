@@ -1381,7 +1381,8 @@ func TestEndCallTargetsOnlyRequestedCall(t *testing.T) {
 
 	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
 	baseAgent := connectedAgent(now)
-	requestID := stableInternalRequestID("end-call", "browser-lease", "call-app-2")
+	// A zero random source makes the generated request id predictable.
+	requestID := internalRequestIDPrefix + "end-call_00000000000040008000000000000000"
 	baseAgent.actionResult = agentclient.CommandReceipt{
 		RequestID:  requestID,
 		ResourceID: "call-endpoint-2",
@@ -1402,6 +1403,7 @@ func TestEndCallTargetsOnlyRequestedCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	service.random = zeroReader{}
 
 	if err := service.EndCall(context.Background(), "call-app-2"); err != nil {
 		t.Fatalf("EndCall() error = %v", err)
@@ -2406,5 +2408,48 @@ func connectedAgent(observedAt time.Time) *fakeAgent {
 				},
 			}},
 		},
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(buffer []byte) (int, error) {
+	clear(buffer)
+	return len(buffer), nil
+}
+
+func TestEndCallSendsTheHangupAgainAfterAFailedAttempt(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.November, 12, 9, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	agent.actionError = &agentclient.OperationError{
+		Status:  http.StatusServiceUnavailable,
+		Code:    "unavailable",
+		Message: "modem did not hang up",
+	}
+	repository := &fakeRepository{
+		call: store.Call{ID: "call-app-1", Phase: "active"},
+		target: store.CallControlTarget{
+			AppID:          "call-app-1",
+			EndpointCallID: "call-endpoint-1",
+			Phase:          "active",
+		},
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := service.EndCall(context.Background(), "call-app-1"); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("attempt %d: EndCall() error = %v, want ErrUnavailable", attempt, err)
+		}
+		if len(agent.actionRequests) != attempt {
+			t.Fatalf("attempt %d: hangups sent = %d, want %d", attempt, len(agent.actionRequests), attempt)
+		}
+	}
+	if agent.actionRequests[0].RequestID == agent.actionRequests[1].RequestID {
+		t.Fatalf("both attempts used request id %q", agent.actionRequests[0].RequestID)
 	}
 }

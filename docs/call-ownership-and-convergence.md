@@ -218,12 +218,18 @@ bounded WSS transport recovery happens before this ownership grace. The
 constant is not a user setting and there is no adaptive retry state.
 
 If neither media nor control liveness returns before `orphanAt`, the record is
-marked ending and one bounded idempotent end operation is run with a stable
-request ID. There is no ownership-layer retry state: if that one operation
-fails, the record remains occupied/ending until authoritative hardware state
-becomes terminal; it is never transferred. The normal command journal keeps
-the end request idempotent if another convergence path observes the same
-postcondition.
+marked ending and a bounded end operation is run. Explicit revocation marks the
+record ending in the same way, and the revoking request makes the first
+attempt itself. An ending record is never transferred and stays
+occupied/ending until authoritative hardware state becomes terminal.
+
+A failed end operation is repeated: while the record is ending and the
+authoritative snapshot still contains the call, the ownership manager runs the
+end operation again once per orphan grace. Each attempt is its own journaled
+command with a new request ID, so a failed attempt cannot block the next one;
+a hangup is idempotent at the modem, and an attempt that finds the call already
+terminal completes without reaching the hardware. The only retry state is the
+time of the next attempt on the ending record.
 
 No failure detector can both tolerate an arbitrarily long partition and
 identify an abandoned client immediately. The bounded grace is the explicit

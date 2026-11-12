@@ -1749,8 +1749,15 @@ func (s *Service) EndCall(ctx context.Context, callID string) error {
 	if target.Phase == "ended" || target.Phase == "failed" {
 		return nil
 	}
+	// Every attempt is its own journaled command. A hangup is idempotent at the
+	// modem, and an attempt that failed must not stop the next one from being
+	// sent: the call ownership manager repeats EndCall until the call is gone.
+	requestID, err := s.requestID("")
+	if err != nil {
+		return operationError(CodeInternal, "end call", "cannot create a request id", err)
+	}
 	_, err = s.CallAction(ctx, CallActionInput{
-		RequestID: stableInternalRequestID("end-call", "browser-lease", callID),
+		RequestID: internalRequestIDPrefix + "end-call_" + requestID,
 		CallID:    callID,
 		Action:    "hangup",
 	})

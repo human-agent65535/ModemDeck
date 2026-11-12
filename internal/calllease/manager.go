@@ -110,6 +110,10 @@ type record struct {
 	revoked      bool
 	prepareUntil time.Time
 	ending       bool
+	// endRetryAt is when the manager next asks the controller to end an ending
+	// call. An ending call stays tracked, and is asked to end again, until the
+	// authoritative snapshot no longer contains it.
+	endRetryAt time.Time
 }
 
 type Manager struct {
@@ -588,7 +592,7 @@ func (m *Manager) revokeOwned(matches func(*record) bool) []string {
 			}
 			continue
 		}
-		record.ending = true
+		m.beginEndingLocked(record, now)
 		callIDs = append(callIDs, record.callID)
 	}
 	return callIDs
@@ -766,16 +770,34 @@ func (m *Manager) expiredCalls() []expiredCall {
 			continue
 		}
 		index++
-		if record.callID == "" || record.ending ||
+		if record.callID != "" && record.ending {
+			// An earlier attempt to end this call (here, or by the caller that
+			// revoked it) has not removed it from the hardware. Ask again.
+			if !now.Before(record.endRetryAt) {
+				record.endRetryAt = now.Add(m.duration)
+				expired = append(expired, expiredCall{callID: record.callID, record: record})
+			}
+			continue
+		}
+		if record.callID == "" ||
 			record.mediaAlive ||
 			record.orphanAt.IsZero() ||
 			now.Before(record.orphanAt) {
 			continue
 		}
-		record.ending = true
+		m.beginEndingLocked(record, now)
 		expired = append(expired, expiredCall{callID: record.callID, record: record})
 	}
 	return expired
+}
+
+// beginEndingLocked marks a bound call as ending. Whoever marks it makes the
+// first attempt to end it; the manager repeats the attempt every lease duration
+// until the authoritative snapshot drops the call, so a failed hangup can never
+// leave a revoked or abandoned call connected.
+func (m *Manager) beginEndingLocked(record *record, now time.Time) {
+	record.ending = true
+	record.endRetryAt = now.Add(m.duration)
 }
 
 func (m *Manager) endExpiredCall(ctx context.Context, callID string, expected *record) {
@@ -792,7 +814,7 @@ func (m *Manager) endExpiredCall(ctx context.Context, callID string, expected *r
 	err := m.controller.EndCall(releaseContext, callID)
 	cancel()
 	if err != nil && m.report != nil {
-		m.report(fmt.Errorf("end orphaned call %s: %w", callID, err))
+		m.report(fmt.Errorf("end unowned call %s: %w", callID, err))
 	}
 }
 
@@ -1123,7 +1145,7 @@ func (m *Manager) CancelOutgoing(id, holder string) (string, error) {
 		return "", nil
 	}
 	if r.callID != "" {
-		r.ending = true
+		m.beginEndingLocked(r, m.now().UTC())
 		return r.callID, nil
 	}
 	if r.orphanAt.IsZero() {

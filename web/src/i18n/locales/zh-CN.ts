@@ -12,7 +12,7 @@ export default {
     username_conflict: '该用户名已被使用。',
     username_invalid: '该用户名不可用。',
     revision_conflict: '内容已在其他地方被修改，请刷新后重试。',
-    call_revocation_failed: '已保存更改，但未能结束该用户正在进行的通话，请稍后重试。',
+    call_revocation_failed: '更改已保存，但该用户正在进行的通话暂时没能挂断，ModemDeck 会继续尝试挂断。',
     not_found: '该项目已不存在。',
     phone_conflict: '该号码已属于其他联系人。',
     communications_unavailable: '调制解调器服务暂时不可用，请稍后重试。',
