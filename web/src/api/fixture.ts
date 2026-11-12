@@ -2181,7 +2181,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async updateMessageThreads(action, inputs): Promise<void> {
       for (const input of inputs) {
         const thread = fixtureThreadForQuery(input)
-        if (!thread) throw new ApiError('短信会话不存在', 404)
+        if (!thread) throw new ApiError('短信对话不存在', 404)
         switch (action) {
           case 'read':
             thread.unread_count = 0
@@ -2208,7 +2208,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async deleteThread(query: MessageReadInput): Promise<void> {
       const thread = fixtureThreadForQuery(query)
-      if (!thread) throw new ApiError('短信会话不存在', 404)
+      if (!thread) throw new ApiError('短信对话不存在', 404)
       const index = threads.findIndex(item => item.key === thread.key)
       if (index >= 0) threads.splice(index, 1)
       delete messagesByThread[thread.key]
