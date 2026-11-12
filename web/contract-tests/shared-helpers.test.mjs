@@ -26,7 +26,6 @@ import {
   lineFallbackFor,
   lineForKey,
   lineWithKey,
-  RECORD_NAME_FIRST,
   RECORD_NAME_ONLY,
   resetMissingLineFilter,
   resetWorkspaceState,
@@ -515,18 +514,20 @@ test('peer names keep each page\'s order between the record name and the contact
   const unnamed = { number: '+819011112222', lineID: 'line-1' }
   const stranger = { number: '+819099998888', lineID: 'line-1' }
 
-  // Dashboard, Calls, Recordings, the call surface and the incoming-call notification.
-  assert.equal(communicationPeerName(known, RECORD_NAME_FIRST), 'Name On Record')
-  // Messages thread list and header, and the incoming-message notification.
+  // Every page and notification: the name the user saved wins over the record's.
   assert.equal(communicationPeerName(known, CONTACT_NAME_FIRST), 'Saved Contact')
-  assert.equal(communicationPeerName(unnamed, RECORD_NAME_FIRST), 'Saved Contact')
   assert.equal(communicationPeerName(unnamed, CONTACT_NAME_FIRST), 'Saved Contact')
+  // A number with no saved contact still shows the name carried on the record.
+  assert.equal(
+    communicationPeerName({ ...stranger, recordName: 'Name On Record' }, CONTACT_NAME_FIRST),
+    'Name On Record'
+  )
   // Global search shows only the record's name and never looks up the contact's.
   assert.equal(communicationPeerName(known, RECORD_NAME_ONLY), 'Name On Record')
   assert.equal(communicationPeerName(unnamed, RECORD_NAME_ONLY), '090-1111-2222')
   assert.equal(communicationPeerName({ ...unnamed, recordName: '' }, RECORD_NAME_ONLY), '090-1111-2222')
   // Without any name every order falls back to the displayed number.
-  for (const order of [RECORD_NAME_FIRST, CONTACT_NAME_FIRST, RECORD_NAME_ONLY]) {
+  for (const order of [CONTACT_NAME_FIRST, RECORD_NAME_ONLY]) {
     assert.equal(communicationPeerName(stranger, order), displayPhoneNumber(stranger.number, 'line-1'))
   }
 

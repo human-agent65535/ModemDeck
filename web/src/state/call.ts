@@ -18,7 +18,7 @@ import {
   communicationPeerName,
   lineForKey,
   lineLabel,
-  RECORD_NAME_FIRST
+  CONTACT_NAME_FIRST
 } from './workspace'
 import { closeDialer, showCallSurface } from './ui'
 import {
@@ -436,7 +436,7 @@ function showIncomingCallNotification(session: CallSession): void {
 
   const caller = communicationPeerName(
     { number: session.remote_number, lineID: session.line_id, recordName: session.display_name },
-    RECORD_NAME_FIRST
+    CONTACT_NAME_FIRST
   )
   const line = lineForKey(session.line_id)
   showBrowserNotification({

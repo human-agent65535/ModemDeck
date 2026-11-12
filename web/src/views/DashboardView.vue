@@ -97,7 +97,7 @@ import {
   markThreadsRead,
   markThreadsUnread,
   presentModuleLines,
-  RECORD_NAME_FIRST,
+  CONTACT_NAME_FIRST,
   recentIncomingThreadKeys,
   refreshCalls,
   refreshContacts,
@@ -304,14 +304,14 @@ const favoriteContacts = computed(() =>
 function callName(call: CallRecord): string {
   return communicationPeerName(
     { number: call.remote_number, lineID: call.line_id, recordName: call.display_name },
-    RECORD_NAME_FIRST
+    CONTACT_NAME_FIRST
   )
 }
 
 function threadName(thread: MessageThread): string {
   return communicationPeerName(
     { number: thread.peer, lineID: thread.line_id, recordName: thread.contact_name },
-    RECORD_NAME_FIRST
+    CONTACT_NAME_FIRST
   )
 }
 

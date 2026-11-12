@@ -460,9 +460,8 @@ export function displayPhoneNumber(number: string, lineReference = ''): string {
 /** `record` is the name carried on the call or thread; `contact` is the saved contact's. */
 export type PeerNameSource = 'record' | 'contact'
 
-// Pages disagree on whether the record's or the contact's name wins; that waits
-// for a product decision, so each caller names the order it uses.
-export const RECORD_NAME_FIRST: readonly PeerNameSource[] = ['record', 'contact']
+// The name the user saved for a number wins over the name carried on a call or
+// thread, on every page and in notifications.
 export const CONTACT_NAME_FIRST: readonly PeerNameSource[] = ['contact', 'record']
 /** Search results show the record's name without looking up contacts. */
 export const RECORD_NAME_ONLY: readonly PeerNameSource[] = ['record']

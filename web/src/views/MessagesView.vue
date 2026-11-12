@@ -276,7 +276,8 @@ const filteredThreads = computed(() => {
     if (messageFilter.value === 'read' && threadIsUnread(thread)) return false
     if (!query.text) return true
     return matchesCommunicationQuery(query, {
-      text: [thread.contact_name, thread.last_content],
+      // The shown name may be the saved contact's, so both are searchable.
+      text: [displayNameForThread(thread), thread.contact_name, thread.last_content],
       numbers: [thread.peer]
     })
   })

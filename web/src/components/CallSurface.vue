@@ -39,7 +39,7 @@ import {
   displayPhoneNumber,
   lineForKey,
   lineSupports,
-  RECORD_NAME_FIRST
+  CONTACT_NAME_FIRST
 } from '../state/workspace'
 import { knownCallBearerLabel } from '../callBearer'
 import { formatCallElapsed } from '../utils/format'
@@ -265,7 +265,7 @@ const concurrentCalls = computed(() =>
 function callPeerName(call: CallSession): string {
   return communicationPeerName(
     { number: call.remote_number, lineID: call.line_id, recordName: call.display_name },
-    RECORD_NAME_FIRST
+    CONTACT_NAME_FIRST
   )
 }
 function callPeer(call: CallSession): string {

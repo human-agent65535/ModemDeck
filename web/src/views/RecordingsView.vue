@@ -58,7 +58,7 @@ import {
   lineForKey,
   lineKey,
   loadBootstrap,
-  RECORD_NAME_FIRST,
+  CONTACT_NAME_FIRST,
   refreshContacts,
   resetMissingLineFilter
 } from '../state/workspace'
@@ -137,7 +137,7 @@ function displayName(recording: RecordingEntry): string {
       lineID: recording.call.line_id,
       recordName: recording.call.display_name
     },
-    RECORD_NAME_FIRST
+    CONTACT_NAME_FIRST
   )
 }
 

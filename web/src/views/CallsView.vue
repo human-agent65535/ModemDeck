@@ -74,7 +74,7 @@ import {
   loadContacts,
   markMissedCallRead,
   markMissedCallUnread,
-  RECORD_NAME_FIRST,
+  CONTACT_NAME_FIRST,
   refreshCalls,
   refreshContacts,
   resetMissingLineFilter,
@@ -164,7 +164,8 @@ const filteredCalls = computed(() => {
       const matchesSearch =
         !query.text ||
         matchesCommunicationQuery(query, {
-          text: [call.display_name],
+          // The shown name may be the saved contact's, so both are searchable.
+          text: [displayName(call), call.display_name],
           numbers: [call.remote_number]
         })
       return (
@@ -255,7 +256,7 @@ function setFavoriteFilter(value: boolean): void {
 function displayName(call: CallRecord): string {
   return communicationPeerName(
     { number: call.remote_number, lineID: call.line_id, recordName: call.display_name },
-    RECORD_NAME_FIRST
+    CONTACT_NAME_FIRST
   )
 }
 

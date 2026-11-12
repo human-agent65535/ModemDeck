@@ -5,7 +5,7 @@ import { MicOff, PhoneIncoming } from '@lucide/vue'
 import { callMediaState } from '../state/callMedia'
 import { presentedCallSession } from '../state/callTestRuntime'
 import { showCallSurface } from '../state/ui'
-import { communicationPeerName, RECORD_NAME_FIRST } from '../state/workspace'
+import { communicationPeerName, CONTACT_NAME_FIRST } from '../state/workspace'
 import { formatCallElapsed } from '../utils/format'
 
 // A minimized call stays visible in the header, like Meet's or Slack's call pill,
@@ -22,7 +22,7 @@ const peer = computed(() => {
   return (
     communicationPeerName(
       { number: call.remote_number, lineID: call.line_id, recordName: call.display_name },
-      RECORD_NAME_FIRST
+      CONTACT_NAME_FIRST
     ) || t('calls.unknownNumber')
   )
 })
