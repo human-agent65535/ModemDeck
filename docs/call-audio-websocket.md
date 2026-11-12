@@ -20,7 +20,7 @@ after the user answers. Answering posts `{ "language": "en-US" }` (or the select
 locale) to `/api/v1/call-tests`, which creates and claims a test bound to that
 authenticated browser session. `GET /api/v1/call-tests/{id}/status` supplies the
 guide/capture/playback phase and audio counters and renews the control lease.
-`POST /api/v1/call-tests/{id}/hangup` ends it. Tests expire after 60 seconds, keep
+`POST /api/v1/call-tests/{id}/hangup` ends it. A test that is not answered expires 35 seconds after it is created; answering it gives it 60 seconds from that moment. Tests keep
 captured audio only in memory, and never use a SIM or create call/recording history.
 A real call interrupts the diagnostic. Page navigation or minimizing the call
 window does not end the test; notifications still require the page to stay open.
