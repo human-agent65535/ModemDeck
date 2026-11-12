@@ -29,7 +29,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>ModemDeck uses the camera to scan the pairing QR code shown in Web settings.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>ModemDeck imports contacts you choose from this device into your paired server.</string>
+	<string>ModemDeck reads the contacts on this device and, after you confirm, imports them into your paired server.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ModemDeck uses the microphone for calls you place or answer.</string>
 	<key>UIBackgroundModes</key>

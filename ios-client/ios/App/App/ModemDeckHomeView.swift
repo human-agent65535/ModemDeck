@@ -290,7 +290,7 @@ struct ModemDeckHomeView: View {
             accessibilityID: "activity-\(item.id)",
             deleteMessage: {
                 switch item {
-                case .message: return controller.text("该会话中的全部短信将被永久删除。", "All messages in this conversation will be permanently deleted.")
+                case .message: return controller.text("该对话中的全部短信将被永久删除。", "All messages in this conversation will be permanently deleted.")
                 case .call: return controller.text("将永久删除此通话记录及其录音。", "This permanently deletes the call record and its recordings.")
                 }
             }(),

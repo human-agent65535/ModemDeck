@@ -869,7 +869,7 @@ struct ModemDeckContactDetailView: View {
                                         preferredLineID: displayedContact.preferredLineId
                                     )
                                 } label: {
-                                    Label(controller.text("消息", "Message"), systemImage: "message.fill")
+                                    Label(controller.text("短信", "Message"), systemImage: "message.fill")
                                         .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.detailActionHeight)
                                 }
                                 .buttonStyle(.bordered)
@@ -1817,7 +1817,7 @@ struct ModemDeckMessagesView: View {
             }
         }
         .alert(
-            controller.text("删除所选会话？", "Delete Selected Conversations?"),
+            controller.text("删除所选对话？", "Delete Selected Conversations?"),
             isPresented: $confirmBatchDelete
         ) {
             Button(controller.text("取消", "Cancel"), role: .cancel) {}
@@ -1826,7 +1826,7 @@ struct ModemDeckMessagesView: View {
             }
         } message: {
             Text(controller.text(
-                "将永久删除 \(selectedThreads.count) 个短信会话。",
+                "将永久删除 \(selectedThreads.count) 个短信对话。",
                 "This permanently deletes \(selectedThreads.count) \(selectedThreads.count == 1 ? "conversation" : "conversations")."
             ))
         }
@@ -1849,7 +1849,7 @@ struct ModemDeckMessagesView: View {
     private var messageList: some View {
         VStack(spacing: 0) {
             ModemDeckCollectionHeader(
-                controller: controller, title: controller.text("消息", "Messages"), query: $query, selecting: selecting,
+                controller: controller, title: controller.text("短信", "Messages"), query: $query, selecting: selecting,
                 primary: .init(icon: "square.and.pencil", title: controller.text("新建短信", "New Message"),
                                disabled: !controller.isOnline) { composeOpen = true }
             ) {
@@ -1887,7 +1887,7 @@ struct ModemDeckMessagesView: View {
         } else {
             ModemDeckStateView(
                 icon: "tray",
-                title: controller.text("选择会话", "Select a conversation"),
+                title: controller.text("选择对话", "Select a conversation"),
                 detail: controller.text("短信会显示在这里。", "Messages appear here."),
                 fillsPane: true
             )
@@ -1929,7 +1929,7 @@ struct ModemDeckMessagesView: View {
     @ViewBuilder
     private var threadList: some View {
         if store.loading && store.threads.isEmpty {
-            ProgressView(controller.text("正在载入消息…", "Loading messages…"))
+            ProgressView(controller.text("正在载入短信…", "Loading messages…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if !store.errorMessage.isEmpty && store.threads.isEmpty {
             ModemDeckLoadErrorState(
@@ -1943,7 +1943,7 @@ struct ModemDeckMessagesView: View {
                 ModemDeckStateView(
                     icon: query.isEmpty ? "message" : "magnifyingglass",
                     title: store.threads.isEmpty
-                        ? controller.text("还没有消息", "No Messages Yet")
+                        ? controller.text("还没有短信", "No Messages Yet")
                         : controller.text("没有匹配结果", "No Matches"),
                     detail: store.threads.isEmpty
                         ? controller.text("收到或发出短信后会显示在这里。", "Sent and received messages appear here.")
@@ -1975,7 +1975,7 @@ struct ModemDeckMessagesView: View {
             selected: selecting ? selectedIDs.contains(thread.id) : usesSplitWorkspace && selectedThreadID == thread.id,
             enabled: !batchBusy, unread: unread, favorite: thread.favorite,
             accessibilityID: "message-\(thread.id)",
-            deleteMessage: controller.text("该会话中的全部短信将被永久删除。", "All messages in this conversation will be permanently deleted."),
+            deleteMessage: controller.text("该对话中的全部短信将被永久删除。", "All messages in this conversation will be permanently deleted."),
             open: {
                 if selecting {
                     if !selectedIDs.insert(thread.id).inserted { selectedIDs.remove(thread.id) }
@@ -2407,7 +2407,7 @@ struct ModemDeckConversationView: View {
                 channel: .message,
                 contactBound: contactBound,
                 showsBackButton: showsBackButton,
-                backTitle: controller.text("返回消息", "Back to messages"),
+                backTitle: controller.text("返回短信", "Back to messages"),
                 moreActionsTitle: controller.text("更多操作", "More actions"),
                 actions: threadHeaderActions,
                 copyItems: [
@@ -2442,7 +2442,7 @@ struct ModemDeckConversationView: View {
                                     if store.loadingOlder {
                                         ProgressView()
                                     } else {
-                                        Text(controller.text("载入更早消息", "Load Earlier Messages"))
+                                        Text(controller.text("载入更早短信", "Load Earlier Messages"))
                                     }
                                 }
                                 .font(.footnote.weight(.medium))
@@ -2454,7 +2454,7 @@ struct ModemDeckConversationView: View {
                             if store.messages.isEmpty {
                                 ModemDeckStateView(
                                     icon: "message",
-                                    title: controller.text("没有消息", "No Messages"),
+                                    title: controller.text("没有短信", "No Messages"),
                                     detail: controller.text("发送第一条短信。", "Send the first message.")
                                 )
                             }
@@ -2548,7 +2548,7 @@ struct ModemDeckConversationView: View {
                                 acknowledgeReadIfNeeded(through: readThroughMessageID, force: true)
                             } label: {
                                 Label(
-                                    controller.text("新消息", "New Messages"),
+                                    controller.text("新短信", "New Messages"),
                                     systemImage: "arrow.down"
                                 )
                                 .font(.footnote.weight(.semibold))
@@ -2658,13 +2658,13 @@ struct ModemDeckConversationView: View {
             }
         }
         .alert(
-            controller.text("删除短信会话？", "Delete Conversation?"),
+            controller.text("删除短信对话？", "Delete Conversation?"),
             isPresented: $confirmDelete
         ) {
             Button(controller.text("取消", "Cancel"), role: .cancel) {}
             Button(controller.text("删除", "Delete"), role: .destructive) { deleteThread() }
         } message: {
-            Text(controller.text("该会话中的短信将被永久删除。", "Messages in this conversation will be permanently deleted."))
+            Text(controller.text("该对话中的短信将被永久删除。", "Messages in this conversation will be permanently deleted."))
         }
     }
 
@@ -2739,7 +2739,7 @@ struct ModemDeckConversationView: View {
     private var unreadDivider: some View {
         HStack(spacing: 10) {
             Rectangle().fill(Color.mdUnreadDivider).frame(height: 1)
-            Text(controller.text("未读消息", "Unread Messages"))
+            Text(controller.text("未读短信", "Unread Messages"))
                 .font(.caption2.weight(.semibold))
                 .foregroundColor(.mdAccentStrong)
                 .fixedSize()
@@ -2848,7 +2848,7 @@ struct ModemDeckConversationView: View {
             ModemDeckHeaderAction(
                 id: "delete",
                 icon: "trash",
-                title: controller.text("删除会话", "Delete conversation"),
+                title: controller.text("删除对话", "Delete conversation"),
                 color: .mdDanger,
                 disabled: mutationBusy || !controller.isOnline,
                 destructive: true

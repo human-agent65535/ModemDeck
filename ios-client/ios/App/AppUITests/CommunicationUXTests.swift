@@ -112,10 +112,10 @@ final class CommunicationUXTests: XCTestCase {
         if id == "settings" { return app.buttons["open-settings"].firstMatch }
         let done = app.buttons["settings-done"]
         if done.exists { done.tap() }
-        let title = ["home": "最近", "messages": "消息", "contacts": "联系人", "calls": "通话"][id]!
+        let title = ["home": "最近", "messages": "短信", "contacts": "联系人", "calls": "通话"][id]!
         let tab = app.tabBars.buttons[title]
         if tab.exists { return tab }
-        // Badges extend the label ("消息, 1"), in the sidebar and in the floating tab bar.
+        // Badges extend the label ("短信, 1"), in the sidebar and in the floating tab bar.
         let labelled = NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, title + ",")
         let sidebarItem = app.collectionViews.cells.matching(labelled).firstMatch
         if sidebarItem.exists { return sidebarItem }
@@ -577,7 +577,7 @@ final class CommunicationUXTests: XCTestCase {
             let rotated = NSPredicate { _, _ in (app.frame.width > app.frame.height) == expectedLandscape }
             await fulfillment(of: [XCTNSPredicateExpectation(predicate: rotated, object: app)], timeout: 8)
             XCTAssertTrue(draft.waitForExistence(timeout: 5), "Rotation must retain the visible conversation and draft")
-            XCTAssertFalse(app.staticTexts["选择会话"].exists)
+            XCTAssertFalse(app.staticTexts["选择对话"].exists)
             capture(expectedLandscape ? "fixed-draft-landscape" : "fixed-draft-portrait", app: app)
         }
     }
@@ -624,7 +624,7 @@ final class CommunicationUXTests: XCTestCase {
         XCTAssertTrue(app.textFields["短信内容"].waitForExistence(timeout: 6))
         XCTAssertTrue(row.waitForExistence(timeout: 6))
         XCTAssertTrue(row.isSelected, "The open conversation must be selected in the list")
-        XCTAssertFalse(app.staticTexts["选择会话"].exists)
+        XCTAssertFalse(app.staticTexts["选择对话"].exists)
         capture("fixed-compact-to-split-selection", app: app)
 
         XCUIDevice.shared.orientation = .portrait
@@ -728,11 +728,11 @@ final class CommunicationUXTests: XCTestCase {
         let row = app.buttons["message-\(threadID)"]
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         row.tap()
-        XCTAssertTrue(app.staticTexts["未读消息"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["未读消息"].isHittable, "The first unread marker must be visible without scrolling")
+        XCTAssertTrue(app.staticTexts["未读短信"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["未读短信"].isHittable, "The first unread marker must be visible without scrolling")
         XCTAssertTrue(app.staticTexts["历史 UAT 消息 8"].isHittable)
         // The conversation scrolls under the translucent navigation bar; measure from its edge.
-        XCTAssertLessThan(app.staticTexts["未读消息"].frame.minY - app.navigationBars.firstMatch.frame.maxY, 40,
+        XCTAssertLessThan(app.staticTexts["未读短信"].frame.minY - app.navigationBars.firstMatch.frame.maxY, 40,
                           "The unread target must be aligned near the top of the conversation")
         capture("message-unread-anchor-and-day-groups", app: app)
 
@@ -883,7 +883,7 @@ final class CommunicationUXTests: XCTestCase {
         section(app, "calls").tap()
         XCTAssertTrue(app.buttons["call-uat-call-missed"].waitForExistence(timeout: 5))
         app.buttons["call-uat-call-missed"].tap()
-        let message = contentButton(app, "消息")
+        let message = contentButton(app, "短信")
         XCTAssertTrue(message.waitForExistence(timeout: 5))
         message.tap()
         XCTAssertTrue(app.staticTexts["发送线路"].waitForExistence(timeout: 5), "A new peer shows the sending line")

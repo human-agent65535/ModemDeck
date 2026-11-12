@@ -1746,7 +1746,7 @@ struct ModemDeckCallDetailView: View {
                             )
                         } label: {
                             ModemDeckDetailAction(
-                                title: controller.text("消息", "Message"),
+                                title: controller.text("短信", "Message"),
                                 icon: "message.fill"
                             )
                         }
@@ -2195,7 +2195,7 @@ struct ModemDeckRecordingDetailView: View {
                             )
                         } label: {
                             ModemDeckDetailAction(
-                                title: controller.text("消息", "Message"),
+                                title: controller.text("短信", "Message"),
                                 icon: "message.fill"
                             )
                         }

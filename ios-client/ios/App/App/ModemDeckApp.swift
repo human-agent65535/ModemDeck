@@ -1418,7 +1418,7 @@ extension ModemDeckSection {
     @MainActor func title(_ controller: ModemDeckSessionController) -> String {
         switch self {
         case .home: return controller.text("最近", "Recents")
-        case .messages: return controller.text("消息", "Messages")
+        case .messages: return controller.text("短信", "Messages")
         case .contacts: return controller.text("联系人", "Contacts")
         case .calls: return controller.text("通话", "Calls")
         case .settings: return controller.text("设置", "Settings")

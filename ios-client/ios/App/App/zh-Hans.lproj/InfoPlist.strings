@@ -1,4 +1,4 @@
 /* Chinese (Simplified) permission prompts; the English text is the default in Info.plist. */
 "NSCameraUsageDescription" = "ModemDeck 使用相机扫描 Web 设置中显示的配对二维码。";
-"NSContactsUsageDescription" = "ModemDeck 会将你在此设备上选择的联系人导入到已配对的服务器。";
+"NSContactsUsageDescription" = "ModemDeck 会读取此设备的通讯录，在你确认后导入到已配对的服务器。";
 "NSMicrophoneUsageDescription" = "ModemDeck 在你拨打或接听电话时使用麦克风。";

@@ -604,15 +604,21 @@ private struct ModemDeckPreferencesSettingsView: View {
         [
             .init(id: "auto", title: controller.text("自动", "Automatic")),
             .init(id: "zh-CN", title: "简体中文"),
-            .init(id: "zh-TW", title: "繁體中文"),
-            .init(id: "en-US", title: "English"),
-            .init(id: "ja-JP", title: "日本語"),
-            .init(id: "vi-VN", title: "Tiếng Việt"),
-            .init(id: "es-ES", title: "Español"),
-            .init(id: "de-DE", title: "Deutsch"),
-            .init(id: "fr-FR", title: "Français"),
-            .init(id: "pt-BR", title: "Português")
-        ]
+            .init(id: "en-US", title: "English")
+        ] + webOnlyLanguageChoice
+    }
+
+    /// This app is written in Simplified Chinese and English. The account's language is
+    /// shared with the Web client, which has more; one of those is shown as the current
+    /// choice so it is not silently replaced, but it is not offered here.
+    private static let webOnlyLanguages = [
+        "zh-TW": "繁體中文", "ja-JP": "日本語", "vi-VN": "Tiếng Việt", "es-ES": "Español",
+        "de-DE": "Deutsch", "fr-FR": "Français", "pt-BR": "Português"
+    ]
+
+    private var webOnlyLanguageChoice: [ModemDeckSettingsChoice] {
+        guard let name = Self.webOnlyLanguages[language] else { return [] }
+        return [.init(id: language, title: name)]
     }
 
     private var lineChoices: [ModemDeckSettingsChoice] {
@@ -653,8 +659,8 @@ private struct ModemDeckPreferencesSettingsView: View {
             ModemDeckSettingsModule(
                 title: controller.text("应用偏好", "App Preferences"),
                 footer: controller.text(
-                    "语言和默认线路会同步到同一账户的 Web 与 Apple 设备。",
-                    "Language and default line sync across Web and Apple devices on this account."
+                    "语言和默认线路会同步到同一账户的 Web 与 Apple 设备。本应用提供简体中文和英文，其他语言只在 Web 上显示。",
+                    "Language and default line sync across Web and Apple devices on this account. This app is in Simplified Chinese and English; other languages appear on the Web only."
                 )
             ) {
                 ModemDeckSettingsMenuRow(
@@ -1499,7 +1505,7 @@ private struct ModemDeckDevicesSettingsView: View {
             }
 
             ModemDeckSettingsModule(
-                title: controller.text("调制解调器", "Modems"),
+                title: controller.text("模组", "Modems"),
                 footer: controller.text(
                     "设备配置仍由 Web 管理台完成；这里显示当前运行状态。",
                     "Configuration remains in the Web console; this page shows live status."

@@ -33,14 +33,15 @@ enum ModemDeckAPIError: LocalizedError {
         case .invalidResponse:
             return text("ModemDeck 返回了无法识别的响应，请稍后重试。", "ModemDeck returned an invalid response. Try again shortly.")
         case .server(let status, let code, let message):
-            // Server text is written for developers; known codes and status classes get
-            // a translated, actionable message and anything else keeps the server text.
+            // Server text is written for developers and never shown: known codes and status
+            // classes get a translated, actionable message, anything else a plain one.
             if let known = Self.knownMessage(code: code) { return known }
             switch status {
             case 401: return text("登录已过期，请重新配对或登录。", "Your session has expired. Pair or sign in again.")
             case 403: return text("你没有执行此操作的权限。", "You don't have permission to do this.")
             case 500...: return text("ModemDeck 出现问题，请稍后重试。", "ModemDeck ran into a problem. Try again in a moment.")
-            default: return message
+            // Anything else is developer text in one language; say plainly that it failed.
+            default: return text("请求未能完成，请稍后重试。", "The request couldn't be completed. Try again.")
             }
         }
     }
@@ -58,7 +59,7 @@ enum ModemDeckAPIError: LocalizedError {
         case "phone_conflict":
             return text("该号码已属于其他联系人。", "This number already belongs to another contact.")
         case "communications_unavailable":
-            return text("调制解调器服务暂时不可用，请稍后重试。", "The modem service is unavailable right now. Try again shortly.")
+            return text("模组服务暂时不可用，请稍后重试。", "The modem service is unavailable right now. Try again shortly.")
         case "media_in_use":
             return text("通话音频正在其他设备上使用。", "Call audio is in use on another device.")
         case "call_lease_unavailable":
@@ -70,7 +71,7 @@ enum ModemDeckAPIError: LocalizedError {
         case "network_rejected":
             return text("移动网络拒绝了此请求。", "The mobile network rejected this request.")
         case "not_supported":
-            return text("此调制解调器不支持该操作。", "This modem doesn't support that.")
+            return text("此模组不支持该操作。", "This modem doesn't support that.")
         case "invalid_current_password":
             return text("当前密码不正确。", "The current password is incorrect.")
         case "password_too_short":
