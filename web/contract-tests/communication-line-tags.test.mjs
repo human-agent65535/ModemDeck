@@ -82,20 +82,18 @@ test('message rows and conversation detail identify the original line', async ()
 
   assert.match(source, /import MessageThreadListItem from/)
   assert.match(row, /import LineTag from '\.\/LineTag\.vue'/)
-  assert.match(source, /function threadLineFallback\(thread: MessageThread\)/)
-  assert.match(
-    source,
-    /lines\.value\.find\(line => lineKey\(line\) === thread\.line_id\)/
-  )
+  // Fallback text and the attached-only lookup are shared by state/workspace.ts.
+  assert.match(source, /lineFallbackFor,/)
+  assert.match(source, /attachedLineForKey\(selectedThread\.value\.line_id\)/)
   assert.doesNotMatch(source, /createLineLookup|findLine|thread\.(?:local_phone|imsi|iccid)/)
   assert.match(
     source,
-    /<MessageThreadListItem[\s\S]*?:line="lineTagLine\(lineForThread\(thread\), thread\.line_id\)"[\s\S]*?:line-fallback="threadLineFallback\(thread\)"/
+    /<MessageThreadListItem[\s\S]*?:line="lineTagLine\(lineForKey\(thread\.line_id\), thread\.line_id\)"[\s\S]*?:line-fallback="lineFallbackFor\(thread\.line_id\)"/
   )
   assert.match(row, /<LineTag :line="line" :fallback="lineFallback"/)
   assert.match(
     source,
-    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.line_id\)"[\s\S]*?:line-fallback="threadLineFallback\(selectedThread\)"/
+    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForKey\(selectedThread\.line_id\), selectedThread\.line_id\)"[\s\S]*?:line-fallback="lineFallbackFor\(selectedThread\.line_id\)"/
   )
 })
 
@@ -108,17 +106,16 @@ test('call rows and call detail identify the original line', async () => {
   assert.match(source, /import CallHistoryListItem from/)
   assert.match(source, /import LineTag from '\.\.\/components\/LineTag\.vue'/)
   assert.match(row, /import LineTag from '\.\/LineTag\.vue'/)
-  assert.match(source, /function lineForCall\(call: CallRecord\)/)
-  assert.match(source, /function callLineFallback\(call: CallRecord\)/)
-  assert.match(source, /return lineForKey\(call\.line_id\)/)
+  assert.match(source, /lineFallbackFor,/)
+  assert.match(source, /const callLine = lineForKey\(call\.line_id\)/)
   assert.match(
     source,
-    /<CallHistoryListItem[\s\S]*?:line="lineTagLine\(lineForCall\(call\), call\.line_id\)"[\s\S]*?:line-fallback="callLineFallback\(call\)"/
+    /<CallHistoryListItem[\s\S]*?:line="lineTagLine\(lineForKey\(call\.line_id\), call\.line_id\)"[\s\S]*?:line-fallback="lineFallbackFor\(call\.line_id\)"/
   )
   assert.match(row, /<LineTag :line="line" :fallback="lineFallback"/)
   assert.match(
     source,
-    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForCall\(selected\), selected\.line_id\)"[\s\S]*?:line-fallback="callLineFallback\(selected\)"/
+    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForKey\(selected\.line_id\), selected\.line_id\)"[\s\S]*?:line-fallback="lineFallbackFor\(selected\.line_id\)"/
   )
   assert.match(source, /function actionLineKey\(call: CallRecord\)/)
   assert.match(
@@ -134,15 +131,14 @@ test('recording rows and recording detail identify the call line', async () => {
   const source = await readFile(recordingsView, 'utf8')
 
   assert.match(source, /import LineTag from '\.\.\/components\/LineTag\.vue'/)
-  assert.match(source, /function lineForRecording\(recording: RecordingEntry\)/)
-  assert.match(source, /function recordingLineFallback\(recording: RecordingEntry\)/)
+  assert.match(source, /lineFallbackFor,/)
   assert.match(
     source,
-    /<LineTag[\s\S]*?:line="lineTagLine\(lineForRecording\(recording\), recording\.call\.line_id\)"[\s\S]*?:fallback="recordingLineFallback\(recording\)"/
+    /<LineTag[\s\S]*?:line="lineTagLine\(lineForKey\(recording\.call\.line_id\), recording\.call\.line_id\)"[\s\S]*?:fallback="lineFallbackFor\(recording\.call\.line_id\)"/
   )
   assert.match(
     source,
-    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForRecording\(selected\), selected\.call\.line_id\)"[\s\S]*?:line-fallback="recordingLineFallback\(selected\)"/
+    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForKey\(selected\.call\.line_id\), selected\.call\.line_id\)"[\s\S]*?:line-fallback="lineFallbackFor\(selected\.call\.line_id\)"/
   )
 })
 
@@ -159,9 +155,9 @@ test('call and recording histories can be filtered by communication line', async
     assert.match(source, /<LineSelector[\s\S]*?v-model="lineFilterKey"[\s\S]*?include-all/)
   }
   assert.match(calls, /const filteredLine =[\s\S]*?lineFilterKey\.value === 'all'/)
-  assert.match(calls, /const callLine = lineForCall\(call\)/)
+  assert.match(calls, /const callLine = lineForKey\(call\.line_id\)/)
   assert.match(recordings, /const filteredRecordings = computed/)
-  assert.match(recordings, /lineForRecording\(recording\)/)
+  assert.match(recordings, /lineForKey\(recording\.call\.line_id\)/)
   assert.match(calls, /t\('calls\.allLinesDescription'\)/)
   assert.match(recordings, /t\('recordings\.allLinesDescription'\)/)
 })
@@ -175,11 +171,11 @@ test('dashboard recent activity retains line identity and delegates detail surfa
 
   assert.match(
     source,
-    /<MessageThreadListItem[\s\S]*?:line="lineTagLine\(lineForThread\(activity\.thread\), activity\.thread\.line_id\)"[\s\S]*?:line-fallback="threadLineFallback\(activity\.thread\)"/
+    /<MessageThreadListItem[\s\S]*?:line="lineTagLine\(lineForKey\(activity\.thread\.line_id\), activity\.thread\.line_id\)"[\s\S]*?:line-fallback="lineFallbackFor\(activity\.thread\.line_id\)"/
   )
   assert.match(
     source,
-    /<CallHistoryListItem[\s\S]*?:line="lineTagLine\(lineForCall\(activity\.call\), activity\.call\.line_id\)"[\s\S]*?:line-fallback="callLineFallback\(activity\.call\)"/
+    /<CallHistoryListItem[\s\S]*?:line="lineTagLine\(lineForKey\(activity\.call\.line_id\), activity\.call\.line_id\)"[\s\S]*?:line-fallback="lineFallbackFor\(activity\.call\.line_id\)"/
   )
   assert.match(
     source,
@@ -191,10 +187,10 @@ test('dashboard recent activity retains line identity and delegates detail surfa
   )
   assert.match(
     messages,
-    /:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.line_id\)"/
+    /:line="lineTagLine\(lineForKey\(selectedThread\.line_id\), selectedThread\.line_id\)"/
   )
   assert.match(
     calls,
-    /:line="lineTagLine\(lineForCall\(selected\), selected\.line_id\)"/
+    /:line="lineTagLine\(lineForKey\(selected\.line_id\), selected\.line_id\)"/
   )
 })

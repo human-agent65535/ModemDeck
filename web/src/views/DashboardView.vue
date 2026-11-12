@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -58,6 +58,7 @@ import { selectDeviceConfiguration } from '../state/deviceConfiguration'
 import { loadNetwork, networkState } from '../state/network'
 import {
   forgetCallRecordings,
+  playableRecordingCallIDs,
   recordingCatalogState,
   refreshRecordingWorkspace
 } from '../state/recording'
@@ -71,6 +72,7 @@ import {
   contactEditingAvailable,
   contactForNumber,
   contactsResource,
+  defaultLineID,
   deleteCall,
   deleteCalls,
   deleteMessageThread,
@@ -79,6 +81,7 @@ import {
   displayPhoneNumber,
   displayModuleLines,
   lineCanPlaceVoiceCall,
+  lineFallbackFor,
   lineForKey,
   lineKey,
   loadBootstrap,
@@ -111,7 +114,7 @@ import {
   isVoiceServiceReady
 } from '../utils/operatorNetwork'
 import { primaryPhone, primaryPhoneDestination } from '../utils/format'
-import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
+import { lineTagLine } from '../utils/lineIdentity'
 import { userErrorMessage } from '../utils/errorMessage'
 
 const route = useRoute()
@@ -128,9 +131,6 @@ const presentModules = computed(() =>
   presentModuleLines(lines.value, devicesResource.data)
 )
 const contactLines = computed(() => lines.value.filter(line => Boolean(lineKey(line))))
-const defaultLineID = computed(
-  () => bootstrapResource.data?.line_settings.default_line_id || ''
-)
 const selectionKey = computed(() =>
   typeof route.query.item === 'string' ? route.query.item : ''
 )
@@ -314,34 +314,8 @@ function threadName(thread: MessageThread): string {
   )
 }
 
-function lineForCall(call: CallRecord): LineSummary | undefined {
-  return lineForKey(call.line_id)
-}
-
-function lineForThread(thread: MessageThread): LineSummary | undefined {
-  return lineForKey(thread.line_id)
-}
-
 function avatarForNumber(number: string): string {
   return contactForNumber(number)?.avatar || ''
-}
-
-function callLineFallback(call: CallRecord): string {
-  return lineTagFallback(
-    lineForCall(call),
-    lines.value,
-    defaultLineID.value,
-    call.line_id
-  )
-}
-
-function threadLineFallback(thread: MessageThread): string {
-  return lineTagFallback(
-    lineForThread(thread),
-    lines.value,
-    defaultLineID.value,
-    thread.line_id
-  )
 }
 
 function activityHasReadState(activity: CommunicationActivity): boolean {
@@ -352,12 +326,6 @@ function activityIsUnread(activity: CommunicationActivity): boolean {
   return activity.kind === 'message'
     ? threadIsUnread(activity.thread)
     : activity.call.missed && !activity.call.read
-}
-
-function hasPlayableRecording(call: CallRecord): boolean {
-  return recordingCatalogState.data.some(
-    recording => recording.call_id === call.id && recording.playable
-  )
 }
 
 function recordingCount(call: CallRecord): number {
@@ -595,10 +563,6 @@ function failureMessage(error: unknown): string {
   return userErrorMessage(error, t('runtime.requestFailed'))
 }
 
-function onSelectionKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape' && selection.active.value) selection.exit()
-}
-
 function selectOverview(): void {
   composingMessage.value = false
   void router.push({ name: 'dashboard', query: { item: 'overview' } })
@@ -714,12 +678,7 @@ function loadDashboard(): void {
 watch(activities, items => selection.reconcile(items))
 
 onMounted(() => {
-  window.addEventListener('keydown', onSelectionKeydown)
   loadDashboard()
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onSelectionKeydown)
 })
 </script>
 
@@ -857,8 +816,8 @@ onBeforeUnmount(() => {
               :contact-bound="Boolean(
                 activity.thread.contact_id || contactForNumber(activity.thread.peer)
               )"
-              :line="lineTagLine(lineForThread(activity.thread), activity.thread.line_id)"
-              :line-fallback="threadLineFallback(activity.thread)"
+              :line="lineTagLine(lineForKey(activity.thread.line_id), activity.thread.line_id)"
+              :line-fallback="lineFallbackFor(activity.thread.line_id)"
               :selected="selectionKey === activity.key"
               :favorite-interactive="false"
               @select="selectActivity(activity)"
@@ -873,10 +832,10 @@ onBeforeUnmount(() => {
                 activity.call.contact_id ||
                   contactForNumber(activity.call.remote_number)
               )"
-              :line="lineTagLine(lineForCall(activity.call), activity.call.line_id)"
-              :line-fallback="callLineFallback(activity.call)"
+              :line="lineTagLine(lineForKey(activity.call.line_id), activity.call.line_id)"
+              :line-fallback="lineFallbackFor(activity.call.line_id)"
               :selected="selectionKey === activity.key"
-              :has-recording="hasPlayableRecording(activity.call)"
+              :has-recording="playableRecordingCallIDs.has(activity.call.id)"
               @select="selectActivity(activity)"
             />
           </SwipeActionRow>

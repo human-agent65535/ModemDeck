@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -51,6 +51,7 @@ import {
   contactsResource,
   contactsPagination,
   contactEditingAvailable,
+  defaultLineID,
   deleteContact,
   deleteContacts,
   lineKey,
@@ -62,6 +63,7 @@ import {
   saveContact
 } from '../state/workspace'
 import { phoneDestination, primaryPhone, primaryPhoneDestination } from '../utils/format'
+import { contactInputFromContact } from '../utils/contactInput'
 import { userErrorMessage } from '../utils/errorMessage'
 import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
 
@@ -122,9 +124,6 @@ const searchedPhone = computed(() => {
 })
 const contactLines = computed(
   () => bootstrapResource.data?.lines.filter(line => Boolean(lineKey(line))) || []
-)
-const defaultLineID = computed(
-  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 const batchContacts = computed(() => selection.selected(filteredContacts.value))
 
@@ -230,31 +229,13 @@ async function batchDelete(): Promise<void> {
   }
 }
 
-function onSelectionKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape' && selection.active.value) selection.exit()
-}
-
 async function toggleFavorite(contact: Contact): Promise<void> {
   if (favoritePending.value) return
   favoritePending.value = true
   favoriteError.value = ''
   try {
     await saveContact(
-      {
-        display_name: contact.display_name,
-        avatar: contact.avatar,
-        favorite: !contact.favorite,
-        notes: contact.notes,
-        preferred_line_id: contact.preferred_line_id,
-        revision: contact.revision,
-        phones: contact.phones.map(phone => ({
-          id: phone.id,
-          label: phone.label,
-          number: phone.number,
-          region: phone.region,
-          primary: phone.primary
-        }))
-      },
+      contactInputFromContact(contact, { favorite: !contact.favorite }),
       contact.id
     )
   } catch (error) {
@@ -296,12 +277,7 @@ function preferredLine(contact: Contact) {
 }
 
 onMounted(() => {
-  window.addEventListener('keydown', onSelectionKeydown)
   void waitForInitialLoad([() => loadBootstrap(), () => refreshContacts()])
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onSelectionKeydown)
 })
 </script>
 
@@ -650,11 +626,8 @@ onBeforeUnmount(() => {
 }
 
 .contact-favorite-mark {
-  color: var(--favorite);
-}
-
-.contact-favorite-mark {
   flex: 0 0 auto;
+  color: var(--favorite);
 }
 
 .contact-delete-error {

@@ -17,9 +17,10 @@ async function source() {
 }
 
 test('call history marks only calls with playable recordings', async () => {
-  const [calls, row] = await Promise.all([
+  const [calls, row, recording] = await Promise.all([
     source(),
-    readFile(callHistoryListItem, 'utf8')
+    readFile(callHistoryListItem, 'utf8'),
+    readFile(new URL('../src/state/recording.ts', import.meta.url), 'utf8')
   ])
 
   assert.match(calls, /import CallHistoryListItem from/)
@@ -30,14 +31,14 @@ test('call history marks only calls with playable recordings', async () => {
   assert.match(row, /class="call-list-item__avatar"/)
   assert.match(row, /AudioLines/)
   assert.doesNotMatch(row, /CassetteTape/)
+  // The index of calls with a playable recording is shared by state/recording.ts.
   assert.match(
-    calls,
-    /recordingCatalogState\.data[\s\S]*?\.filter\(recording => recording\.playable\)[\s\S]*?\.map\(recording => recording\.call_id\)/
+    recording,
+    /export const playableRecordingCallIDs = computed\([\s\S]*?recordingCatalogState\.data[\s\S]*?\.filter\(recording => recording\.playable\)[\s\S]*?\.map\(recording => recording\.call_id\)/
   )
-  assert.match(calls, /function hasPlayableRecording\(call: CallRecord\)/)
   assert.match(
     calls,
-    /<CallHistoryListItem[\s\S]*?:has-recording="hasPlayableRecording\(call\)"/
+    /<CallHistoryListItem[\s\S]*?:has-recording="playableRecordingCallIDs\.has\(call\.id\)"/
   )
   assert.match(
     row,

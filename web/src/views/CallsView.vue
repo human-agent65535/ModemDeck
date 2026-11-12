@@ -48,6 +48,7 @@ import { callState } from '../state/call'
 import {
   loadRecordingEntries,
   forgetCallRecordings,
+  playableRecordingCallIDs,
   recordingCatalogState,
   refreshRecordingWorkspace
 } from '../state/recording'
@@ -58,9 +59,11 @@ import {
   callsPagination,
   capabilityReason,
   contactForNumber,
+  defaultLineID,
   deleteCall,
   deleteCalls,
   displayPhoneNumber,
+  lineFallbackFor,
   lineForKey,
   lineKey,
   loadBootstrap,
@@ -74,9 +77,9 @@ import {
   setCallsFavorite,
   updateMissedCallsReadState
 } from '../state/workspace'
-import { formatCompletedDuration, formatDateTime } from '../utils/format'
+import { callDirectionLabel, formatCompletedDuration, formatDateTime } from '../utils/format'
 import { isContactPhoneCandidate } from '../utils/communicationAddress'
-import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
+import { lineTagLine } from '../utils/lineIdentity'
 import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
 import { userErrorMessage } from '../utils/errorMessage'
 
@@ -130,9 +133,6 @@ const callArrivals = useListArrivals(
   call => call.id
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
-const defaultLineID = computed(
-  () => bootstrapResource.data?.line_settings.default_line_id || ''
-)
 
 const filters = computed<Array<{ value: CallFilter; label: string }>>(() => [
   { value: 'all', label: t('common.all') },
@@ -149,7 +149,7 @@ const filteredCalls = computed(() => {
       : lines.value.find(line => lineKey(line) === lineFilterKey.value)
   return callsResource.data
     .filter(call => {
-      const callLine = lineForCall(call)
+      const callLine = lineForKey(call.line_id)
       const matchesFilter =
         filter.value === 'all' ||
         (filter.value === 'missed' && call.missed) ||
@@ -186,14 +186,6 @@ const selectedContact = computed(() =>
   selected.value && selectedIsContactable.value
     ? contactForNumber(selected.value.remote_number)
     : undefined
-)
-const playableRecordingCallIDs = computed(
-  () =>
-    new Set(
-      recordingCatalogState.data
-        .filter(recording => recording.playable)
-        .map(recording => recording.call_id)
-    )
 )
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const messageUnavailable = computed(() => capabilityReason('message'))
@@ -272,33 +264,8 @@ function avatarForCall(call: CallRecord): string {
   return contactForNumber(call.remote_number)?.avatar || ''
 }
 
-function directionLabel(call: CallRecord): string {
-  if (call.missed) return t('dashboard.missedCall')
-  return call.direction === 'incoming'
-    ? t('dashboard.incoming')
-    : t('dashboard.outgoing')
-}
-
-function hasPlayableRecording(call: CallRecord): boolean {
-  return playableRecordingCallIDs.value.has(call.id)
-}
-
 function recordingCount(call: CallRecord): number {
   return recordingCatalogState.data.filter(recording => recording.call_id === call.id).length
-}
-
-function lineForCall(call: CallRecord) {
-  return lineForKey(call.line_id)
-}
-
-function callLineFallback(call: CallRecord): string {
-  const line = lineForCall(call)
-  return lineTagFallback(
-    line,
-    lines.value,
-    defaultLineID.value,
-    call.line_id
-  )
 }
 
 function actionLineKey(call: CallRecord): string {
@@ -482,10 +449,6 @@ async function batchDelete(): Promise<void> {
   }
 }
 
-function onSelectionKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape' && selection.active.value) selection.exit()
-}
-
 function callBack(call: CallRecord): void {
   if (dialUnavailable.value || !isContactPhoneCandidate(call.remote_number)) return
   openDialerAndCall(call.remote_number, displayName(call), actionLineKey(call))
@@ -606,7 +569,6 @@ watch(
 )
 
 onMounted(() => {
-  window.addEventListener('keydown', onSelectionKeydown)
   window.addEventListener('focus', onCallWindowFocus)
   document.addEventListener('visibilitychange', onCallDocumentVisibilityChange)
   void waitForInitialLoad(
@@ -627,7 +589,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onSelectionKeydown)
   window.removeEventListener('focus', onCallWindowFocus)
   document.removeEventListener('visibilitychange', onCallDocumentVisibilityChange)
 })
@@ -800,10 +761,10 @@ onBeforeUnmount(() => {
                 :contact-bound="Boolean(
                   call.contact_id || contactForNumber(call.remote_number)
                 )"
-                :line="lineTagLine(lineForCall(call), call.line_id)"
-                :line-fallback="callLineFallback(call)"
+                :line="lineTagLine(lineForKey(call.line_id), call.line_id)"
+                :line-fallback="lineFallbackFor(call.line_id)"
                 :selected="call.id === selectedId"
-                :has-recording="hasPlayableRecording(call)"
+                :has-recording="playableRecordingCallIDs.has(call.id)"
                 @select="selectCall"
               />
             </SwipeActionRow>
@@ -893,8 +854,8 @@ onBeforeUnmount(() => {
               :number="callDisplayNumber(selected)"
               :avatar="selectedContact?.avatar"
               :contact-bound="Boolean(selected.contact_id || selectedContact)"
-              :line="lineTagLine(lineForCall(selected), selected.line_id)"
-              :line-fallback="callLineFallback(selected)"
+              :line="lineTagLine(lineForKey(selected.line_id), selected.line_id)"
+              :line-fallback="lineFallbackFor(selected.line_id)"
             />
           </template>
           <template #actions>
@@ -961,7 +922,7 @@ onBeforeUnmount(() => {
             <dl>
               <div>
                 <dt>{{ t('dashboard.direction') }}</dt>
-                <dd>{{ directionLabel(selected) }}</dd>
+                <dd>{{ callDirectionLabel(selected.direction, { missed: selected.missed }) }}</dd>
               </div>
               <div>
                 <dt>{{ t('dashboard.time') }}</dt>
@@ -981,8 +942,8 @@ onBeforeUnmount(() => {
                 <dt>{{ t('dashboard.line') }}</dt>
                 <dd>
                   <LineTag
-                    :line="lineTagLine(lineForCall(selected), selected.line_id)"
-                    :fallback="callLineFallback(selected)"
+                    :line="lineTagLine(lineForKey(selected.line_id), selected.line_id)"
+                    :fallback="lineFallbackFor(selected.line_id)"
                   />
                 </dd>
               </div>

@@ -2,6 +2,7 @@
 import { Mail, MailOpen, Trash2 } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { activateSwipeRow, clearSwipeRow } from '../state/swipeActions'
+import { COMPACT_WORKSPACE_QUERY } from '../utils/breakpoints'
 
 const ACTION_WIDTH = 84
 const GESTURE_SLOP = 10
@@ -52,7 +53,7 @@ function mobileActionsAvailable(): boolean {
   return (
     !props.disabled &&
     typeof window !== 'undefined' &&
-    window.matchMedia('(max-width: 1100px)').matches
+    window.matchMedia(COMPACT_WORKSPACE_QUERY).matches
   )
 }
 

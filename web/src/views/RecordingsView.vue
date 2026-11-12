@@ -50,19 +50,23 @@ import {
 import {
   bootstrapResource,
   contactForNumber,
+  defaultLineID,
   displayPhoneNumber,
+  lineFallbackFor,
   lineForKey,
   lineKey,
   loadBootstrap,
   refreshContacts
 } from '../state/workspace'
 import {
+  callDirectionLabel,
   formatBytes,
   formatCompletedDuration,
   formatDateTime,
-  formatRelativeDate
+  formatRelativeDate,
+  recordingStatusLabel
 } from '../utils/format'
-import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
+import { lineTagLine } from '../utils/lineIdentity'
 import { userErrorMessage } from '../utils/errorMessage'
 
 const RECORDING_SEARCH_DEBOUNCE_MS = 250
@@ -104,9 +108,6 @@ const selected = computed(() =>
   recordingCatalogState.data.find(recording => recording.id === selectedID.value)
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
-const defaultLineID = computed(
-  () => bootstrapResource.data?.line_settings.default_line_id || ''
-)
 const selectedContact = computed(() =>
   selected.value ? contactForNumber(selected.value.call.remote_number) : undefined
 )
@@ -114,7 +115,7 @@ const filteredRecordings = computed(() => {
   return recordingCatalogState.data.filter(recording => {
     if (favoriteOnly.value && !recording.favorite) return false
     if (lineFilterKey.value === 'all') return true
-    const line = lineForRecording(recording)
+    const line = lineForKey(recording.call.line_id)
     return line ? lineKey(line) === lineFilterKey.value : false
   })
 })
@@ -142,39 +143,6 @@ function recordingDisplayNumber(recording: RecordingEntry): string {
 
 function avatar(recording: RecordingEntry): string {
   return contactForNumber(recording.call.remote_number)?.avatar || ''
-}
-
-function directionLabel(recording: RecordingEntry): string {
-  return recording.call.direction === 'incoming'
-    ? t('dashboard.incoming')
-    : t('dashboard.outgoing')
-}
-
-function lineForRecording(recording: RecordingEntry) {
-  return lineForKey(recording.call.line_id)
-}
-
-function recordingLineFallback(recording: RecordingEntry): string {
-  return lineTagFallback(
-    lineForRecording(recording),
-    lines.value,
-    defaultLineID.value,
-    recording.call.line_id
-  )
-}
-
-function statusLabel(recording: RecordingEntry): string {
-  if (recording.playable) return t('recordings.playable')
-  switch (recording.status) {
-    case 'pending':
-      return t('recordings.pending')
-    case 'recording':
-      return t('recordings.recording')
-    case 'failed':
-      return t('recordings.failed')
-    default:
-      return t('recordings.unplayable')
-  }
 }
 
 function unavailableDetail(recording: RecordingEntry): string {
@@ -315,10 +283,6 @@ async function batchSetFavorite(favorite: boolean): Promise<void> {
   }
 }
 
-function onSelectionKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape' && selection.active.value) selection.exit()
-}
-
 const recordingSearch = useDebouncedCallback((value: string) => {
   void loadRecordingEntries(value)
 }, RECORDING_SEARCH_DEBOUNCE_MS)
@@ -371,7 +335,6 @@ watch(lines, availableLines => {
 })
 
 onMounted(() => {
-  window.addEventListener('keydown', onSelectionKeydown)
   void waitForInitialLoad([
     () => loadBootstrap(),
     () => refreshRecordingEntries(search.value),
@@ -380,7 +343,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onSelectionKeydown)
   recordingSearch.cancel()
 })
 </script>
@@ -525,16 +487,16 @@ onBeforeUnmount(() => {
                   <strong>{{ displayName(recording) }}</strong>
                   <span class="recording-list-item__meta">
                     <LineTag
-                      :line="lineTagLine(lineForRecording(recording), recording.call.line_id)"
-                      :fallback="recordingLineFallback(recording)"
+                      :line="lineTagLine(lineForKey(recording.call.line_id), recording.call.line_id)"
+                      :fallback="lineFallbackFor(recording.call.line_id)"
                       variant="dot"
                     />
                     <small>
-                      {{ directionLabel(recording) }} ·
+                      {{ callDirectionLabel(recording.call.direction) }} ·
                       {{
                         recording.playable
                           ? formatCompletedDuration(recording.duration_seconds)
-                          : statusLabel(recording)
+                          : recordingStatusLabel(recording.status, recording.playable)
                       }}
                     </small>
                   </span>
@@ -630,8 +592,8 @@ onBeforeUnmount(() => {
               :avatar="avatar(selected)"
               :contact-bound="Boolean(selected.call.contact_id || selectedContact)"
               :muted="!selected.playable"
-              :line="lineTagLine(lineForRecording(selected), selected.call.line_id)"
-              :line-fallback="recordingLineFallback(selected)"
+              :line="lineTagLine(lineForKey(selected.call.line_id), selected.call.line_id)"
+              :line-fallback="lineFallbackFor(selected.call.line_id)"
             />
           </template>
           <template #actions>
@@ -705,14 +667,14 @@ onBeforeUnmount(() => {
               </div>
               <div>
                 <dt>{{ t('dashboard.direction') }}</dt>
-                <dd>{{ directionLabel(selected) }}</dd>
+                <dd>{{ callDirectionLabel(selected.call.direction) }}</dd>
               </div>
               <div>
                 <dt>{{ t('dashboard.line') }}</dt>
                 <dd>
                   <LineTag
-                    :line="lineTagLine(lineForRecording(selected), selected.call.line_id)"
-                    :fallback="recordingLineFallback(selected)"
+                    :line="lineTagLine(lineForKey(selected.call.line_id), selected.call.line_id)"
+                    :fallback="lineFallbackFor(selected.call.line_id)"
                   />
                 </dd>
               </div>

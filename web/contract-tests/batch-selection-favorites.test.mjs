@@ -43,7 +43,8 @@ test('all communication list panes expose selection and their eligible batch act
     messageRow,
     statusRail,
     avatarStatus,
-    styles
+    styles,
+    listSelection
   ] = await Promise.all([
     source('../src/views/DashboardView.vue'),
     source('../src/views/MessagesView.vue'),
@@ -58,7 +59,8 @@ test('all communication list panes expose selection and their eligible batch act
     source('../src/components/MessageThreadListItem.vue'),
     source('../src/components/ListItemStatusRail.vue'),
     source('../src/components/ListItemAvatarStatus.vue'),
-    source('../src/style.css')
+    source('../src/style.css'),
+    source('../src/composables/useListSelection.ts')
   ])
 
   for (const view of [dashboard, messages, calls, contacts, recordings]) {
@@ -68,8 +70,9 @@ test('all communication list panes expose selection and their eligible batch act
     assert.match(view, /useListSelection</)
     assert.match(view, /@select-all="selection\.selectAll\(/)
     assert.match(view, /@done="selection\.exit"/)
-    assert.match(view, /event\.key === 'Escape'/)
   }
+  // Escape is wired once, by useListSelection, for every view above.
+  assert.match(listSelection, /event\.key === 'Escape' && active\.value/)
   for (const view of [messages, calls, contacts, recordings]) {
     assert.match(
       view,

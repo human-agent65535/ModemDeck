@@ -10,7 +10,7 @@ import {
 } from '@lucide/vue'
 import type { CallRecord } from '../api/types'
 import type { LineTagLine } from '../utils/lineIdentity'
-import { formatRelativeDate } from '../utils/format'
+import { callDirectionLabel, formatRelativeDate } from '../utils/format'
 import CommunicationAvatar from './CommunicationAvatar.vue'
 import LineTag from './LineTag.vue'
 import ListItemAvatarStatus from './ListItemAvatarStatus.vue'
@@ -42,12 +42,9 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 
-const directionLabel = computed(() => {
-  if (props.call.missed) return t('dashboard.missedCall')
-  return props.call.direction === 'incoming'
-    ? t('dashboard.incoming')
-    : t('dashboard.outgoing')
-})
+const directionLabel = computed(() =>
+  callDirectionLabel(props.call.direction, { missed: props.call.missed })
+)
 const showNumber = computed(
   () => props.number.trim().toLocaleLowerCase() !== props.name.trim().toLocaleLowerCase()
 )

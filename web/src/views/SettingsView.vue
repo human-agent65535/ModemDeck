@@ -39,6 +39,7 @@ import {
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import { loadBootstrap, loadDevices } from '../state/workspace'
+import { SIDE_BY_SIDE_SETTINGS_QUERY } from '../utils/breakpoints'
 import { userErrorMessage } from '../utils/errorMessage'
 
 type SettingsSectionDefinition = {
@@ -157,7 +158,7 @@ watch(
 // Side by side, Settings opens on its first section, as System Settings and GitHub do,
 // rather than an empty "select a setting" pane. Drill-in layouts keep the directory.
 const sideBySideSettings =
-  typeof window !== 'undefined' ? window.matchMedia('(min-width: 1101px)') : undefined
+  typeof window !== 'undefined' ? window.matchMedia(SIDE_BY_SIDE_SETTINGS_QUERY) : undefined
 const sideBySide = ref(sideBySideSettings?.matches ?? false)
 
 function syncSideBySide(): void {

@@ -78,6 +78,7 @@ import {
 } from '../state/networkSelection'
 import {
   bootstrapResource,
+  defaultLineID,
   deleteDevice as deleteDeviceRecord,
   devicesResource,
   displayModuleLines,
@@ -203,9 +204,6 @@ function selectSIMOperation(value: string): void {
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const moduleLines = computed(() => displayModuleLines(lines.value, devicesResource.data))
 const networkSnapshot = computed(() => networkState.snapshot)
-const defaultLineID = computed(
-  () => bootstrapResource.data?.line_settings.default_line_id || ''
-)
 const selectedLineID = computed(() => deviceConfigurationState.selectedLineID)
 const selectedLine = computed(() =>
   lines.value.find(line => line.id === selectedLineID.value)

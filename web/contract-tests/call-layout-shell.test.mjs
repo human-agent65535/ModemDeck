@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { NON_MODAL_DIALER_QUERY } from '../src/utils/breakpoints.ts'
 
 async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
@@ -28,7 +29,8 @@ test('desktop dialer is a non-blocking side panel below the permanent breakpoint
   const shell = await source('../src/components/AppShell.vue')
   const dialer = await source('../src/components/DialerPanel.vue')
 
-  assert.match(shell, /window\.matchMedia\('\(min-width: 641px\)'\)/)
+  assert.equal(NON_MODAL_DIALER_QUERY, '(min-width: 641px)')
+  assert.match(shell, /window\.matchMedia\(NON_MODAL_DIALER_QUERY\)/)
   assert.match(dialer, /nonModal\?: boolean/)
   assert.match(
     dialer,

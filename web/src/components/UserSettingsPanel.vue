@@ -14,7 +14,7 @@ import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { gateway } from '../api/client'
-import type { LineSummary, UserAccount } from '../api/types'
+import type { UserAccount } from '../api/types'
 import { ApiError, IOS_PAIRING_DEVICE_LIMIT } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
@@ -24,6 +24,7 @@ import {
   bootstrapResource,
   lineKey,
   lineLabel,
+  lineWithKey,
   loadBootstrap,
   loadContacts
 } from '../state/workspace'
@@ -129,15 +130,11 @@ const confirmDiscardChanges = useUnsavedChangesGuard(
   () => !creating.value && !saving.value && formChanged.value
 )
 
-function lineForID(id: string): LineSummary | undefined {
-  return lines.value.find(line => lineKey(line) === id)
-}
-
 function userLineSummary(user: UserAccount): string {
   if (user.line_ids.length === 0) return t('users.noLines')
   return user.line_ids
     .map(id => {
-      const line = lineForID(id)
+      const line = lineWithKey(lines.value, id)
       return line ? lineLabel(line) : t('users.unknownLine')
     })
     .join(t('common.listSeparator'))

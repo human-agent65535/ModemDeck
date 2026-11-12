@@ -11,7 +11,12 @@ import {
   recordingListState
 } from '../state/recording'
 import { requestConfirmation } from '../state/confirmation'
-import { formatBytes, formatCompletedDuration, formatDateTime } from '../utils/format'
+import {
+  formatBytes,
+  formatCompletedDuration,
+  formatDateTime,
+  recordingStatusLabel
+} from '../utils/format'
 import { userErrorMessage } from '../utils/errorMessage'
 
 const { t } = useI18n()
@@ -43,19 +48,6 @@ function downloadName(id: string, contentType: string): string {
           ? 'wav'
           : 'audio'
   return `modemdeck-${id}.${extension}`
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case 'pending':
-      return t('recordings.pending')
-    case 'recording':
-      return t('recordings.recording')
-    case 'failed':
-      return t('recordings.failed')
-    default:
-      return t('recordings.playable')
-  }
 }
 
 async function removeRecording(recordingID: string): Promise<void> {
@@ -155,7 +147,7 @@ watch(
           compact
         />
         <p v-else class="recording-list__availability">
-          {{ statusLabel(recording.status) }}
+          {{ recordingStatusLabel(recording.status) }}
         </p>
         <a
           v-if="recording.playable && recording.download_url"

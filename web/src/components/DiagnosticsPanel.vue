@@ -62,7 +62,7 @@ import SelectControl from './SelectControl.vue'
 import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
 import SectionSkeleton from './skeletons/SectionSkeleton.vue'
 import { userErrorMessage } from '../utils/errorMessage'
-import { formatDateTime } from '../utils/format'
+import { callDirectionLabel, formatDateTime } from '../utils/format'
 
 type SnapshotState = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
 type LogConnectionState =
@@ -512,12 +512,6 @@ async function applyUSBReset(line: LineSummary): Promise<void> {
 function callLineLabel(call: DiagnosticActiveCall): string {
   const line = snapshot.value?.lines.find(candidate => candidate.id === call.line_id)
   return line ? lineLabel(line) : call.line_id
-}
-
-function callDirectionLabel(direction: string): string {
-  if (direction === 'incoming') return t('calls.incoming')
-  if (direction === 'outgoing') return t('dashboard.outgoing')
-  return direction || t('diagnostics.directionUnknown')
 }
 
 function callPhaseLabel(phase: string): string {
@@ -1300,7 +1294,7 @@ onBeforeUnmount(() => {
             <span class="active-call__identity">
               <strong>{{ callLineLabel(call) }}</strong>
               <small>
-                {{ callDirectionLabel(call.direction) }} ·
+                {{ callDirectionLabel(call.direction, { style: 'diagnostic' }) }} ·
                 {{ callPhaseLabel(call.phase) }} ·
                 {{ callBearerLabel(call.bearer) }}
               </small>
@@ -2142,13 +2136,10 @@ onBeforeUnmount(() => {
 }
 
 .filter-input {
+  display: flex;
   width: 100%;
   min-width: 0;
   height: 34px;
-}
-
-.filter-input {
-  display: flex;
   align-items: center;
   gap: 7px;
   color: var(--muted);

@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref } from 'vue'
 
 export function useListSelection<T>(keyFor: (item: T) => string) {
   const active = ref(false)
@@ -52,6 +52,17 @@ export function useListSelection<T>(keyFor: (item: T) => string) {
     const available = new Set(items.map(keyFor))
     const next = new Set(Array.from(keys.value).filter(key => available.has(key)))
     if (next.size !== keys.value.size) keys.value = next
+  }
+
+  function onKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && active.value) exit()
+  }
+
+  // Escape leaves selection mode while the owning list is mounted. The listener is on
+  // window and checks nothing else, so it also fires while a dialog or menu is open.
+  if (getCurrentInstance() && typeof window !== 'undefined') {
+    onMounted(() => window.addEventListener('keydown', onKeydown))
+    onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   }
 
   return {

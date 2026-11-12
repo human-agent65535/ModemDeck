@@ -173,6 +173,49 @@ export function formatBytes(bytes: number, style: ByteSizeStyle = 'adaptive'): s
   return `${value.toFixed(precision)} ${unit}`
 }
 
+/**
+ * Call direction in two established wordings:
+ * - history (default): calls, recordings and recent activity. A missed call reads as
+ *   missed, and any direction other than incoming reads as outgoing.
+ * - diagnostic: live calls in Diagnostics. Incoming uses the longer "incoming call"
+ *   wording, and an unknown direction is shown as reported (or as unknown when empty).
+ */
+export function callDirectionLabel(
+  direction: string,
+  options: { missed?: boolean; style?: 'history' | 'diagnostic' } = {}
+): string {
+  if (options.style === 'diagnostic') {
+    if (direction === 'incoming') return translate('calls.incoming')
+    if (direction === 'outgoing') return translate('dashboard.outgoing')
+    return direction || translate('diagnostics.directionUnknown')
+  }
+  if (options.missed) return translate('dashboard.missedCall')
+  return direction === 'incoming'
+    ? translate('dashboard.incoming')
+    : translate('dashboard.outgoing')
+}
+
+/**
+ * Recording status. The catalog knows whether a recording can play: pass `playable`
+ * and it wins, and an unrecognised status reads as unavailable. The per-call list only
+ * has the status: omit `playable` and an unrecognised status reads as playable.
+ */
+export function recordingStatusLabel(status: string, playable?: boolean): string {
+  if (playable === true) return translate('recordings.playable')
+  switch (status) {
+    case 'pending':
+      return translate('recordings.pending')
+    case 'recording':
+      return translate('recordings.recording')
+    case 'failed':
+      return translate('recordings.failed')
+    default:
+      return playable === undefined
+        ? translate('recordings.playable')
+        : translate('recordings.unplayable')
+  }
+}
+
 export function primaryPhone(phones: Array<{ number: string; primary: boolean }>): string {
   return phones.find(phone => phone.primary)?.number || phones[0]?.number || ''
 }

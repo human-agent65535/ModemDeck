@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 import { gateway } from '../api/client'
 import type {
   BootstrapResponse,
@@ -29,11 +29,10 @@ import { ApiError } from '../api/types'
 import { translate } from '../i18n'
 import { formatPhoneNumber } from '../utils/format'
 import { playOutgoingMessageSound } from './browserSounds'
-import { normalizedPhoneIdentity } from '../utils/lineIdentity'
+import { lineTagFallback, normalizedPhoneIdentity } from '../utils/lineIdentity'
 import {
   acceptFirstPage,
-  acceptNextPage,
-  mergeUnique,
+  loadNextPage as loadNextPageFrom,
   paginationState,
   replaceFirstPage,
   resetPagination,
@@ -166,7 +165,7 @@ async function refreshFirstPage<T>(
   }
 }
 
-async function loadNextPage<T>(
+function loadNextPage<T>(
   target: Resource<T[]>,
   pagination: PaginationState,
   loader: (cursor: string) => Promise<Page<T>>,
@@ -174,52 +173,16 @@ async function loadNextPage<T>(
   identity: (item: T) => string,
   prepend = false
 ): Promise<T[] | null> {
-  const cursor = pagination.nextCursor
-  if (
-    target.status !== 'ready' ||
-    !pagination.hasMore ||
-    !cursor ||
-    pagination.loadingMore
-  ) return target.data
-
-  const generation = workspaceGeneration
-  const pageGeneration = pagination.generation
-  pagination.loadingMore = true
-  pagination.error = ''
-  try {
-    const page = await loader(cursor)
-    if (
-      generation !== workspaceGeneration ||
-      pageGeneration !== pagination.generation ||
-      pagination.nextCursor !== cursor
-    ) return null
-    target.data = prepend
-      ? mergeUnique(page.items, target.data, identity)
-      : mergeUnique(target.data, page.items, identity)
-    acceptNextPage(pagination, page.meta)
-    return target.data
-  } catch (error) {
-    if (
-      generation !== workspaceGeneration ||
-      pageGeneration !== pagination.generation
-    ) return null
-    if (
-      error instanceof ApiError &&
-      error.code === 'invalid_argument' &&
-      error.field === 'cursor'
-    ) {
-      return loadFirstPage(target, pagination, restart)
-    }
-    pagination.error = errorText(error)
-    return null
-  } finally {
-    if (
-      generation === workspaceGeneration &&
-      pageGeneration === pagination.generation
-    ) {
-      pagination.loadingMore = false
-    }
-  }
+  return loadNextPageFrom({
+    target,
+    pagination,
+    generation: () => workspaceGeneration,
+    loader,
+    restart: () => loadFirstPage(target, pagination, restart),
+    identity,
+    errorMessage: errorText,
+    prepend
+  })
 }
 
 export function createMessageReadCoordinator(
@@ -314,6 +277,31 @@ export function lineForKey(key: string): LineSummary | undefined {
   return (
     bootstrap?.lines.find(line => lineKey(line) === normalizedKey) ||
     bootstrap?.line_catalog.find(line => lineKey(line) === normalizedKey)
+  )
+}
+
+// Exact match within the given list: the key is not trimmed and nothing else is searched.
+export function lineWithKey(lines: LineSummary[], key: string): LineSummary | undefined {
+  return lines.find(line => lineKey(line) === key)
+}
+
+// Only lines attached now. Unlike lineForKey it neither trims the key nor falls back to
+// the catalog of retired lines, so a record on a retired line resolves to nothing here.
+export function attachedLineForKey(key: string): LineSummary | undefined {
+  return lineWithKey(bootstrapResource.data?.lines || [], key)
+}
+
+export const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
+)
+
+// LineTag fallback text for the line a call, thread or recording was recorded on.
+export function lineFallbackFor(lineID: string): string {
+  return lineTagFallback(
+    lineForKey(lineID),
+    bootstrapResource.data?.lines || [],
+    defaultLineID.value,
+    lineID
   )
 }
 

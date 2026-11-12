@@ -63,6 +63,7 @@ import {
   loadBootstrap,
   loadContacts
 } from '../state/workspace'
+import { NON_MODAL_DIALER_QUERY, PERSISTENT_DIALER_QUERY } from '../utils/breakpoints'
 import AccountMenu from './AccountMenu.vue'
 import ActiveCallPill from './ActiveCallPill.vue'
 import AudioSettingsMenu from './AudioSettingsMenu.vue'
@@ -420,8 +421,8 @@ onMounted(() => {
   void initializeWorkspaceRuntime(currentGeneration)
   void loadContacts()
   document.addEventListener('keydown', onShellKeydown)
-  dialerMediaQuery = window.matchMedia('(min-width: 1480px)')
-  nonModalDialerMediaQuery = window.matchMedia('(min-width: 641px)')
+  dialerMediaQuery = window.matchMedia(PERSISTENT_DIALER_QUERY)
+  nonModalDialerMediaQuery = window.matchMedia(NON_MODAL_DIALER_QUERY)
   dialerMediaQuery.addEventListener('change', syncDialerMode)
   nonModalDialerMediaQuery.addEventListener('change', syncDialerMode)
   syncDialerMode()

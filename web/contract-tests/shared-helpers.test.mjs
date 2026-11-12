@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test, { mock } from 'node:test'
-import { effectScope } from 'vue'
+import { createRenderer, effectScope } from 'vue'
 import {
   objectValue,
   requiredBoolean,
@@ -9,24 +9,44 @@ import {
   requiredTimestamp,
   stringValue
 } from '../src/api/parse.ts'
+import { ApiError } from '../src/api/types.ts'
 import { useDebouncedCallback } from '../src/composables/useDebouncedCallback.ts'
-import { unreadMissedCallCount } from '../src/state/workspace.ts'
+import { useListSelection } from '../src/composables/useListSelection.ts'
+import { loadNextPage, paginationState } from '../src/state/pagination.ts'
+import { playableRecordingCallIDs, recordingCatalogState } from '../src/state/recording.ts'
+import {
+  attachedLineForKey,
+  bootstrapResource,
+  defaultLineID,
+  lineFallbackFor,
+  lineForKey,
+  lineWithKey,
+  resetWorkspaceState,
+  unreadMissedCallCount
+} from '../src/state/workspace.ts'
 import { communicationAvatarFallback } from '../src/utils/communicationAvatar.ts'
 import { communicationAddressKind } from '../src/utils/communicationAddress.ts'
 import {
   communicationQuery,
   matchesCommunicationQuery
 } from '../src/utils/communicationSearch.ts'
+import { contactInputFromContact, contactPhoneInputs } from '../src/utils/contactInput.ts'
 import {
+  callDirectionLabel,
   formatBytes,
   formatCallClock,
   formatCallElapsed,
   formatCompletedDuration,
   formatDateTime,
-  formatPlaybackTime
+  formatPlaybackTime,
+  recordingStatusLabel
 } from '../src/utils/format.ts'
 import { randomRequestID } from '../src/utils/id.ts'
-import { compactPhoneSyntax, normalizedPhoneIdentity } from '../src/utils/lineIdentity.ts'
+import {
+  compactPhoneSyntax,
+  lineTagFallback,
+  normalizedPhoneIdentity
+} from '../src/utils/lineIdentity.ts'
 import { utf8ByteLength } from '../src/utils/utf8.ts'
 
 const source = path => readFile(new URL(path, import.meta.url), 'utf8')
@@ -242,4 +262,226 @@ test('unread missed calls are missed and not yet read', () => {
     ]),
     1
   )
+})
+
+test('a contact maps to a whole-contact input, with only the overridden fields changed', () => {
+  const contact = {
+    id: 'c1',
+    display_name: 'Ada',
+    avatar: 'data:image/png;base64,AA',
+    favorite: false,
+    notes: 'note',
+    preferred_line_id: 'line-a',
+    revision: 7,
+    created_at: '2026-01-01T00:00:00Z',
+    phones: [
+      { id: 'p1', label: 'Mobile', number: '+1 202 555 0101', normalized_number: '+12025550101', region: 'US', primary: true },
+      { id: 'p2', label: 'Work', number: '090-1234-5678', primary: false }
+    ]
+  }
+  const phones = [
+    { id: 'p1', label: 'Mobile', number: '+1 202 555 0101', region: 'US', primary: true },
+    { id: 'p2', label: 'Work', number: '090-1234-5678', region: undefined, primary: false }
+  ]
+  // Server-owned fields (id, timestamps, normalized_number) are not sent back.
+  assert.deepEqual(contactPhoneInputs(contact.phones), phones)
+  const input = {
+    display_name: 'Ada',
+    avatar: 'data:image/png;base64,AA',
+    favorite: false,
+    notes: 'note',
+    preferred_line_id: 'line-a',
+    revision: 7,
+    phones
+  }
+  assert.deepEqual(contactInputFromContact(contact), input)
+  // Same keys in the same order as the copies it replaced, so the request body is unchanged.
+  assert.deepEqual(Object.keys(contactInputFromContact(contact)), Object.keys(input))
+  assert.deepEqual(contactInputFromContact(contact, { favorite: true }), { ...input, favorite: true })
+  const added = { label: 'Other', number: '+12025550199', primary: false }
+  assert.deepEqual(
+    contactInputFromContact(contact, { phones: [...contactPhoneInputs(contact.phones), added] }).phones,
+    [...phones, added]
+  )
+})
+
+function bootstrapLine(id, extra = {}) {
+  return { id, line_label: '', device_name: '', model: '', iccid: '', device_imei: '', ...extra }
+}
+
+test('line lookups: full catalog, attached-only, and the tag fallback text', t => {
+  t.after(resetWorkspaceState)
+  const main = bootstrapLine('line-main')
+  const second = bootstrapLine('line-second')
+  const named = bootstrapLine('line-named', { device_name: 'Quectel EC25' })
+  const retired = bootstrapLine('line-retired')
+  resetWorkspaceState()
+  assert.equal(defaultLineID.value, '')
+  bootstrapResource.data = {
+    lines: [main, second, named],
+    line_catalog: [main, second, named, retired],
+    line_settings: { default_line_id: 'line-main' }
+  }
+  assert.equal(defaultLineID.value, 'line-main')
+
+  // lineForKey trims and falls back to retired lines; the attached lookup does neither.
+  assert.equal(lineForKey(' line-retired ')?.id, 'line-retired')
+  assert.equal(attachedLineForKey('line-retired'), undefined)
+  assert.equal(lineForKey(' line-second')?.id, 'line-second')
+  assert.equal(attachedLineForKey(' line-second'), undefined)
+  assert.equal(attachedLineForKey('line-second')?.id, 'line-second')
+  assert.equal(lineWithKey([retired], 'line-retired'), retired)
+  assert.equal(lineWithKey([retired], ' line-retired'), undefined)
+
+  // Same text the per-page copies produced from lineForKey, attached lines and the default.
+  const lines = bootstrapResource.data.lines
+  for (const id of ['line-main', 'line-second', 'line-named', 'line-retired', 'gone-1937', '']) {
+    assert.equal(lineFallbackFor(id), lineTagFallback(lineForKey(id), lines, 'line-main', id))
+  }
+  assert.equal(lineFallbackFor('line-main'), 'Primary line')
+  assert.equal(lineFallbackFor('line-second'), 'Line 2')
+  assert.equal(lineFallbackFor('line-named'), 'Quectel EC25')
+  // A retired line is not among attached lines, so it reads as the first line.
+  assert.equal(lineFallbackFor('line-retired'), 'Line 1')
+  assert.equal(lineFallbackFor('gone-1937'), 'Line 1937')
+  assert.equal(lineFallbackFor(''), 'Unknown line')
+})
+
+test('call direction keeps the history and diagnostic wordings', () => {
+  assert.equal(callDirectionLabel('incoming', { missed: true }), 'Missed call')
+  assert.equal(callDirectionLabel('incoming'), 'Incoming')
+  assert.equal(callDirectionLabel('outgoing'), 'Outgoing')
+  // History: anything that is not incoming reads as outgoing.
+  assert.equal(callDirectionLabel('sideways'), 'Outgoing')
+  assert.equal(callDirectionLabel(''), 'Outgoing')
+  // Diagnostics: longer incoming text, raw or unknown otherwise, no missed branch.
+  assert.equal(callDirectionLabel('incoming', { style: 'diagnostic' }), 'Incoming call')
+  assert.equal(callDirectionLabel('outgoing', { style: 'diagnostic' }), 'Outgoing')
+  assert.equal(callDirectionLabel('sideways', { style: 'diagnostic' }), 'sideways')
+  assert.equal(callDirectionLabel('', { style: 'diagnostic' }), 'Direction unknown')
+})
+
+test('recording status keeps the catalog and per-call list rules', () => {
+  for (const playable of [undefined, false]) {
+    assert.equal(recordingStatusLabel('pending', playable), 'Waiting to record')
+    assert.equal(recordingStatusLabel('recording', playable), 'Recording')
+    assert.equal(recordingStatusLabel('failed', playable), 'Recording failed')
+  }
+  // Per-call list (status only): an unrecognised status reads as playable.
+  assert.equal(recordingStatusLabel('ready'), 'Playable')
+  // Catalog: playable wins over status, otherwise an unrecognised status is unavailable.
+  assert.equal(recordingStatusLabel('failed', true), 'Playable')
+  assert.equal(recordingStatusLabel('ready', true), 'Playable')
+  assert.equal(recordingStatusLabel('ready', false), 'Unavailable')
+})
+
+test('the playable-recording index lists calls with at least one playable recording', t => {
+  const original = recordingCatalogState.data
+  t.after(() => { recordingCatalogState.data = original })
+  recordingCatalogState.data = [
+    { id: 'r1', call_id: 'call-a', playable: false },
+    { id: 'r2', call_id: 'call-a', playable: true },
+    { id: 'r3', call_id: 'call-b', playable: false }
+  ]
+  assert.deepEqual([...playableRecordingCallIDs.value], ['call-a'])
+})
+
+function nextPageFixture(overrides = {}) {
+  let generation = 0
+  const pagination = Object.assign(paginationState(), {
+    nextCursor: 'c1', hasMore: true, pages: 1
+  })
+  const target = { status: 'ready', data: [{ id: 'a' }, { id: 'b' }] }
+  const restarts = []
+  const options = {
+    target,
+    pagination,
+    generation: () => generation,
+    loader: async () => ({ items: [{ id: 'b' }, { id: 'c' }], meta: { next_cursor: 'c2', has_more: false } }),
+    restart: async () => { restarts.push(true); return ['restarted'] },
+    identity: item => item.id,
+    errorMessage: () => 'load failed',
+    ...overrides
+  }
+  return { options, target, pagination, restarts, bump: () => { generation += 1 } }
+}
+
+test('next-page loading appends unique items, guards its cursor, and restarts on a stale cursor', async () => {
+  const appended = nextPageFixture()
+  assert.deepEqual(await loadNextPage(appended.options), [{ id: 'a' }, { id: 'b' }, { id: 'c' }])
+  assert.deepEqual(
+    { ...appended.pagination },
+    { nextCursor: 'c2', hasMore: false, loadingMore: false, error: '', pages: 2, generation: 0 }
+  )
+  // Nothing more to load: the current data comes back and no request is made.
+  let calls = 0
+  const done = nextPageFixture({ loader: async () => { calls += 1 } })
+  done.pagination.hasMore = false
+  assert.equal(await loadNextPage(done.options), done.target.data)
+  assert.equal(calls, 0)
+
+  const prepended = nextPageFixture({ prepend: true })
+  assert.deepEqual((await loadNextPage(prepended.options)).map(item => item.id), ['b', 'c', 'a'])
+
+  const stale = nextPageFixture()
+  stale.options.loader = async () => { stale.bump(); return { items: [{ id: 'z' }], meta: { next_cursor: '', has_more: false } } }
+  assert.equal(await loadNextPage(stale.options), null)
+  assert.deepEqual(stale.target.data.map(item => item.id), ['a', 'b'])
+  // The owner moved on, so its new load owns loadingMore.
+  assert.equal(stale.pagination.loadingMore, true)
+
+  const cursor = nextPageFixture({
+    loader: async () => { throw new ApiError('bad cursor', 400, 'invalid_argument', 'cursor') }
+  })
+  assert.deepEqual(await loadNextPage(cursor.options), ['restarted'])
+  assert.equal(cursor.restarts.length, 1)
+
+  const failed = nextPageFixture({ loader: async () => { throw new Error('offline') } })
+  assert.equal(await loadNextPage(failed.options), null)
+  assert.equal(failed.pagination.error, 'load failed')
+  assert.equal(failed.pagination.loadingMore, false)
+  assert.equal(failed.restarts.length, 0)
+})
+
+test('Escape leaves selection mode only while the list is mounted', () => {
+  const previousWindow = globalThis.window
+  const target = new EventTarget()
+  globalThis.window = target
+  try {
+    const renderer = createRenderer({
+      createElement: tag => ({ tag, children: [] }),
+      createText: text => ({ text }),
+      createComment: text => ({ text }),
+      insert(child, parent) { child.parent = parent; parent.children.push(child) },
+      remove(child) { child.parent.children = child.parent.children.filter(item => item !== child) },
+      setText() {},
+      setElementText() {},
+      parentNode: node => node.parent,
+      nextSibling: () => null,
+      patchProp() {}
+    })
+    let selection
+    const app = renderer.createApp({
+      setup() {
+        selection = useListSelection(item => item)
+        return () => null
+      }
+    })
+    const press = key => target.dispatchEvent(Object.assign(new Event('keydown'), { key }))
+    app.mount({ children: [] })
+    selection.toggle('a')
+    press('Enter')
+    assert.equal(selection.active.value, true)
+    press('Escape')
+    assert.equal(selection.active.value, false)
+    assert.equal(selection.count.value, 0)
+
+    selection.toggle('a')
+    app.unmount()
+    press('Escape')
+    assert.equal(selection.active.value, true)
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window
+    else globalThis.window = previousWindow
+  }
 })

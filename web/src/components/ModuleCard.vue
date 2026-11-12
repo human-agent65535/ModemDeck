@@ -462,9 +462,11 @@ const accessTechnology = computed(() => {
   flex: 0 0 auto;
   align-items: center;
   gap: 3px;
+  color: var(--muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-strong);
   padding: 3px 6px;
+  background: var(--surface-subtle);
   border-radius: var(--radius-xs);
 }
 
@@ -479,11 +481,6 @@ const accessTechnology = computed(() => {
   font-weight: var(--weight-strong);
   background: var(--accent-soft);
   border-radius: var(--radius-xs);
-}
-
-.module-card__data-status {
-  color: var(--muted);
-  background: var(--surface-subtle);
 }
 
 .module-card__data-status.is-connected {

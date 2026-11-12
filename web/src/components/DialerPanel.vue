@@ -34,6 +34,7 @@ import {
   bootstrapResource,
   capabilityReason,
   contactsResource,
+  defaultLineID,
   lineCanPlaceVoiceCall,
   lineForKey,
   lineKey,
@@ -141,9 +142,6 @@ const lineSwitcherID = computed({
   }
 })
 const callSurfaceVisible = computed(() => showingCall.value)
-const defaultLineID = computed(
-  () => bootstrapResource.data?.line_settings.default_line_id || ''
-)
 const selectedLine = computed(() =>
   dialLines.value.find(line => lineKey(line) === selectedLineId.value)
 )

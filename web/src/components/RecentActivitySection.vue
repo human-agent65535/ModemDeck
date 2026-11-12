@@ -5,7 +5,11 @@ import { MessageSquareText, PhoneIncoming, PhoneMissed, PhoneOutgoing } from '@l
 import { communicationActivities, type CommunicationActivity } from '../composables/useCommunicationActivity'
 import { messageThreadRoute } from '../router/messageRoute'
 import { callsResource, ensureSearchData, threadsResource } from '../state/workspace'
-import { formatCompletedDuration, formatRelativeDate } from '../utils/format'
+import {
+  callDirectionLabel,
+  formatCompletedDuration,
+  formatRelativeDate
+} from '../utils/format'
 import { normalizedPhoneIdentity } from '../utils/lineIdentity'
 
 // The latest calls and messages with the same numbers, so a detail page answers
@@ -36,8 +40,7 @@ const activities = computed(() => {
 
 function title(activity: CommunicationActivity): string {
   if (activity.kind === 'message') return t('dashboard.message')
-  if (activity.call.missed) return t('dashboard.missedCall')
-  return activity.call.direction === 'incoming' ? t('dashboard.incoming') : t('dashboard.outgoing')
+  return callDirectionLabel(activity.call.direction, { missed: activity.call.missed })
 }
 
 function detail(activity: CommunicationActivity): string {

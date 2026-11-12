@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { SIDE_BY_SIDE_SETTINGS_QUERY } from '../src/utils/breakpoints.ts'
 import {
   isSettingsSection,
   legacySettingsSectionDestination,
@@ -133,7 +134,8 @@ test('settings opens on its first section side by side and keeps sign-out in the
   )
   assert.match(view, /:disabled="fixtureMode \|\| logoutPending"/)
   // Side by side there is no empty landing pane; drill-in layouts keep the directory.
-  assert.match(view, /window\.matchMedia\('\(min-width: 1101px\)'\)/)
+  assert.equal(SIDE_BY_SIDE_SETTINGS_QUERY, '(min-width: 1101px)')
+  assert.match(view, /window\.matchMedia\(SIDE_BY_SIDE_SETTINGS_QUERY\)/)
   assert.match(view, /if \(section \|\| !wide \|\| !first\) return/)
   // With the rail present, identity and sign-out move to its account menu.
   assert.match(view, /@media \(min-width: 641px\) \{\s*\.settings-account \{\s*display: none;/)

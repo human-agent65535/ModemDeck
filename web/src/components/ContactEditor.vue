@@ -7,6 +7,7 @@ import ContactAvatarPicker from './ContactAvatarPicker.vue'
 import CountryRegionSelector from './CountryRegionSelector.vue'
 import LineSelector from './LineSelector.vue'
 import OverlayDialog from './OverlayDialog.vue'
+import { contactPhoneInputs } from '../utils/contactInput'
 
 type PhoneDraft = {
   id?: string
@@ -92,13 +93,7 @@ watch(
     draft.preferredLineID = contact?.preferred_line_id || ''
     const initialNumber = props.initialPhone?.trim() || ''
     draft.phones = contact?.phones.length
-      ? contact.phones.map(phone => ({
-          id: phone.id,
-          label: phone.label,
-          number: phone.number,
-          region: phone.region,
-          primary: phone.primary
-        }))
+      ? contactPhoneInputs(contact.phones)
       : [{
           label: t('contacts.mobile'),
           number: initialNumber,

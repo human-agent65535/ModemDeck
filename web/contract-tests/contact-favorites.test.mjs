@@ -386,8 +386,8 @@ test('contacts expose avatar upload in full and quick create flows', async () =>
   assert.match(numberActionsSource, /@save="createContact"/)
   assert.doesNotMatch(numberActionsSource, /createName|createAvatar|ContactAvatarPicker/)
   assert.match(viewSource, /async function toggleFavorite\(contact: Contact\)/)
-  assert.match(viewSource, /favorite: !contact\.favorite/)
-  assert.match(viewSource, /region: phone\.region/)
+  // The whole-contact mapping, phone regions included, lives in utils/contactInput.ts.
+  assert.match(viewSource, /contactInputFromContact\(contact, \{ favorite: !contact\.favorite \}\)/)
   assert.match(viewSource, /<FavoriteActionButton[\s\S]*:active="selected\.favorite"/)
   assert.match(viewSource, /v-if="contact\.favorite"/)
 })

@@ -7,14 +7,18 @@ const workspace = new URL('../src/state/workspace.ts', import.meta.url)
 
 test('existing conversations stay pinned to their original line', async () => {
   const source = await readFile(messagesView, 'utf8')
+  const workspaceSource = await readFile(workspace, 'utf8')
 
-  assert.match(source, /lineKey\(line\) === thread\.line_id/)
+  // Replies resolve only lines attached now (no retired-catalog fallback, untrimmed key).
+  assert.match(source, /attachedLineForKey\(selectedThread\.value\.line_id\)/)
+  assert.match(workspaceSource, /export function attachedLineForKey[\s\S]*?lineWithKey\(bootstrapResource\.data\?\.lines \|\| \[\], key\)/)
+  assert.match(workspaceSource, /lines\.find\(line => lineKey\(line\) === key\)/)
   assert.doesNotMatch(source, /thread\.(?:local_phone|imsi|iccid)/)
   assert.match(
     source,
-    /const activeLine = computed\(\(\) =>[\s\S]*composingNew\.value[\s\S]*selectedLine\.value[\s\S]*activeLineForThread\(selectedThread\.value\)/
+    /const activeLine = computed\(\(\) =>[\s\S]*composingNew\.value[\s\S]*selectedLine\.value[\s\S]*attachedLineForKey\(selectedThread\.value\.line_id\)/
   )
-  assert.match(source, /return lineForKey\(thread\.line_id\)/)
+  assert.match(source, /lineTagLine\(lineForKey\(thread\.line_id\), thread\.line_id\)/)
   assert.doesNotMatch(source, /replyLineThreadKey/)
   assert.match(
     source,
@@ -31,11 +35,11 @@ test('sending an existing conversation uses its original line identity', async (
 
   assert.match(
     source,
-    /const activeLine = computed\(\(\) =>[\s\S]*activeLineForThread\(selectedThread\.value\)/
+    /const activeLine = computed\(\(\) =>[\s\S]*attachedLineForKey\(selectedThread\.value\.line_id\)/
   )
   assert.match(
     source,
-    /return threadUsesLine\(thread, line\) \? thread\.key : undefined/
+    /return messageThreadUsesLine\(thread, line\) \? thread\.key : undefined/
   )
   assert.match(source, /thread_key: replyKey/)
   assert.match(source, /const replyKey = replyThreadKey\.value/)

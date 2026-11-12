@@ -57,7 +57,7 @@ test('dialing and messages resolve context, contact, and global default lines', 
   assert.match(messages, /resolveLine\('message'/)
   assert.match(messages, /contextKey: composeContextLineKey\.value/)
   assert.match(messages, /preferredLineID: selectedRecipientPreferredLineID\.value/)
-  assert.match(messages, /threadUsesLine\(thread, line\)/)
+  assert.match(messages, /messageThreadUsesLine\(thread, line\)/)
   assert.match(
     messages,
     /if \(!activeLineID\.value\) return t\('messages\.selectLine'\)/

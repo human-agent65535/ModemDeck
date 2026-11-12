@@ -76,10 +76,10 @@ test('display identity resolution keeps live capabilities and falls back to stab
   )
   assert.match(
     dashboardSource,
-    /function lineForCall[\s\S]*?return lineForKey\(call\.line_id\)/
+    /lineTagLine\(lineForKey\(activity\.call\.line_id\), activity\.call\.line_id\)/
   )
   assert.match(
     dashboardSource,
-    /function lineForThread[\s\S]*?return lineForKey\(thread\.line_id\)/
+    /lineTagLine\(lineForKey\(activity\.thread\.line_id\), activity\.thread\.line_id\)/
   )
 })

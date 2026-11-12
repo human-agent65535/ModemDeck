@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 import { gateway } from '../api/client'
 import type {
   CallRecordingSegment,
@@ -14,8 +14,7 @@ import { ApiError } from '../api/types'
 import { translate } from '../i18n'
 import {
   acceptFirstPage,
-  acceptNextPage,
-  mergeUnique,
+  loadNextPage,
   paginationState,
   replaceFirstPage,
   resetPagination
@@ -96,6 +95,15 @@ export const recordingCatalogState = reactive<{
   error: ''
 })
 export const recordingCatalogPagination = reactive(paginationState())
+// Calls with at least one playable recording in the loaded catalog.
+export const playableRecordingCallIDs = computed(
+  () =>
+    new Set(
+      recordingCatalogState.data
+        .filter(recording => recording.playable)
+        .map(recording => recording.call_id)
+    )
+)
 
 let settingsRequest: Promise<RecordingSettings | null> | undefined
 let settingsGeneration = 0
@@ -568,62 +576,23 @@ export async function loadRecordingEntries(
   }
 }
 
-export async function loadMoreRecordingEntries(): Promise<RecordingEntry[] | null> {
-  const cursor = recordingCatalogPagination.nextCursor
-  if (
-    recordingCatalogState.status !== 'ready' ||
-    !recordingCatalogPagination.hasMore ||
-    !cursor ||
-    recordingCatalogPagination.loadingMore
-  ) return recordingCatalogState.data
-
-  const token = recordingCatalogGeneration
-  const pageGeneration = recordingCatalogPagination.generation
+export function loadMoreRecordingEntries(): Promise<RecordingEntry[] | null> {
+  // The page's query, read before the request, also scopes a restart after a stale cursor.
   const query = recordingCatalogState.query
-  recordingCatalogPagination.loadingMore = true
-  recordingCatalogPagination.error = ''
-  try {
-    const page = await gateway.listRecordings({
-      ...(query ? { q: query } : {}),
-      cursor
-    })
-    if (
-      token !== recordingCatalogGeneration ||
-      pageGeneration !== recordingCatalogPagination.generation ||
-      recordingCatalogPagination.nextCursor !== cursor
-    ) return null
-    recordingCatalogState.data = mergeUnique(
-      recordingCatalogState.data,
-      page.items,
-      recording => recording.id
-    )
-    acceptNextPage(recordingCatalogPagination, page.meta)
-    return recordingCatalogState.data
-  } catch (error) {
-    if (
-      token !== recordingCatalogGeneration ||
-      pageGeneration !== recordingCatalogPagination.generation
-    ) return null
-    if (
-      error instanceof ApiError &&
-      error.code === 'invalid_argument' &&
-      error.field === 'cursor'
-    ) {
-      return loadRecordingEntries(query, true)
-    }
-    recordingCatalogPagination.error = failureMessage(
-      error,
-      translate('runtime.callRecordingsLoadFailed')
-    )
-    return null
-  } finally {
-    if (
-      token === recordingCatalogGeneration &&
-      pageGeneration === recordingCatalogPagination.generation
-    ) {
-      recordingCatalogPagination.loadingMore = false
-    }
-  }
+  return loadNextPage({
+    target: recordingCatalogState,
+    pagination: recordingCatalogPagination,
+    generation: () => recordingCatalogGeneration,
+    loader: cursor =>
+      gateway.listRecordings({
+        ...(query ? { q: query } : {}),
+        cursor
+      }),
+    restart: () => loadRecordingEntries(query, true),
+    identity: recording => recording.id,
+    errorMessage: error =>
+      failureMessage(error, translate('runtime.callRecordingsLoadFailed'))
+  })
 }
 
 export async function refreshRecordingEntries(

@@ -28,7 +28,14 @@ import {
   setProxyEnabled,
   type ProxyDraft
 } from '../state/network'
-import { bootstrapResource, lineLabel, loadBootstrap } from '../state/workspace'
+import {
+  attachedLineForKey,
+  bootstrapResource,
+  defaultLineID,
+  lineKey,
+  lineLabel,
+  loadBootstrap
+} from '../state/workspace'
 import { lineTone } from '../utils/lineTone'
 
 const { t } = useI18n()
@@ -39,21 +46,11 @@ const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadB
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const snapshot = computed(() => networkState.snapshot)
-const defaultLineID = computed(
-  () => bootstrapResource.data?.line_settings.default_line_id || ''
-)
 const editorInitialLineID = computed(() =>
   selectedLineID.value === 'all' ? defaultLineID.value : selectedLineID.value
 )
 
-function stableLineID(line: LineSummary): string {
-  return line.id.trim()
-}
-
-function lineForID(lineID: string): LineSummary | undefined {
-  return lines.value.find(line => stableLineID(line) === lineID)
-}
-
+// Traffic keeps its own wording (line label, traffic.* keys), unlike lineFallbackFor.
 function lineFallback(line: LineSummary | undefined, lineID = ''): string {
   if (line) return lineLabel(line)
   return lineID.trim()
@@ -74,11 +71,11 @@ function usageFor(
 const visibleLines = computed(() =>
   selectedLineID.value === 'all'
     ? lines.value
-    : lines.value.filter(line => stableLineID(line) === selectedLineID.value)
+    : lines.value.filter(line => lineKey(line) === selectedLineID.value)
 )
 
 const visibleLineIDs = computed(
-  () => new Set(visibleLines.value.map(stableLineID))
+  () => new Set(visibleLines.value.map(lineKey))
 )
 
 const visibleProxies = computed(() =>
@@ -119,9 +116,9 @@ function periodTotal(period: 'today' | 'month'): number {
 // The share bar always covers every line, so filtering never reshapes the page.
 const monthShare = computed<TrafficShareSegment[]>(() =>
   lines.value.map(line => {
-    const usage = usageFor('month', 'line', stableLineID(line))
+    const usage = usageFor('month', 'line', lineKey(line))
     return {
-      id: stableLineID(line),
+      id: lineKey(line),
       label: lineLabel(line),
       color: lineTone(line).dot,
       rx: usage?.rx_bytes || 0,
@@ -159,7 +156,7 @@ const synchronizationNotice = computed(() => {
 })
 
 function lineRuntime(line: LineSummary) {
-  const id = stableLineID(line)
+  const id = lineKey(line)
   return snapshot.value?.lines.find(item => item.line_id === id)
 }
 
@@ -192,7 +189,7 @@ function closeEditor(): void {
 }
 
 async function submitProxy(draft: ProxyDraft): Promise<void> {
-  const line = lineForID(draft.line_id)
+  const line = attachedLineForKey(draft.line_id)
   const saved = await saveProxy(
     draft,
     lineFallback(line, draft.line_id),
@@ -223,7 +220,7 @@ async function deleteProxy(proxy: ProxyInstance): Promise<void> {
 watch(lines, current => {
   if (
     selectedLineID.value !== 'all' &&
-    !current.some(line => stableLineID(line) === selectedLineID.value)
+    !current.some(line => lineKey(line) === selectedLineID.value)
   ) {
     selectedLineID.value = 'all'
   }
@@ -253,11 +250,11 @@ onMounted(() => {
       </button>
       <button
         v-for="line in lines"
-        :key="stableLineID(line)"
+        :key="lineKey(line)"
         type="button"
-        :class="{ 'is-selected': selectedLineID === stableLineID(line) }"
-        :aria-pressed="selectedLineID === stableLineID(line)"
-        @click="selectLine(stableLineID(line))"
+        :class="{ 'is-selected': selectedLineID === lineKey(line) }"
+        :aria-pressed="selectedLineID === lineKey(line)"
+        @click="selectLine(lineKey(line))"
       >
         <LineTag :line="line" :fallback="lineFallback(line)" />
       </button>
@@ -335,14 +332,14 @@ onMounted(() => {
           <div v-if="visibleLines.length" class="traffic-line-grid">
             <TrafficLineCard
               v-for="line in visibleLines"
-              :key="stableLineID(line)"
+              :key="lineKey(line)"
               :line="line"
               :fallback="lineFallback(line)"
               :runtime="lineRuntime(line)"
               :boot-epoch="snapshot?.boot_epoch"
               :observed-at="snapshot?.observed_at"
-              :today="usageFor('today', 'line', stableLineID(line))"
-              :month="usageFor('month', 'line', stableLineID(line))"
+              :today="usageFor('today', 'line', lineKey(line))"
+              :month="usageFor('month', 'line', lineKey(line))"
             />
           </div>
           <StatePanel v-else state="empty" :title="t('traffic.noLines')" />
@@ -381,8 +378,8 @@ onMounted(() => {
               v-for="proxy in visibleProxies"
               :key="proxy.id"
               :proxy="proxy"
-              :line="lineForID(proxy.line_id)"
-              :fallback="lineFallback(lineForID(proxy.line_id), proxy.line_id)"
+              :line="attachedLineForKey(proxy.line_id)"
+              :fallback="lineFallback(attachedLineForKey(proxy.line_id), proxy.line_id)"
               :runtime="proxyRuntime(proxy)"
               :today="usageFor('today', 'proxy', proxy.id)"
               :month="usageFor('month', 'proxy', proxy.id)"

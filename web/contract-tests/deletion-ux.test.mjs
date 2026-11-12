@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { COMPACT_WORKSPACE_QUERY } from '../src/utils/breakpoints.ts'
 
 async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
@@ -9,7 +10,8 @@ async function source(path) {
 test('phone and tablet list rows expose native-style swipe actions', async () => {
   const swipeRow = await source('../src/components/SwipeActionRow.vue')
 
-  assert.match(swipeRow, /window\.matchMedia\('\(max-width: 1100px\)'\)\.matches/)
+  assert.equal(COMPACT_WORKSPACE_QUERY, '(max-width: 1100px)')
+  assert.match(swipeRow, /window\.matchMedia\(COMPACT_WORKSPACE_QUERY\)\.matches/)
   assert.match(swipeRow, /event\.pointerType !== 'touch' && event\.pointerType !== 'pen'/)
   assert.match(swipeRow, /side === 'read' \? ACTION_WIDTH : -ACTION_WIDTH/)
   assert.match(swipeRow, /const GESTURE_SLOP = 10/)

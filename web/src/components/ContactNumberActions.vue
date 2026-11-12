@@ -15,10 +15,12 @@ import {
   bootstrapResource,
   contactEditingAvailable,
   contactsResource,
+  defaultLineID,
   lineKey,
   loadContacts,
   saveContact
 } from '../state/workspace'
+import { contactInputFromContact, contactPhoneInputs } from '../utils/contactInput'
 import { userErrorMessage } from '../utils/errorMessage'
 
 const props = withDefaults(
@@ -59,9 +61,6 @@ const filteredContacts = computed(() => {
 })
 const contactLines = computed(
   () => bootstrapResource.data?.lines.filter(line => Boolean(lineKey(line))) || []
-)
-const defaultLineID = computed(
-  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 
 const selectedContact = computed(() =>
@@ -146,28 +145,16 @@ async function addToContact(): Promise<void> {
   error.value = ''
   try {
     const saved = await saveContact(
-      {
-        display_name: contact.display_name,
-        avatar: contact.avatar,
-        favorite: contact.favorite,
-        notes: contact.notes,
-        preferred_line_id: contact.preferred_line_id,
-        revision: contact.revision,
+      contactInputFromContact(contact, {
         phones: [
-          ...contact.phones.map(phone => ({
-            id: phone.id,
-            label: phone.label,
-            number: phone.number,
-            region: phone.region,
-            primary: phone.primary
-          })),
+          ...contactPhoneInputs(contact.phones),
           {
             label: phoneLabel.value.trim() || t('contacts.other'),
             number: props.number.trim(),
             primary: !contact.phones.some(phone => phone.primary)
           }
         ]
-      },
+      }),
       contact.id
     )
     addOpen.value = false

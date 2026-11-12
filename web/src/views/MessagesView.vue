@@ -15,7 +15,7 @@ import {
   X
 } from '@lucide/vue'
 import BatchActionBar from '../components/BatchActionBar.vue'
-import type { Contact, LineSummary, MessageThread } from '../api/types'
+import type { Contact, MessageThread } from '../api/types'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
 import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger.vue'
@@ -62,13 +62,16 @@ import {
   isOneWayMessageSender
 } from '../utils/communicationAddress'
 import {
+  attachedLineForKey,
   bootstrapResource,
   capabilityReason,
   contactForNumber,
   contactsResource,
+  defaultLineID,
   deleteMessageThread,
   deleteMessageThreads,
   displayPhoneNumber,
+  lineFallbackFor,
   lineForKey,
   lineKey,
   lineSupports,
@@ -96,7 +99,7 @@ import {
   threadsResource
 } from '../state/workspace'
 import { formatMessageDay, formatMessageTime } from '../utils/format'
-import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
+import { lineTagLine } from '../utils/lineIdentity'
 import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
 import {
   findRecipientThread,
@@ -221,12 +224,13 @@ const selectedReadError = computed(() =>
   selectedThread.value ? threadReadErrors[selectedThread.value.key] || '' : ''
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
-const defaultLineID = computed(
-  () => bootstrapResource.data?.line_settings.default_line_id || ''
-)
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineKey.value))
 const activeLine = computed(() =>
-  composingNew.value ? selectedLine.value : activeLineForThread(selectedThread.value)
+  composingNew.value
+    ? selectedLine.value
+    : selectedThread.value
+      ? attachedLineForKey(selectedThread.value.line_id)
+      : undefined
 )
 const existingRecipientThread = computed(() =>
   composingNew.value
@@ -237,7 +241,7 @@ const replyThreadKey = computed(() => {
   const line = activeLine.value
   const thread = composingNew.value ? existingRecipientThread.value : selectedThread.value
   if (!thread || !line) return undefined
-  return threadUsesLine(thread, line) ? thread.key : undefined
+  return messageThreadUsesLine(thread, line) ? thread.key : undefined
 })
 const messageUnavailable = computed(() => capabilityReason('message'))
 const messageWriteUnavailable = computed(() =>
@@ -258,7 +262,7 @@ const filteredThreads = computed(() => {
       ? undefined
       : lines.value.find(line => lineKey(line) === lineFilterKey.value)
   return threadsResource.data.filter(thread => {
-    if (filteredLine && !threadUsesLine(thread, filteredLine)) return false
+    if (filteredLine && !messageThreadUsesLine(thread, filteredLine)) return false
     if (favoriteOnly.value && !thread.favorite) return false
     if (
       messageFilter.value === 'unread' &&
@@ -351,30 +355,6 @@ function setFavoriteFilter(value: boolean): void {
   if (value) query.favorite = '1'
   else delete query.favorite
   void router.replace({ name: 'messages', params: route.params, query })
-}
-
-function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
-  return messageThreadUsesLine(thread, line)
-}
-
-function lineForThread(thread?: MessageThread): LineSummary | undefined {
-  if (!thread) return undefined
-  return lineForKey(thread.line_id)
-}
-
-function activeLineForThread(thread?: MessageThread): LineSummary | undefined {
-  if (!thread) return undefined
-  return lines.value.find(line => lineKey(line) === thread.line_id)
-}
-
-function threadLineFallback(thread: MessageThread): string {
-  const line = lineForThread(thread)
-  return lineTagFallback(
-    line,
-    lines.value,
-    defaultLineID.value,
-    thread.line_id
-  )
 }
 
 function avatarForNumber(number: string): string {
@@ -796,10 +776,6 @@ function toggleSelectionMode(): void {
   selection.toggleMode()
 }
 
-function onSelectionKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape' && selection.active.value) selection.exit()
-}
-
 function startMessage(): void {
   if (messageWriteUnavailable.value) return
   composeReturnThreadKey = selectedThread.value?.key || ''
@@ -928,7 +904,6 @@ function statusLabel(status: 'submitted' | 'delivered' | 'failed' | ''): string 
 }
 
 onMounted(() => {
-  window.addEventListener('keydown', onSelectionKeydown)
   window.addEventListener('focus', onMessageWindowFocus)
   document.addEventListener(
     'visibilitychange',
@@ -953,7 +928,6 @@ watch(draft, () => {
 
 onBeforeUnmount(() => {
   composer.dispose()
-  window.removeEventListener('keydown', onSelectionKeydown)
   window.removeEventListener('focus', onMessageWindowFocus)
   document.removeEventListener(
     'visibilitychange',
@@ -1141,8 +1115,8 @@ onBeforeUnmount(() => {
                 :peer="threadDisplayNumber(thread)"
                 :avatar="avatarForNumber(thread.peer)"
                 :contact-bound="Boolean(thread.contact_id || contactForNumber(thread.peer))"
-                :line="lineTagLine(lineForThread(thread), thread.line_id)"
-                :line-fallback="threadLineFallback(thread)"
+                :line="lineTagLine(lineForKey(thread.line_id), thread.line_id)"
+                :line-fallback="lineFallbackFor(thread.line_id)"
                 :selected="thread.key === selectedKey && !composingNew"
                 :favorite-interactive="false"
                 @select="chooseThread"
@@ -1282,8 +1256,8 @@ onBeforeUnmount(() => {
               :contact-bound="Boolean(
                 selectedThread.contact_id || contactForNumber(selectedThread.peer)
               )"
-              :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id)"
-              :line-fallback="threadLineFallback(selectedThread)"
+              :line="lineTagLine(lineForKey(selectedThread.line_id), selectedThread.line_id)"
+              :line-fallback="lineFallbackFor(selectedThread.line_id)"
             />
           </template>
           <template v-if="selectedThread && !composingNew" #actions>
@@ -1459,8 +1433,8 @@ onBeforeUnmount(() => {
             <span v-if="selectedThread && !composingNew && lines.length > 1" class="composer-meta__line">
               {{ t('messages.sendingFrom') }}
               <LineTag
-                :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id)"
-                :fallback="threadLineFallback(selectedThread)"
+                :line="lineTagLine(lineForKey(selectedThread.line_id), selectedThread.line_id)"
+                :fallback="lineFallbackFor(selectedThread.line_id)"
                 variant="dot"
               />
             </span>
@@ -1514,10 +1488,16 @@ onBeforeUnmount(() => {
 
 .existing-thread-button {
   display: inline-flex;
+  min-height: 34px;
   align-items: center;
   justify-content: center;
   gap: 7px;
+  padding: 0 12px;
+  color: var(--accent-strong);
   font-weight: var(--weight-strong);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
 }
 
 .message-list-empty {
@@ -1582,15 +1562,6 @@ onBeforeUnmount(() => {
 
 .conversation-recipient > .unavailable-note {
   grid-column: 1 / -1;
-}
-
-.existing-thread-button {
-  min-height: 34px;
-  padding: 0 12px;
-  color: var(--accent-strong);
-  background: var(--surface);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
 }
 
 .message-read-error {
