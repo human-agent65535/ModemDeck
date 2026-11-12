@@ -456,7 +456,7 @@ private struct ModemDeckSettingsActionRow: View {
                         .frame(width: ModemDeckLayout.iconColumnWidth)
                 }
                 Text(title)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.subheadline.weight(.medium))
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
@@ -505,11 +505,11 @@ private struct ModemDeckSettingsMenuRow: View {
                     .foregroundColor(.mdMuted)
                     .frame(width: ModemDeckLayout.iconColumnWidth)
                 Text(title)
-                    .font(.system(size: 15))
+                    .font(.subheadline)
                     .foregroundColor(.mdText)
                 Spacer(minLength: 14)
                 Text(value)
-                    .font(.system(size: 14))
+                    .font(.subheadline)
                     .foregroundColor(.mdAccent)
                     .lineLimit(1)
                 Image(systemName: "chevron.up.chevron.down")
@@ -541,10 +541,10 @@ private struct ModemDeckSettingsStatusRow: View {
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundColor(.mdText)
                 Text(detail)
-                    .font(.system(size: 12))
+                    .font(.caption)
                     .foregroundColor(.mdMuted)
                     .lineLimit(3)
             }
@@ -569,13 +569,13 @@ private struct ModemDeckSettingsLoadState: View {
                 .frame(maxWidth: .infinity, minHeight: 90)
         } else if !error.isEmpty {
             Text(error)
-                .font(.system(size: 13))
+                .font(.footnote)
                 .foregroundColor(.mdDanger)
                 .padding(14)
                 .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.settingsLoadStateMinHeight, alignment: .leading)
         } else {
             Text(emptyText)
-                .font(.system(size: 13))
+                .font(.footnote)
                 .foregroundColor(.mdMuted)
                 .padding(14)
                 .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.settingsLoadStateMinHeight, alignment: .leading)
@@ -683,7 +683,7 @@ private struct ModemDeckPreferencesSettingsView: View {
 
             if !errorMessage.isEmpty {
                 Text(errorMessage)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundColor(.mdDanger)
                     .padding(.horizontal, 18)
             }
@@ -1056,7 +1056,7 @@ private struct ModemDeckPasswordChangeSheet: View {
                 if !errorMessage.isEmpty {
                     Section {
                         Text(errorMessage)
-                            .font(.system(size: 13))
+                            .font(.footnote)
                             .foregroundColor(.mdDanger)
                     }
                 }
@@ -1187,7 +1187,7 @@ private struct ModemDeckNotificationSettingsView: View {
 
             if !statusMessage.isEmpty {
                 Text(statusMessage)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundColor(statusIsError ? .mdDanger : .mdAccent)
                     .padding(.horizontal, 18)
             }
@@ -1246,7 +1246,7 @@ private struct ModemDeckCallSettingsView: View {
                         set: { updateReceiveCalls($0) }
                     )
                 )
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundColor(.mdText)
                 .tint(.mdAccent)
                 .padding(.horizontal, 14)
@@ -1260,7 +1260,7 @@ private struct ModemDeckCallSettingsView: View {
                         set: { updateRecordingDefault($0) }
                     )
                 )
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundColor(.mdText)
                 .tint(.mdAccent)
                 .padding(.horizontal, 14)
@@ -1314,13 +1314,13 @@ private struct ModemDeckCallSettingsView: View {
 
             if !testStatusMessage.isEmpty {
                 Text(testStatusMessage)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundColor(.mdAccent)
                     .padding(.horizontal, 18)
             }
             if !controller.errorMessage.isEmpty {
                 Text(controller.errorMessage)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundColor(.mdDanger)
                     .padding(.horizontal, 18)
             }
@@ -1817,7 +1817,7 @@ private struct ModemDeckDeviceDiagnosticsSettingsView: View {
                     }
                 ))
                 .accessibilityIdentifier("diagnostics-upload-toggle")
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundColor(.mdText)
                 .tint(.mdAccent)
                 .padding(.horizontal, 14)
@@ -1993,13 +1993,13 @@ private struct ModemDeckContactImportSettingsView: View {
 
             if !importer.resultMessage.isEmpty {
                 Text(importer.resultMessage)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundColor(.mdAccent)
                     .padding(.horizontal, 18)
             }
             if !importer.errorMessage.isEmpty {
                 Text(importer.errorMessage)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundColor(.mdDanger)
                     .padding(.horizontal, 18)
             }

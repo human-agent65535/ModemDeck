@@ -819,7 +819,7 @@ struct ModemDeckContactDetailView: View {
 
                     if let notes = displayedContact.notes, !notes.isEmpty {
                         Text(notes)
-                            .font(.system(size: 14))
+                            .font(.subheadline)
                             .foregroundColor(.mdMuted)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(ModemDeckSpacing.md)
@@ -1518,7 +1518,7 @@ struct ModemDeckNewMessageView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(controller.text("新建短信", "New Message"))
-                    .font(.system(size: 19, weight: .bold))
+                    .font(.title3.weight(.bold))
                     .foregroundColor(.mdText)
                 Spacer()
                 Button {
@@ -1527,7 +1527,8 @@ struct ModemDeckNewMessageView: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(.mdMuted)
-                        .frame(width: 40, height: 40)
+                        .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(controller.text("关闭", "Close"))
@@ -1557,10 +1558,10 @@ struct ModemDeckNewMessageView: View {
 
                     VStack(alignment: .leading, spacing: 7) {
                         Text(controller.text("短信内容", "Message"))
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.footnote.weight(.semibold))
                             .foregroundColor(.mdMuted)
                         TextEditor(text: $content)
-                            .font(.system(size: 16))
+                            .font(.callout)
                             .foregroundColor(.mdText)
                             .frame(minHeight: 150)
                             .padding(ModemDeckSpacing.xs)
@@ -1616,10 +1617,10 @@ struct ModemDeckNewMessageView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.footnote.weight(.semibold))
                 .foregroundColor(.mdMuted)
             content()
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundColor(.mdText)
                 .padding(.horizontal, ModemDeckSpacing.sm)
                 .frame(minHeight: ModemDeckLayout.composeFieldMinHeight)
@@ -2529,7 +2530,7 @@ struct ModemDeckConversationView: View {
                     controller.text("此发送方不接受回复", "This sender does not accept replies"),
                     systemImage: "lock"
                 )
-                .font(.system(size: 14, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .foregroundColor(.mdMuted)
                 .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.compactRowHeight)
                 .background(Color.mdSurface)
@@ -2703,7 +2704,7 @@ struct ModemDeckConversationView: View {
         HStack(spacing: 10) {
             Rectangle().fill(Color.mdUnreadDivider).frame(height: 1)
             Text(controller.text("未读消息", "Unread Messages"))
-                .font(.system(size: 11, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundColor(.mdAccentStrong)
                 .fixedSize()
             Rectangle().fill(Color.mdUnreadDivider).frame(height: 1)

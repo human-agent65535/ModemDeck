@@ -1579,7 +1579,7 @@ private struct ModemDeckDetailCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title.uppercased())
-                .font(.system(size: 11, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .tracking(0.6)
                 .foregroundColor(.mdFaint)
                 .padding(.horizontal, ModemDeckSpacing.xxs)
@@ -1813,10 +1813,10 @@ struct ModemDeckCallDetailView: View {
                                                 "录音片段 \(recording.segment.segmentIndex)",
                                                 "Segment \(recording.segment.segmentIndex)"
                                             ))
-                                            .font(.system(size: 15, weight: .semibold))
+                                            .font(.subheadline.weight(.semibold))
                                             .foregroundColor(.mdText)
                                             Text(ModemDeckDateText.duration(recording.segment.durationMs / 1_000))
-                                                .font(.system(size: 13))
+                                                .font(.footnote)
                                                 .foregroundColor(.mdMuted)
                                         }
                                         Spacer()
