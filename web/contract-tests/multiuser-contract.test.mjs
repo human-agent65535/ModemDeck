@@ -8,7 +8,15 @@ import {
   parseUserResponse,
   parseUsersResponse
 } from '../src/api/contract.ts'
-import { authorizationScopeChanged } from '../src/state/session.ts'
+import { authorizationScopeChanged, sessionRole } from '../src/state/session.ts'
+
+test('a session without a valid role is never treated as an administrator', () => {
+  assert.equal(sessionRole('admin'), 'admin')
+  assert.equal(sessionRole('member'), 'member')
+  for (const role of [undefined, null, '', 'owner', 'ADMIN']) {
+    assert.equal(sessionRole(role), 'member')
+  }
+})
 
 const source = path => readFile(new URL(path, import.meta.url), 'utf8')
 

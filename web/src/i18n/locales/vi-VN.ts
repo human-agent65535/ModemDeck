@@ -12,6 +12,7 @@ export default {
     "username_conflict": "Tên người dùng này đã được sử dụng.",
     "username_invalid": "Không thể dùng tên người dùng này.",
     "revision_conflict": "Nội dung đã được thay đổi ở nơi khác. Hãy tải lại rồi thử lại.",
+    "call_revocation_failed": "Thay đổi đã được lưu, nhưng không thể kết thúc các cuộc gọi đang diễn ra của người dùng này. Vui lòng thử lại sau.",
     "not_found": "Mục này không còn tồn tại.",
     "phone_conflict": "Số này đã thuộc về một liên hệ khác.",
     "communications_unavailable": "Dịch vụ modem hiện không khả dụng. Hãy thử lại sau.",
@@ -412,6 +413,10 @@ export default {
     "vcardExportFailed": "Không thể xuất danh bạ",
     "noContactsToExport": "Không có liên hệ để xuất",
     "tooManyContacts": "Mỗi lần chỉ có thể nhập tối đa {count} liên hệ",
+    "importConfirmTitle": "Nhập liên hệ?",
+    "importConfirmMessage": "Sẽ tạo {created}, cập nhật {updated} và bỏ qua {skipped} liên hệ. Khi cập nhật, tên của liên hệ hiện có sẽ bị thay thế, cùng với ghi chú hoặc ảnh nếu dữ liệu nhập có chứa chúng.",
+    "importConfirmAction": "Nhập",
+    "importCancelled": "Đã hủy nhập.",
     "exportedContacts": "Đã xuất {count} liên hệ",
     "importSummary": "Đã tạo {created}, cập nhật {updated}, bỏ qua {skipped}, lỗi {failed}."
   },

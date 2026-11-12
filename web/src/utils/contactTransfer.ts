@@ -138,6 +138,29 @@ export function planContactImport(
   }
 }
 
+export type ContactImportPreview = {
+  created: number
+  updated: number
+  skipped: number
+}
+
+// Counts what an import would do before anything is written, so the user can
+// confirm how many contacts are created and how many existing ones are replaced.
+export function previewContactImport(
+  transfers: TransferContact[],
+  contacts: Contact[],
+  defaultRegion = ''
+): ContactImportPreview {
+  const preview: ContactImportPreview = { created: 0, updated: 0, skipped: 0 }
+  for (const transfer of transfers) {
+    const plan = planContactImport(transfer, contacts, defaultRegion)
+    if (plan.conflict || !plan.input) preview.skipped += 1
+    else if (plan.existing) preview.updated += 1
+    else preview.created += 1
+  }
+  return preview
+}
+
 function unfoldVCard(source: string): string[] {
   return source
     .replace(/\r\n/g, '\n')

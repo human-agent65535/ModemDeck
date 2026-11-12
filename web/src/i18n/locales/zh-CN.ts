@@ -12,6 +12,7 @@ export default {
     username_conflict: '该用户名已被使用。',
     username_invalid: '该用户名不可用。',
     revision_conflict: '内容已在其他地方被修改，请刷新后重试。',
+    call_revocation_failed: '已保存更改，但未能结束该用户正在进行的通话，请稍后重试。',
     not_found: '该项目已不存在。',
     phone_conflict: '该号码已属于其他联系人。',
     communications_unavailable: '调制解调器服务暂时不可用，请稍后重试。',
@@ -412,6 +413,10 @@ export default {
     vcardExportFailed: '联系人导出失败',
     noContactsToExport: '没有可导出的联系人',
     tooManyContacts: '单次最多导入 {count} 个联系人',
+    importConfirmTitle: '导入联系人？',
+    importConfirmMessage: '将新建 {created} 个、更新 {updated} 个联系人，跳过 {skipped} 个。更新会覆盖已有联系人的姓名，并在导入内容包含备注或头像时替换它们。',
+    importConfirmAction: '导入',
+    importCancelled: '已取消导入。',
     exportedContacts: '已导出 {count} 个联系人',
     importSummary: '新建 {created}，更新 {updated}，跳过 {skipped}，失败 {failed}。'
   },

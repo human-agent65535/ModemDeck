@@ -12,6 +12,7 @@ export default {
     "username_conflict": "Ce nom d’utilisateur est déjà pris.",
     "username_invalid": "Ce nom d’utilisateur ne peut pas être utilisé.",
     "revision_conflict": "Cet élément a été modifié ailleurs. Rechargez et réessayez.",
+    "call_revocation_failed": "La modification a été enregistrée, mais les appels en cours de cet utilisateur n'ont pas pu être terminés. Réessayez dans un instant.",
     "not_found": "Cet élément n’existe plus.",
     "phone_conflict": "Ce numéro appartient déjà à un autre contact.",
     "communications_unavailable": "Le service du modem est indisponible pour le moment. Réessayez bientôt.",
@@ -412,6 +413,10 @@ export default {
     "vcardExportFailed": "Impossible d'exporter les contacts",
     "noContactsToExport": "Aucun contact à exporter",
     "tooManyContacts": "Un import peut contenir jusqu'à {count} contacts",
+    "importConfirmTitle": "Importer les contacts ?",
+    "importConfirmMessage": "{created} seront créés, {updated} mis à jour et {skipped} ignorés. La mise à jour remplace le nom du contact existant, ainsi que ses notes ou sa photo si l'import les contient.",
+    "importConfirmAction": "Importer",
+    "importCancelled": "Import annulé.",
     "exportedContacts": "{count} contact(s) exporté(s)",
     "importSummary": "Créés {created}, mis à jour {updated}, ignorés {skipped}, échecs {failed}."
   },

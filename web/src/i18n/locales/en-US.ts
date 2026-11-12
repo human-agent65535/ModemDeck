@@ -12,6 +12,7 @@ export default {
     username_conflict: 'That username is already taken.',
     username_invalid: 'That username can\'t be used.',
     revision_conflict: 'This was changed somewhere else. Reload and try again.',
+    call_revocation_failed: 'The change was saved, but this user\'s active calls could not be ended. Try again shortly.',
     not_found: 'This item no longer exists.',
     phone_conflict: 'This number already belongs to another contact.',
     communications_unavailable: 'The modem service is unavailable right now. Try again shortly.',
@@ -414,6 +415,10 @@ export default {
     vcardExportFailed: 'Unable to export contacts',
     noContactsToExport: 'There are no contacts to export',
     tooManyContacts: 'A single import can contain up to {count} contacts',
+    importConfirmTitle: 'Import contacts?',
+    importConfirmMessage: '{created} will be created, {updated} updated and {skipped} skipped. Updating replaces the existing contact\'s name, and its notes or photo when the import includes them.',
+    importConfirmAction: 'Import',
+    importCancelled: 'Import cancelled.',
     exportedContacts: 'Exported {count} contact(s)',
     importSummary:
       'Created {created}, updated {updated}, skipped {skipped}, failed {failed}.'

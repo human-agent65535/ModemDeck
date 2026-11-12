@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   parseVCard,
   planContactImport,
+  previewContactImport,
   serializeContactsToVCard
 } from '../src/utils/contactTransfer.ts'
 import {
@@ -132,4 +133,35 @@ test('contact transfer exists only in settings, not on the contacts page', async
   assert.match(panel, /parseVCard/)
   assert.match(panel, /serializeContactsToVCard/)
   assert.doesNotMatch(contacts, /ContactSyncSettings|parseVCard|importVCard|exportVCard/)
+})
+
+test('an import is counted before anything is written and waits for confirmation', async () => {
+  const existing = {
+    id: 'contact-1',
+    display_name: 'Alex',
+    favorite: false,
+    revision: 1,
+    phones: [{ id: 'phone-1', label: 'Mobile', number: '+12025550103', normalized_number: '+12025550103', region: 'US', primary: true }]
+  }
+  const other = {
+    id: 'contact-2',
+    display_name: 'Sam',
+    favorite: false,
+    revision: 1,
+    phones: [{ id: 'phone-2', label: 'Mobile', number: '+12025550104', normalized_number: '+12025550104', region: 'US', primary: true }]
+  }
+  const preview = previewContactImport([
+    { display_name: 'Alex Rowan', phones: [{ label: 'Mobile', number: '+12025550103' }] },
+    { display_name: 'New Person', phones: [{ label: 'Mobile', number: '+12025550109' }] },
+    { display_name: 'Shared', phones: [{ label: 'A', number: '+12025550103' }, { label: 'B', number: '+12025550104' }] },
+    { display_name: 'No phone', phones: [] }
+  ], [existing, other])
+  assert.deepEqual(preview, { created: 1, updated: 1, skipped: 2 })
+
+  const settings = await readFile(new URL('../src/components/ContactSyncSettings.vue', import.meta.url), 'utf8')
+  const importBody = settings.slice(settings.indexOf('async function importContacts'))
+  const confirmation = importBody.indexOf('requestConfirmation(')
+  const write = importBody.indexOf('saveContact(')
+  assert.ok(confirmation > 0 && write > confirmation, 'the confirmation must come before the first write')
+  assert.match(importBody, /if \(!confirmed\) return null/)
 })

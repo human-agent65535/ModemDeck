@@ -12,6 +12,7 @@ export default {
     username_conflict: '該使用者名稱已被使用。',
     username_invalid: '該使用者名稱無法使用。',
     revision_conflict: '內容已在其他地方被修改，請重新整理後重試。',
+    call_revocation_failed: '已儲存變更，但未能結束該使用者進行中的通話，請稍後再試。',
     not_found: '該項目已不存在。',
     phone_conflict: '該號碼已屬於其他聯絡人。',
     communications_unavailable: '數據機服務暫時無法使用，請稍後重試。',
@@ -412,6 +413,10 @@ export default {
     vcardExportFailed: '聯絡人匯出失敗',
     noContactsToExport: '沒有可匯出的聯絡人',
     tooManyContacts: '單次最多匯入 {count} 位聯絡人',
+    importConfirmTitle: '匯入聯絡人？',
+    importConfirmMessage: '將新增 {created} 位、更新 {updated} 位聯絡人，略過 {skipped} 位。更新會覆寫現有聯絡人的姓名，並在匯入內容包含備註或頭像時取代它們。',
+    importConfirmAction: '匯入',
+    importCancelled: '已取消匯入。',
     exportedContacts: '已匯出 {count} 位聯絡人',
     importSummary: '新增 {created}，更新 {updated}，略過 {skipped}，失敗 {failed}。'
   },

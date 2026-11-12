@@ -41,6 +41,12 @@ type AuthorizationScope = {
   allowedLineIDs: readonly string[]
 }
 
+// A session without a valid role fails closed: the client never assumes
+// administrator access the server did not state.
+export function sessionRole(role: unknown): 'admin' | 'member' {
+  return role === 'admin' ? 'admin' : 'member'
+}
+
 export function authorizationScopeChanged(
   current: AuthorizationScope,
   next: AuthorizationScope
@@ -65,7 +71,7 @@ async function applySession(session: SessionResponse): Promise<boolean> {
 
   const nextScope = {
     userID: session.user_id || '',
-    role: session.role || 'admin',
+    role: sessionRole(session.role),
     allowedLineIDs: session.allowed_line_ids || []
   }
   const reloadForAuthorizationChange =
@@ -90,7 +96,7 @@ async function applySession(session: SessionResponse): Promise<boolean> {
   state.status = 'authenticated'
   state.userID = nextScope.userID
   state.username = session.username || ''
-  state.role = nextScope.role as 'admin' | 'member'
+  state.role = nextScope.role
   state.profileContactID = session.profile_contact_id || ''
   state.iosPairingEnabled = session.ios_pairing_enabled
   state.allowedLineIDs = [...(session.allowed_line_ids || [])]

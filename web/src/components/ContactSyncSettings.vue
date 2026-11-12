@@ -16,6 +16,7 @@ import type { TransferContact } from '../utils/contactTransfer'
 import {
   parseVCard,
   planContactImport,
+  previewContactImport,
   serializeContactsToVCard
 } from '../utils/contactTransfer'
 import {
@@ -33,6 +34,7 @@ import {
   saveContact
 } from '../state/workspace'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
@@ -90,13 +92,28 @@ function saveGoogleClientID(notify = false): boolean {
   return true
 }
 
+// Returns null when the user declines the import; nothing is written before
+// the confirmation.
 async function importContacts(transfers: TransferContact[]): Promise<{
   created: number
   updated: number
   skipped: number
   failed: number
-}> {
+} | null> {
   const contacts = await fetchAllContacts()
+  const preview = previewContactImport(
+    transfers.slice(0, MAX_IMPORT_CONTACTS),
+    contacts,
+    defaultRegion.value
+  )
+  if (preview.created + preview.updated > 0) {
+    const confirmed = await requestConfirmation({
+      title: t('contactSync.importConfirmTitle'),
+      message: t('contactSync.importConfirmMessage', preview),
+      confirmLabel: t('contactSync.importConfirmAction')
+    })
+    if (!confirmed) return null
+  }
   let created = 0
   let updated = 0
   let skipped = 0
@@ -154,7 +171,7 @@ async function syncGoogle(): Promise<void> {
       throw new Error(t('contactSync.tooManyContacts', { count: MAX_IMPORT_CONTACTS }))
     }
     const result = await importContacts(contacts)
-    googleNotice.value = importSummary(result)
+    googleNotice.value = result ? importSummary(result) : t('contactSync.importCancelled')
   } catch (error) {
     googleError.value = errorMessage(error, t('contactSync.googleSyncFailed'))
   } finally {
@@ -206,7 +223,7 @@ async function importVCard(event: Event): Promise<void> {
       throw new Error(t('contactSync.tooManyContacts', { count: MAX_IMPORT_CONTACTS }))
     }
     const result = await importContacts(transfers)
-    vcardNotice.value = importSummary(result)
+    vcardNotice.value = result ? importSummary(result) : t('contactSync.importCancelled')
   } catch (error) {
     vcardError.value = errorMessage(error, t('contactSync.vcardImportFailed'))
   } finally {
