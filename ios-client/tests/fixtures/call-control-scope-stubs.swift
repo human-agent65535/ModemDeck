@@ -61,5 +61,13 @@ enum Failure: Error { case late }
    await next.value
    precondition(!c.recordingBusy && !c.recordingEnabled)
   }
+  // A reservation has no call on the server: the choice stays local until the call exists.
+  c.call = Call(callID: "prep", state: "connecting"); c.prepareForNewCall(c.call!)
+  c.outgoingRecordingSnapshots = ["prep": false]
+  await c.toggleRecording()
+  precondition(c.recordingEnabled && c.pendingOutgoingRecording == true && c.outgoingRecordingSnapshots["prep"] == true,
+   "a choice made before the call exists must be kept for it")
+  precondition(c.api.pending["prep"] == nil && !c.recordingBusy && c.errorMessage.isEmpty,
+   "a reservation must not be sent to the call recording API")
  }
 }

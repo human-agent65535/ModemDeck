@@ -391,6 +391,7 @@ const controlScopeFields = `
  var call: Call? = Call(callID: "old")
  var busy = false, ending = false, muteBusy = false, dtmfBusy = false, recordingBusy = false, recordingReady = true, recordingEnabled = false
  var recordingGeneration = 0, recordingStatus = "off", errorMessage = "", recordingSnapshotCallID = ""
+ var outgoingRecordingSnapshots: [String: Bool] = [:], pendingOutgoingRecording: Bool?
  var dtmfQueue: [DTMFRequest] = []
  let api = RecordingAPI()
  var recordingReads = 0

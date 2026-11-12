@@ -126,6 +126,11 @@ enum ModemDeckDateText { static func date(_ value: String) -> Date? { ISO8601Dat
   precondition(api.sentRequests.count == 2 && api.sentRequests[0] != api.sentRequests[1], "a refused SMS must be retried as a new request")
   store.discard(store.outbox[0])
   precondition(store.outbox.isEmpty && api.cachedOutbox().isEmpty, "a discarded failure must disappear for good")
+  // A retry can confirm an SMS that a refresh already listed; it must not appear twice.
+  api.sendFails = false
+  api.refused = false
+  _ = await store.send("listed", attempt: "attempt-l")
+  precondition(store.messages.filter { $0.id == 100 }.count == 1, "a confirmed SMS already in the list must not be duplicated")
   print("authoritative cache reconciliation and draft revisions passed")
  }
 }

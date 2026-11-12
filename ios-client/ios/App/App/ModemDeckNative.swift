@@ -604,9 +604,22 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     private var callEndBackgroundTasks: [UUID: UIBackgroundTaskIdentifier] = [:]
     private static let pendingCallEndsKey = "modemdeck.pending-call-ends.v1"
     private lazy var pendingEndIntents: [UUID: ModemDeckCallEndIntent] = {
-        guard let data = UserDefaults.standard.data(forKey: Self.pendingCallEndsKey),
-              let entries = try? JSONDecoder().decode([ModemDeckCallEndIntent].self, from: data) else { return [:] }
-        return Dictionary(entries.map { ($0.uuid, $0) }, uniquingKeysWith: { _, latest in latest })
+        guard let data = UserDefaults.standard.data(forKey: Self.pendingCallEndsKey) else { return [:] }
+        // Each intent is a hang-up the server may still be owed: one unreadable entry must
+        // not discard the others.
+        struct Entry: Decodable {
+            let intent: ModemDeckCallEndIntent?
+            init(from decoder: Decoder) throws { intent = try? ModemDeckCallEndIntent(from: decoder) }
+        }
+        guard let entries = try? JSONDecoder().decode([Entry].self, from: data) else {
+            ModemDeckDiagnostics.shared.record(.storage, "pending_call_ends_unreadable")
+            return [:]
+        }
+        let intents = entries.compactMap(\.intent)
+        if intents.count != entries.count {
+            ModemDeckDiagnostics.shared.record(.storage, "pending_call_ends_unreadable")
+        }
+        return Dictionary(intents.map { ($0.uuid, $0) }, uniquingKeysWith: { _, latest in latest })
     }()
     private var testCallUUIDs: Set<UUID> = []
     private var audioTestCallUUIDs: Set<UUID> = []
@@ -1198,6 +1211,10 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             guard let loaded = try credentialStore.load() else { return }
             credential = loaded
         } catch {
+            // The Keychain can be unreadable when a push wakes the app before the first
+            // unlock; without a retry the server would keep a stale token.
+            ModemDeckDiagnostics.shared.record(.push, "registration_sync_failed", error: error)
+            scheduleTokenSyncRetry(forceEmpty: forceEmpty)
             return
         }
 
@@ -1217,18 +1234,22 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             environment: environment,
             bundleID: bundleID
         )
-        guard let body = try? JSONEncoder().encode(registration),
-              let request = try? authorizedRequest(
-                  credential: credential,
-                  path: "/api/v1/mobile/push",
-                  method: "PUT",
-                  headers: [
-                      "Accept": "application/json",
-                      "Content-Type": "application/json"
-                  ],
-                  body: body,
-                  timeout: 15
-              ) else {
+        let request: URLRequest
+        do {
+            request = try authorizedRequest(
+                credential: credential,
+                path: "/api/v1/mobile/push",
+                method: "PUT",
+                headers: [
+                    "Accept": "application/json",
+                    "Content-Type": "application/json"
+                ],
+                body: try JSONEncoder().encode(registration),
+                timeout: 15
+            )
+        } catch {
+            // Not retried: the same token and server address would fail the same way.
+            ModemDeckDiagnostics.shared.record(.push, "registration_sync_failed", error: error)
             return
         }
 
@@ -1603,7 +1624,10 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let observedCall = callController.callObserver.calls.first(where: { $0.uuid == uuid })
         if answeredCallUUIDs.contains(uuid) || answerRequestedCallUUIDs.contains(uuid) ||
             observedCall?.hasConnected == true {
-            return .remoteEnded
+            // A call this device answered was not taken elsewhere, but it can still have failed.
+            let failed = stringValue(call["reason"])?.lowercased() == "failed" ||
+                stringValue(call["phase"])?.lowercased() == "failed"
+            return failed ? .failed : .remoteEnded
         }
         switch stringValue(call["reason"])?.lowercased() {
         case "answered_elsewhere":
@@ -1638,7 +1662,8 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let observedCall = callController.callObserver.calls.first(where: { $0.uuid == uuid })
         if answeredCallUUIDs.contains(uuid) || answerRequestedCallUUIDs.contains(uuid) ||
             observedCall?.hasConnected == true {
-            return .remoteEnded
+            // A call this device answered was not taken elsewhere, but it can still have failed.
+            return call.phase.lowercased() == "failed" ? .failed : .remoteEnded
         }
         let endReason = call.endReason?.lowercased() ?? ""
         let failureCode = call.failureCode?.lowercased() ?? ""
@@ -2021,8 +2046,12 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     private func savePendingEndIntents() {
-        guard let data = try? JSONEncoder().encode(Array(pendingEndIntents.values)) else { return }
-        UserDefaults.standard.set(data, forKey: Self.pendingCallEndsKey)
+        do {
+            let data = try JSONEncoder().encode(Array(pendingEndIntents.values))
+            UserDefaults.standard.set(data, forKey: Self.pendingCallEndsKey)
+        } catch {
+            ModemDeckDiagnostics.shared.record(.storage, "pending_call_ends_unsaved", error: error)
+        }
     }
 
     private func resumePendingCallEnds() {

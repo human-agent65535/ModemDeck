@@ -869,6 +869,9 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     private var recordingGeneration = 0
     private var recordingSnapshotCallID = ""
     private var outgoingRecordingSnapshots: [String: Bool] = [:]
+    /// A recording choice made while the outgoing call was still a reservation, which the
+    /// server cannot set recording on; it is applied as soon as the call exists.
+    private var pendingOutgoingRecording: Bool?
     private var dtmfQueue: [DTMFRequest] = []
 
     init(api: ModemDeckAPIClient) {
@@ -1050,6 +1053,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             )
             preparationID = preparation.preparationId
             outgoingRecordingSnapshots = [preparation.preparationId: preparation.recordingEnabled]
+            pendingOutgoingRecording = nil
             try await withCheckedThrowingContinuation { continuation in
                 ModemDeckPushCoordinator.shared.startOutgoingCall(
                     callID: preparation.preparationId,
@@ -1180,6 +1184,14 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             )
             return
         }
+        if call.direction == "outgoing", outgoingRecordingSnapshots[call.callID] != nil {
+            // Still a reservation: there is no call on the server to change yet.
+            recordingEnabled.toggle()
+            recordingStatus = recordingEnabled ? "pending" : "off"
+            outgoingRecordingSnapshots[call.callID] = recordingEnabled
+            pendingOutgoingRecording = recordingEnabled
+            return
+        }
         guard call.state == "active" || call.direction == "outgoing" else { return }
         let generation = recordingGeneration
         recordingBusy = true
@@ -1280,8 +1292,28 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             return
         }
         recordingSnapshotCallID = call.callID
+        let choice = call.direction == "outgoing" ? pendingOutgoingRecording : nil
+        pendingOutgoingRecording = nil
         Task { [weak self] in
-            await self?.refreshRecordingState(callID: call.callID)
+            if let choice {
+                await self?.applyOutgoingRecordingChoice(choice, callID: call.callID)
+            } else {
+                await self?.refreshRecordingState(callID: call.callID)
+            }
+        }
+    }
+
+    private func applyOutgoingRecordingChoice(_ enabled: Bool, callID: String) async {
+        let generation = recordingGeneration
+        do {
+            let state = try await api.setCallRecording(callID: callID, enabled: enabled)
+            guard generation == recordingGeneration else { return }
+            acceptRecordingState(state, for: callID)
+        } catch {
+            guard generation == recordingGeneration, call?.callID == callID else { return }
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+            errorMessage = error.localizedDescription
+            await refreshRecordingState(callID: callID)
         }
     }
 
@@ -1960,7 +1992,8 @@ final class ModemDeckConversationStore: ObservableObject {
                 attempt: attempt
             )
             revision += 1
-            messages.append(message)
+            // A retry can confirm an SMS a refresh has already listed.
+            messages = merge(messages, with: [message])
             api.cacheMessages(messages, lineID: thread.lineId, peer: thread.peer)
             // A confirmed send must not wait for a separate history refresh.
             Task { await messagesStore.load() }
