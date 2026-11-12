@@ -52,6 +52,14 @@ export function userErrorMessage(cause: unknown, fallback: string): string {
   return fallback
 }
 
+/**
+ * Text for a code the server stores with a record, such as a call's failure code:
+ * its translation when the code is known, otherwise the caller's localized fallback.
+ */
+export function serverCodeMessage(code: string | undefined, fallback: string): string {
+  return (code ? translatedCode(code) : '') || fallback
+}
+
 /** A 403 shows the resource's own forbidden text, whatever code the server sent. */
 export function forbiddenOrUserErrorMessage(
   cause: unknown,

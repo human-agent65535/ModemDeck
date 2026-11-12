@@ -102,9 +102,9 @@ export async function toggleBrowserNotifications(): Promise<void> {
       writeNotificationPreference(false)
       state.error = translate('runtime.notificationPermissionMissing')
     }
-  } catch (error) {
-    state.error =
-      error instanceof Error ? error.message : translate('runtime.notificationPermissionFailed')
+  } catch {
+    // The browser's own text is in its language and written for developers.
+    state.error = translate('runtime.notificationPermissionFailed')
   } finally {
     state.requesting = false
     syncBrowserNotificationState()

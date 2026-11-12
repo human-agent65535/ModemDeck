@@ -11,6 +11,7 @@ import {
 } from '../src/api/contract.ts'
 import { gateway } from '../src/api/client.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
+import { translate } from '../src/i18n/index.ts'
 import {
   activateNetworkSelection,
   enterManualNetworkSelection,
@@ -235,10 +236,9 @@ test('manual entry scans locally while writes require a selected operator', () =
   assert.match(stateSource, /scanRequestSequence/)
   assert.match(stateSource, /pendingNetworkScans/)
   assert.doesNotMatch(stateSource, /resetInterruptedResource/)
-  assert.match(
-    stateSource,
-    /!updated\.applied && updated\.last_error \? updated\.last_error : ''/
-  )
+  // A saved choice the modem did not apply is reported in the person's language.
+  assert.match(stateSource, /target\.policyError = policyNotAppliedText\(updated\)/)
+  assert.doesNotMatch(stateSource, /policyError = [^\n]*last_error/)
 })
 
 test('network selection state scans and writes only at the intended transitions', async () => {
@@ -358,7 +358,10 @@ test('failed device apply reloads the persisted desired policy and concise error
     assert.equal(resource.policy.operator_code, '00102')
     assert.equal(resource.policy.revision, 5)
     assert.equal(resource.mode, 'manual')
-    assert.equal(resource.policyError, '运营商注册失败')
+    // The modem's own text stays on the policy as technical detail; the person reads
+    // a translated account of what happened.
+    assert.equal(resource.policy.last_error, '运营商注册失败')
+    assert.equal(resource.policyError, translate('runtime.networkPolicyNotApplied'))
   } finally {
     gateway.getNetworkSelection = originalGet
     gateway.updateNetworkSelection = originalUpdate

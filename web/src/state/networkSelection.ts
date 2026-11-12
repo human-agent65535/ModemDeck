@@ -41,6 +41,14 @@ type PendingNetworkScan = {
 
 const pendingNetworkScans = new Map<string, PendingNetworkScan>()
 
+/**
+ * The modem can refuse a saved choice. Its own account of why is technical text for
+ * the hover detail; the person is told what happened in their language.
+ */
+function policyNotAppliedText(policy: { applied: boolean; last_error?: string }): string {
+  return !policy.applied && policy.last_error ? translate('runtime.networkPolicyNotApplied') : ''
+}
+
 function errorText(error: unknown): string {
   return userErrorMessage(error, translate('runtime.requestFailed'))
 }
@@ -115,7 +123,7 @@ export async function loadNetworkSelection(lineID: string, force = false): Promi
     target.policy = policy
     target.mode = policy.mode
     target.policyStatus = 'ready'
-    target.policyError = !policy.applied && policy.last_error ? policy.last_error : ''
+    target.policyError = policyNotAppliedText(policy)
     return true
   } catch (error) {
     if (!isCurrentPolicyRequest(normalizedLineID, requestSequence)) return false
@@ -216,7 +224,7 @@ async function saveNetworkSelection(
     target.policy = updated
     target.mode = updated.mode
     target.policyStatus = 'ready'
-    target.policyError = !updated.applied && updated.last_error ? updated.last_error : ''
+    target.policyError = policyNotAppliedText(updated)
     return true
   } catch (error) {
     if (!isCurrentPolicyRequest(normalizedLineID, requestSequence)) return false
@@ -230,8 +238,7 @@ async function saveNetworkSelection(
       target.policy = latest
       target.mode = latest.mode
       target.policyStatus = 'ready'
-      target.policyError =
-        !latest.applied && latest.last_error ? latest.last_error : saveError
+      target.policyError = policyNotAppliedText(latest) || saveError
     } catch {
       if (!isCurrentPolicyRequest(normalizedLineID, requestSequence)) return false
       target.mode = previousMode

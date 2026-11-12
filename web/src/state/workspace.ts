@@ -224,9 +224,12 @@ export function capabilityReason(capability: 'dial' | 'message'): string {
   if (!bootstrap) return translate('runtime.capabilityNotLoaded')
   const available = bootstrap.capabilities[capability]
   if (!available) {
-    return (
-      bootstrap.capabilities.unavailable_reasons?.[capability] ||
-      translate('runtime.hostCapabilityMissing')
+    // The server's own reason is debug text. What the person can act on is whether the
+    // host service is unreachable or this line simply lacks the capability.
+    return translate(
+      bootstrap.capabilities.agent_connected
+        ? 'runtime.hostCapabilityMissing'
+        : 'runtime.hostServiceUnavailable'
     )
   }
   if (
@@ -1189,12 +1192,13 @@ export async function deleteContacts(contacts: Contact[]): Promise<void> {
     new Map(contacts.map(contact => [contact.id, contact])).values()
   )
   if (unique.length === 0) return
-  await gateway.deleteContacts(
-    unique.map(contact => ({
-      id: contact.id,
-      revision: contact.revision || 0
-    }))
-  )
+  // The server deletes only the revision the person saw. A contact without one cannot
+  // be deleted safely, and sending 0 would only come back as a conflict.
+  const targets = unique.map(contact => ({ id: contact.id, revision: contact.revision ?? 0 }))
+  if (targets.some(target => target.revision <= 0)) {
+    throw new LocalizedError(translate('errors.revision_conflict'))
+  }
+  await gateway.deleteContacts(targets)
   const deleted = new Set(unique.map(contact => contact.id))
   contactsResource.data = contactsResource.data.filter(item => !deleted.has(item.id))
 }

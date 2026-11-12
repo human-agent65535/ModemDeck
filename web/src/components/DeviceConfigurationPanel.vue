@@ -1904,6 +1904,11 @@ onMounted(() => {
                   v-if="selectedNetworkSelection.policyError"
                   class="inline-error network-selection__policy-error"
                   role="status"
+                  :title="
+                    selectedNetworkSelection.policy?.applied === false
+                      ? selectedNetworkSelection.policy.last_error
+                      : undefined
+                  "
                 >
                   {{ selectedNetworkSelection.policyError }}
                 </p>

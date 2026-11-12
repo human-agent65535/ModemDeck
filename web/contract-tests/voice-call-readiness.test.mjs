@@ -56,6 +56,19 @@ test('global dial availability rejects control-only and media-only lines', () =>
       capabilityReason('dial'),
       'Call control is available, but browser audio is unavailable'
     )
+
+    // A missing capability reads differently from a host service that is not answering,
+    // and the server's own reason text never reaches the screen.
+    Object.assign(bootstrapResource.data.capabilities, {
+      dial: false,
+      unavailable_reasons: { dial: 'agent socket: connection refused' }
+    })
+    const missing = capabilityReason('dial')
+    bootstrapResource.data.capabilities.agent_connected = false
+    const unreachable = capabilityReason('dial')
+    assert.match(unreachable, /host service is not responding/i)
+    assert.notEqual(missing, unreachable)
+    assert.doesNotMatch(missing + unreachable, /connection refused/)
   } finally {
     bootstrapResource.data = original
   }

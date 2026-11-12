@@ -292,8 +292,9 @@ onMounted(() => {
           v-if="snapshot && !snapshot.available"
           class="traffic-banner is-warning"
           role="status"
+          :title="snapshot.unavailable_reason"
         >
-          {{ snapshot.unavailable_reason || t('traffic.serviceUnavailable') }}
+          {{ t('traffic.serviceUnavailable') }}
         </div>
         <div
           v-if="synchronizationNotice"

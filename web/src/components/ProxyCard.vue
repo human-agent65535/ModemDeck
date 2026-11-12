@@ -103,16 +103,15 @@ function applyStateLabel(): string {
       <Power v-else-if="runtimeState() === 'disabled'" :size="15" />
       <Clock3 v-else-if="runtimeState() === 'waiting_for_bearer'" :size="15" />
       <CircleHelp v-else :size="15" />
-      <span class="proxy-card__runtime-label">{{ stateLabel() }}</span>
+      <span
+        class="proxy-card__runtime-label"
+        :title="runtimeState() === 'error' ? runtime?.last_error : undefined"
+      >
+        {{ stateLabel() }}
+      </span>
       <span v-if="applyStateLabel()" class="proxy-card__apply-state">
         {{ applyStateLabel() }}
       </span>
-      <small
-        v-if="runtimeState() === 'error' && runtime?.last_error"
-        class="proxy-card__runtime-error"
-      >
-        {{ runtime.last_error }}
-      </small>
     </div>
 
     <dl>
@@ -231,17 +230,6 @@ function applyStateLabel(): string {
   font-weight: var(--weight-strong);
   background: var(--warning-soft);
   border-radius: var(--radius-xs);
-}
-
-.proxy-card__runtime-error {
-  min-width: 0;
-  flex: 1 0 100%;
-  padding-left: 21px;
-  overflow: hidden;
-  color: inherit;
-  font-size: var(--text-2xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .proxy-card__status.is-running {

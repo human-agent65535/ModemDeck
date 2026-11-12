@@ -390,7 +390,8 @@ function playbackError(error: unknown): string {
   if (error instanceof DOMException && error.name === 'NotAllowedError') {
     return translate('audio.playbackBlocked')
   }
-  return error instanceof Error ? error.message : translate('audio.playbackFailed')
+  // Any other browser error text is in its language and written for developers.
+  return translate('audio.playbackFailed')
 }
 
 async function playAudio(

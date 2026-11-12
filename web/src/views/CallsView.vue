@@ -85,7 +85,7 @@ import { callDirectionLabel, formatCompletedDuration, formatDateTime } from '../
 import { isContactPhoneCandidate } from '../utils/communicationAddress'
 import { lineTagLine } from '../utils/lineIdentity'
 import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
-import { userErrorMessage } from '../utils/errorMessage'
+import { serverCodeMessage, userErrorMessage } from '../utils/errorMessage'
 
 const props = withDefaults(
   defineProps<{
@@ -943,7 +943,9 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="selected.failure_reason">
                 <dt>{{ t('dashboard.result') }}</dt>
-                <dd>{{ selected.failure_reason }}</dd>
+                <dd :title="selected.failure_reason">
+                  {{ serverCodeMessage(selected.failure_reason, t('calls.failed')) }}
+                </dd>
               </div>
             </dl>
           </section>
