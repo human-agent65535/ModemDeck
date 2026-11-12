@@ -179,7 +179,7 @@ const runtimeErrors = computed(() => {
   if (!current) return []
   return [
     { scope: t('diagnostics.database'), message: current.database.error },
-    { scope: 'Host agent', message: current.host_agent.last_error },
+    { scope: t('diagnostics.hostAgent'), message: current.host_agent.last_error },
     { scope: t('diagnostics.callRuntime'), message: current.call_runtime.error }
   ].filter((item): item is { scope: string; message: string } => Boolean(item.message))
 })
@@ -201,10 +201,10 @@ const diagnosticLineOptions = computed(() =>
 )
 const logLevelOptions = computed(() => [
   { value: '', label: t('diagnostics.allLevels') },
-  { value: 'debug', label: 'Debug' },
-  { value: 'info', label: 'Info' },
-  { value: 'warn', label: 'Warn' },
-  { value: 'error', label: 'Error' }
+  { value: 'debug', label: t('diagnostics.levelDebug') },
+  { value: 'info', label: t('diagnostics.levelInfo') },
+  { value: 'warn', label: t('diagnostics.levelWarn') },
+  { value: 'error', label: t('diagnostics.levelError') }
 ])
 const logComponentOptions = computed(() => [
   { value: '', label: t('diagnostics.component') },
@@ -298,7 +298,11 @@ const diagnosticCapabilities = computed<
       label: t('device.mobileData'),
       capability: capabilities.data_connection
     },
-    { id: 'at_terminal', label: 'AT terminal', capability: capabilities.at_terminal },
+    {
+      id: 'at_terminal',
+      label: t('diagnostics.capabilityAtTerminal'),
+      capability: capabilities.at_terminal
+    },
     {
       id: 'usb_reset',
       label: t('device.usbHardReset'),
@@ -957,7 +961,7 @@ onBeforeUnmount(() => {
           >
             <span class="service-status__icon"><Server :size="19" /></span>
             <span>
-              <strong>Host agent</strong>
+              <strong>{{ t('diagnostics.hostAgent') }}</strong>
               <small>
                 {{
                   snapshot.host_agent.connected

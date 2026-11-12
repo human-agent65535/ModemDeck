@@ -274,21 +274,21 @@ test('proxy credential limits use UTF-8 bytes and protocol rules', () => {
   assert.equal(proxyCredentialError('socks5', '用'.repeat(42), 'secret'), '')
   assert.match(
     proxyCredentialError('socks5', '用'.repeat(43), 'secret'),
-    /128 个 UTF-8 字节/
+    /128 UTF-8 bytes/
   )
   assert.equal(proxyCredentialError('socks5', 'deck', '密'.repeat(85)), '')
   assert.match(
     proxyCredentialError('socks5', 'deck', '密'.repeat(86)),
-    /255 个 UTF-8 字节/
+    /255 UTF-8 bytes/
   )
   assert.equal(proxyCredentialError('http', 'deck', 'p'.repeat(512)), '')
   assert.match(
     proxyCredentialError('http', 'deck', 'p'.repeat(513)),
-    /512 个 UTF-8 字节/
+    /512 UTF-8 bytes/
   )
   assert.match(
     proxyCredentialError('http', 'invalid:user', 'secret'),
-    /不能包含冒号/
+    /cannot contain a colon/
   )
 })
 

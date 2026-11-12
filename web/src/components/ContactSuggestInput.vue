@@ -169,7 +169,7 @@ function onBlur(event: FocusEvent): void {
           />
           <span>
             <strong>{{ suggestion.contact.display_name }}</strong>
-            <small>{{ suggestion.phone.label }} · {{ suggestion.phone.number }}</small>
+            <small>{{ suggestion.phone.label || t('contacts.phone') }} · {{ suggestion.phone.number }}</small>
           </span>
           <small v-if="suggestion.phone.number === primaryPhone(suggestion.contact.phones)">
             {{ t('contacts.primary') }}

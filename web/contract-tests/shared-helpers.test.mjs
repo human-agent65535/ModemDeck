@@ -299,6 +299,11 @@ test('a contact maps to a whole-contact input, with only the overridden fields c
   ]
   // Server-owned fields (id, timestamps, normalized_number) are not sent back.
   assert.deepEqual(contactPhoneInputs(contact.phones), phones)
+  // A stored phone without a label is sent back with the generic one; the server requires a label.
+  assert.equal(
+    contactPhoneInputs([{ ...contact.phones[0], label: '' }])[0].label,
+    translate('contacts.phone')
+  )
   const input = {
     display_name: 'Ada',
     avatar: 'data:image/png;base64,AA',

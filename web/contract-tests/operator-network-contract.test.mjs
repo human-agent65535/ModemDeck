@@ -84,11 +84,11 @@ test('operator facts distinguish the serving network from the home operator', ()
       registration_state: 'home',
       roaming: false
     }),
-    [{ id: 'current', label: '运营商', value: 'Aurora Mobile（00101）' }]
+    [{ id: 'current', label: 'Operator', value: 'Aurora Mobile（00101）' }]
   )
   assert.deepEqual(operatorFacts(networkFields), [
-    { id: 'serving', label: '当前网络', value: 'Aurora Mobile（00101）' },
-    { id: 'home', label: '归属运营商', value: 'Pine Wireless（00102）' }
+    { id: 'serving', label: 'Current network', value: 'Aurora Mobile（00101）' },
+    { id: 'home', label: 'Home operator', value: 'Pine Wireless（00102）' }
   ])
   assert.deepEqual(
     operatorFacts({
@@ -101,11 +101,11 @@ test('operator facts distinguish the serving network from the home operator', ()
       roaming: true
     }),
     [
-      { id: 'serving', label: '当前网络', value: '未识别' },
-      { id: 'home', label: '归属运营商', value: 'China Unicom（46001）' }
+      { id: 'serving', label: 'Current network', value: 'Unrecognized' },
+      { id: 'home', label: 'Home operator', value: 'China Unicom（46001）' }
     ]
   )
-  assert.equal(registrationStateLabel(networkFields, '已驻网'), '漫游')
+  assert.equal(registrationStateLabel(networkFields, '已驻网'), 'Roaming')
 })
 
 test('searching lines do not present cached serving operators as current networks', () => {
@@ -121,11 +121,11 @@ test('searching lines do not present cached serving operators as current network
   }
 
   assert.equal(isRegisteredNetwork(searching), false)
-  assert.equal(registrationStateLabel(searching, '搜索网络'), '正在搜网')
+  assert.equal(registrationStateLabel(searching, '搜索网络'), 'Searching for network')
   assert.deepEqual(operatorFacts(searching), [
     {
       id: 'home',
-      label: '归属运营商',
+      label: 'Home operator',
       value: 'Pine Wireless（00102）'
     }
   ])
@@ -148,7 +148,7 @@ test('idle emergency-only lines report the usable service state', () => {
       },
       '已启用'
     ),
-    '仅限紧急呼叫'
+    'Emergency calls only'
   )
   assert.equal(
     registrationStateLabel(
@@ -159,7 +159,7 @@ test('idle emergency-only lines report the usable service state', () => {
       },
       '已启用'
     ),
-    '等待驻网'
+    'Waiting for network'
   )
   assert.equal(
     registrationStateLabel(
@@ -170,7 +170,7 @@ test('idle emergency-only lines report the usable service state', () => {
       },
       '已启用'
     ),
-    '正在搜网'
+    'Searching for network'
   )
 })
 

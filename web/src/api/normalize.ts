@@ -187,7 +187,7 @@ function normalizePhone(value: unknown, contactId: string, index: number): Conta
   const source = objectValue(value, `contact.phones[${index}]`)
   return {
     id: stringValue(source, 'id') || `${contactId}-phone-${index + 1}`,
-    label: stringValue(source, 'label') || '电话',
+    label: stringValue(source, 'label'),
     number: requiredString(source, `contact.phones[${index}]`, 'original_number'),
     normalized_number: stringValue(source, 'canonical_e164') || undefined,
     region: stringValue(source, 'region') || undefined,

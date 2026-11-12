@@ -1490,7 +1490,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       existing?.has_password
     )
     if (credentialError) {
-      const field = credentialError.includes('用户名') ? 'username' : 'password'
+      const field = /username/i.test(credentialError) ? 'username' : 'password'
       throw fixtureProxyError(credentialError, field)
     }
     if (

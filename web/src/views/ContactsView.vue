@@ -535,7 +535,7 @@ onMounted(() => {
             <div v-for="phone in selected.phones" :key="phone.id" class="phone-detail-row">
               <span>
                 <small>
-                  {{ phone.label
+                  {{ phone.label || t('contacts.phone')
                   }}{{ phone.primary ? ` · ${t('contacts.primary')}` : '' }}
                 </small>
                 <strong>{{ phone.number }}</strong>

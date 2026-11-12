@@ -13,6 +13,7 @@ import {
   transferContactFromGooglePerson,
   validGoogleClientID
 } from '../src/utils/googleContacts.ts'
+import { translate } from '../src/i18n/index.ts'
 
 test('vCard transfer preserves contact identity, phones, notes, and embedded avatars', () => {
   const avatar = 'data:image/png;base64,iVBORw0KGgo='
@@ -30,6 +31,7 @@ test('vCard transfer preserves contact identity, phones, notes, and embedded ava
   assert.equal(contacts.length, 1)
   assert.equal(contacts[0]?.display_name, 'Alex Rowan')
   assert.equal(contacts[0]?.phones[0]?.number, '+12025550103')
+  assert.equal(contacts[0]?.phones[0]?.label, translate('contacts.mobile'))
   assert.equal(contacts[0]?.notes, 'Demo contact\nPrimary contact')
   assert.equal(contacts[0]?.avatar, avatar)
 

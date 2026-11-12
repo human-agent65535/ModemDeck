@@ -3,6 +3,7 @@ import {
   type CountryCode
 } from 'libphonenumber-js/min'
 import type { Contact, ContactInput } from '../api/types'
+import { translate } from '../i18n'
 
 export type TransferPhone = {
   label: string
@@ -63,7 +64,7 @@ export function normalizeTransferContact(
     if (!normalized || seen.has(normalized.number)) continue
     seen.add(normalized.number)
     phones.push({
-      label: phone.label.trim() || 'Phone',
+      label: phone.label.trim() || translate('contacts.phone'),
       number: normalized.number,
       region: normalized.region
     })
@@ -216,10 +217,24 @@ function vCardPhoneLabel(parameters: string): string {
   const values = parameters
     .split(/[;,]/)
     .map(value => value.replace(/^TYPE=/i, '').trim().toUpperCase())
-  if (values.includes('CELL')) return 'Mobile'
-  if (values.includes('HOME')) return 'Home'
-  if (values.includes('WORK')) return 'Work'
-  return 'Phone'
+  if (values.includes('CELL')) return translate('contacts.mobile')
+  if (values.includes('HOME')) return translate('contacts.home')
+  if (values.includes('WORK')) return translate('contacts.work')
+  return translate('contacts.phone')
+}
+
+// Imported labels are written in the language in use, so an export in that
+// language recognizes them as well as the English and Chinese spellings.
+function vCardPhoneType(label: string): string {
+  const normalized = label.trim()
+  if (normalized === translate('contacts.mobile') || /mobile|cell|手机|移动/i.test(label)) {
+    return 'CELL'
+  }
+  if (normalized === translate('contacts.home') || /home|住宅|家庭/i.test(label)) return 'HOME'
+  if (normalized === translate('contacts.work') || /work|office|公司|工作/i.test(label)) {
+    return 'WORK'
+  }
+  return 'VOICE'
 }
 
 function vCardPhoto(parameters: string, value: string): string | undefined {
@@ -320,13 +335,7 @@ export function serializeContactsToVCard(contacts: Contact[]): string {
       `N:;${escapeVCardText(contact.display_name)};;;`
     ]
     for (const phone of contact.phones) {
-      const type = /mobile|cell|手机|移动/i.test(phone.label)
-        ? 'CELL'
-        : /home|住宅|家庭/i.test(phone.label)
-          ? 'HOME'
-          : /work|office|公司|工作/i.test(phone.label)
-            ? 'WORK'
-            : 'VOICE'
+      const type = vCardPhoneType(phone.label)
       lines.push(`TEL;TYPE=${type}:${phone.normalized_number || phone.number}`)
     }
     if (contact.notes) lines.push(`NOTE:${escapeVCardText(contact.notes)}`)

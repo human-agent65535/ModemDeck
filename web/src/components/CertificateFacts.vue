@@ -45,11 +45,11 @@ function formatTimestamp(value: string): string {
       <dd>{{ issuer || t('tls.notProvided') }}</dd>
     </div>
     <div class="tls-facts__wide">
-      <dt>DNS SAN</dt>
+      <dt>{{ t('tls.dnsNames') }}</dt>
       <dd>{{ dnsNames.join(t('common.listSeparator')) || t('common.none') }}</dd>
     </div>
     <div v-if="ipAddresses !== undefined" class="tls-facts__wide">
-      <dt>IP SAN</dt>
+      <dt>{{ t('tls.ipAddresses') }}</dt>
       <dd>
         {{ ipAddresses?.join(t('common.listSeparator')) || t('common.none') }}
       </dd>

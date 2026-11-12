@@ -17,25 +17,25 @@ export function proxyCredentialError(
   const message = (key: string, fallback: string) => translator?.(key) || fallback
   const normalizedUsername = username.trim()
   if (utf8ByteLength(normalizedUsername) > MAX_USERNAME_BYTES) {
-    return message('proxy.usernameTooLong', '用户名不能超过 128 个 UTF-8 字节')
+    return message('proxy.usernameTooLong', 'Username cannot exceed 128 UTF-8 bytes')
   }
   if (mode === 'http' && normalizedUsername.includes(':')) {
-    return message('proxy.httpUsernameColon', 'HTTP Basic 用户名不能包含冒号')
+    return message('proxy.httpUsernameColon', 'An HTTP Basic username cannot contain a colon')
   }
   if (utf8ByteLength(password) > MAX_PASSWORD_BYTES) {
-    return message('proxy.passwordTooLong', '密码不能超过 512 个 UTF-8 字节')
+    return message('proxy.passwordTooLong', 'Password cannot exceed 512 UTF-8 bytes')
   }
   if (
     mode === 'socks5' &&
     utf8ByteLength(password) > MAX_SOCKS5_PASSWORD_BYTES
   ) {
-    return message('proxy.socksPasswordTooLong', 'SOCKS5 密码不能超过 255 个 UTF-8 字节')
+    return message('proxy.socksPasswordTooLong', 'A SOCKS5 password cannot exceed 255 UTF-8 bytes')
   }
   if (password && !normalizedUsername) {
-    return message('proxy.usernameRequired', '填写密码前需要用户名')
+    return message('proxy.usernameRequired', 'Enter a username before entering a password')
   }
   if (normalizedUsername && !password && !hasExistingPassword) {
-    return message('proxy.passwordRequired', '请输入密码')
+    return message('proxy.passwordRequired', 'Enter a password')
   }
   return ''
 }

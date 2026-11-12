@@ -22,6 +22,8 @@ import FileDropControl from './FileDropControl.vue'
 import CertificateFacts from './CertificateFacts.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 
+// The local Web interface serves HTTPS on this port.
+const WEB_HTTPS_PORT = 7577
 const MAX_PEM_BYTES = 1024 * 1024
 const PEM_ACCEPT =
   '.pem,.crt,.cer,.key,application/x-pem-file,application/pem-certificate-chain,text/plain'
@@ -200,7 +202,7 @@ onMounted(() => {
         <span class="tls-summary__icon"><ShieldCheck :size="21" /></span>
         <div class="tls-summary__heading">
           <h3 id="tls-settings-title">{{ t('tls.currentCertificate') }}</h3>
-          <p>HTTPS :7577 · {{ modeLabel }} · {{ renewalLabel }}</p>
+          <p>{{ t('tls.httpsPort', { port: WEB_HTTPS_PORT }) }} · {{ modeLabel }} · {{ renewalLabel }}</p>
         </div>
         <div class="tls-summary__status" :aria-label="t('tls.certificateStatus')">
           <span class="status-label" :class="{ 'status-label--danger': settings.expired }">

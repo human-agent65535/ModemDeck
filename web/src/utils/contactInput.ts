@@ -1,11 +1,14 @@
 import type { Contact, ContactInput, ContactPhone } from '../api/types'
+import { translate } from '../i18n'
 
 // The API replaces a contact as a whole, so every field the server keeps must be
 // sent back. One mapping keeps a partial update from silently dropping a field.
 export function contactPhoneInputs(phones: ContactPhone[]): ContactInput['phones'] {
   return phones.map(phone => ({
     id: phone.id,
-    label: phone.label,
+    // The server refuses a phone without a label. A stored phone can lack one;
+    // it is sent back, and shown for editing, with the generic label.
+    label: phone.label || translate('contacts.phone'),
     number: phone.number,
     region: phone.region,
     primary: phone.primary
