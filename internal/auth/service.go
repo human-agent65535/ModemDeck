@@ -8,7 +8,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -178,17 +180,65 @@ type Service struct {
 	repository Repository
 	random     io.Reader
 	now        func() time.Time
+	logger     *slog.Logger
+
+	// metadataFailureLoggedAt is the Unix time of the last reported session
+	// activity write failure; such failures repeat on every request while the
+	// database is unwritable and are reported once a minute.
+	metadataFailureLoggedAt atomic.Int64
 }
 
-func NewService(repository Repository) (*Service, error) {
+// Option configures a Service.
+type Option func(*Service)
+
+// WithLogger sets where the service reports failures that do not fail the
+// request. Without it the process default logger is used.
+func WithLogger(logger *slog.Logger) Option {
+	return func(s *Service) {
+		if logger != nil {
+			s.logger = logger
+		}
+	}
+}
+
+func NewService(repository Repository, options ...Option) (*Service, error) {
 	if repository == nil {
 		return nil, newError("create auth service", CodeRepositoryRequired, nil)
 	}
-	return &Service{
+	service := &Service{
 		repository: repository,
 		random:     rand.Reader,
 		now:        time.Now,
-	}, nil
+		logger:     slog.Default(),
+	}
+	for _, option := range options {
+		option(service)
+	}
+	return service, nil
+}
+
+const sessionMetadataFailureLogInterval = time.Minute
+
+// reportSessionMetadataFailure records that a session's last-seen time could not
+// be stored. The request still succeeds, but the idle timeout keeps counting
+// from the last stored time, so the failure must be visible to the operator.
+func (s *Service) reportSessionMetadataFailure(err error) {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return
+	}
+	now := s.now().Unix()
+	last := s.metadataFailureLoggedAt.Load()
+	if last != 0 && now-last < int64(sessionMetadataFailureLogInterval/time.Second) {
+		return
+	}
+	if !s.metadataFailureLoggedAt.CompareAndSwap(last, now) {
+		return
+	}
+	s.logger.Warn(
+		"session activity could not be stored; idle expiry keeps using the last stored time",
+		"component", "auth",
+		"error", err,
+	)
 }
 
 // RequiresPrincipal reports whether every valid session carries a user
@@ -683,7 +733,9 @@ func (s *Service) refreshSessionMetadata(ctx context.Context, record SessionReco
 	if !ok {
 		return
 	}
-	_ = repository.UpdateSessionMetadata(ctx, record.SessionTokenDigest, client, now)
+	s.reportSessionMetadataFailure(
+		repository.UpdateSessionMetadata(ctx, record.SessionTokenDigest, client, now),
+	)
 }
 
 func (s *Service) refreshUserSessionMetadata(
@@ -706,13 +758,13 @@ func (s *Service) refreshUserSessionMetadata(
 	if !ok {
 		return
 	}
-	_ = metadataRepository.UpdateUserSessionMetadata(
+	s.reportSessionMetadataFailure(metadataRepository.UpdateUserSessionMetadata(
 		ctx,
 		record.UserID,
 		record.SessionTokenDigest,
 		client,
 		now,
-	)
+	))
 }
 
 func mergeSessionClient(

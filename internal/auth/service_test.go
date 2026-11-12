@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"io"
+	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
@@ -688,6 +689,7 @@ type memoryRepository struct {
 	sessions     map[SessionTokenDigest]SessionRecord
 
 	adminReadErr             error
+	metadataErr              error
 	createAdminErr           error
 	replaceErr               error
 	createErr                error
@@ -814,6 +816,9 @@ func (r *memoryRepository) UpdateSessionMetadata(
 	lastSeenAt time.Time,
 ) error {
 	r.metadataUpdates++
+	if r.metadataErr != nil {
+		return r.metadataErr
+	}
 	record, found := r.sessions[digest]
 	if !found {
 		return nil
@@ -894,5 +899,43 @@ func assertErrorAndCause(t *testing.T, err, kind, cause error) {
 	}
 	if !errors.Is(err, cause) {
 		t.Fatalf("error = %v, want cause %v", err, cause)
+	}
+}
+
+func TestFailedSessionActivityWriteIsReportedOncePerMinute(t *testing.T) {
+	createdAt := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
+	sessionToken, sessionDigest := mustSessionToken(t, 0xb8)
+	_, csrfDigest := mustCSRFToken(t, 0xc8)
+	repository := newMemoryRepository()
+	repository.metadataErr = errors.New("database is read-only")
+	repository.sessions[sessionDigest] = SessionRecord{
+		SessionTokenDigest: sessionDigest,
+		CSRFTokenDigest:    csrfDigest,
+		CreatedAt:          createdAt,
+		LastSeenAt:         createdAt,
+	}
+	var output bytes.Buffer
+	service, err := NewService(repository, WithLogger(slog.New(slog.NewTextHandler(&output, nil))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := createdAt.Add(6 * time.Minute)
+	service.now = func() time.Time { return now }
+	ctx := ContextWithSessionClient(context.Background(), SessionClient{UserAgent: "Browser"})
+
+	for range 3 {
+		if _, err := service.Authenticate(ctx, sessionToken); err != nil {
+			t.Fatalf("Authenticate() error = %v; a failed activity write must not fail the request", err)
+		}
+	}
+	if got := strings.Count(output.String(), "session activity could not be stored"); got != 1 {
+		t.Fatalf("reports within one minute = %d, want 1; log = %s", got, output.String())
+	}
+	now = now.Add(61 * time.Second)
+	if _, err := service.Authenticate(ctx, sessionToken); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(output.String(), "session activity could not be stored"); got != 2 {
+		t.Fatalf("reports after a minute = %d, want 2", got)
 	}
 }

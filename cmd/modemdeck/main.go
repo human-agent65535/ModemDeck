@@ -151,7 +151,7 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("recover interrupted communication operations: %w", err)
 	}
-	authenticator, err := auth.NewService(repository)
+	authenticator, err := auth.NewService(repository, auth.WithLogger(logger))
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create authentication service: %w", err)
