@@ -1,12 +1,10 @@
+import { compactPhoneSyntax } from './lineIdentity'
+
 export type CommunicationAddressKind =
   | 'subscriber'
   | 'short_code'
   | 'alphanumeric'
   | 'unknown'
-
-function compactPhoneSyntax(value: string): string {
-  return value.trim().replace(/[\s().\-/]/g, '')
-}
 
 export function communicationAddressKind(value: string): CommunicationAddressKind {
   const source = value.trim()

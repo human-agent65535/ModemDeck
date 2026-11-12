@@ -94,8 +94,13 @@ import type {
   UserAccount
 } from './types.ts'
 import { isLineColorPresetID } from './types.ts'
-
-type JsonRecord = Record<string, unknown>
+import {
+  objectValue,
+  requiredBoolean,
+  requiredString as parseRequiredString,
+  requiredTimestamp,
+  type JsonRecord
+} from './parse.ts'
 
 const CALL_PHASES = new Set<CallPhase>([
   'unknown',
@@ -169,13 +174,6 @@ const MOBILE_NETWORK_STATUSES = new Set<MobileNetworkStatus>([
   'forbidden'
 ])
 
-function objectValue(value: unknown, path: string): JsonRecord {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${path} 必须是对象`)
-  }
-  return value as JsonRecord
-}
-
 export function callTestPath(id = '', action: 'status' | 'hangup' | 'media' = 'status'): string {
   return id ? `/api/v1/call-tests/${encodeURIComponent(id)}/${action}` : '/api/v1/call-tests'
 }
@@ -217,11 +215,7 @@ export function parseCallTestStatus(value: unknown): CallTestStatus {
 }
 
 function requiredString(source: JsonRecord, path: string, key: string, allowEmpty = false): string {
-  const value = source[key]
-  if (typeof value !== 'string') throw new Error(`${path} 缺少 ${key}`)
-  const trimmed = value.trim()
-  if (!allowEmpty && !trimmed) throw new Error(`${path} 缺少 ${key}`)
-  return trimmed
+  return parseRequiredString(source, path, key, { allowEmpty })
 }
 
 function optionalString(source: JsonRecord, key: string): string | undefined {
@@ -241,22 +235,11 @@ function optionalStringArray(source: JsonRecord, path: string, key: string): str
   })
 }
 
-function requiredTimestamp(source: JsonRecord, path: string, key: string): string {
-  const value = requiredString(source, path, key)
-  if (!Number.isFinite(Date.parse(value))) throw new Error(`${path}.${key} 不是有效时间`)
-  return value
-}
-
 function optionalTimestamp(source: JsonRecord, path: string, key: string): string | undefined {
   const value = optionalString(source, key)
   if (!value) return undefined
   if (!Number.isFinite(Date.parse(value))) throw new Error(`${path}.${key} 不是有效时间`)
   return value
-}
-
-function requiredBoolean(source: JsonRecord, path: string, key: string): boolean {
-  if (typeof source[key] !== 'boolean') throw new Error(`${path}.${key} 必须是布尔值`)
-  return source[key]
 }
 
 function optionalBoolean(

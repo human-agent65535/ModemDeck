@@ -30,6 +30,7 @@ import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader
 import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
+import { useDebouncedCallback } from '../composables/useDebouncedCallback'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useDurablePageRefresh } from '../composables/useDurablePageRefresh'
 import { useListArrivals } from '../composables/useListArrivals'
@@ -55,9 +56,16 @@ import {
   loadBootstrap,
   refreshContacts
 } from '../state/workspace'
-import { formatDateTime, formatDuration, formatRelativeDate } from '../utils/format'
+import {
+  formatBytes,
+  formatCompletedDuration,
+  formatDateTime,
+  formatRelativeDate
+} from '../utils/format'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 import { userErrorMessage } from '../utils/errorMessage'
+
+const RECORDING_SEARCH_DEBOUNCE_MS = 250
 
 const route = useRoute()
 const router = useRouter()
@@ -88,7 +96,6 @@ const recordingArrivals = useListArrivals(
   }),
   recording => recording.id
 )
-let searchTimer: number | undefined
 
 const selectedID = computed(() =>
   typeof route.query.selected === 'string' ? route.query.selected : ''
@@ -181,12 +188,6 @@ function unavailableDetail(recording: RecordingEntry): string {
     default:
       return t('recordings.fileUnavailable')
   }
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.max(0.1, bytes / 1024).toFixed(1)} KB`
-  return `${Math.max(0.1, bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function selectRecording(recording: RecordingEntry): void {
@@ -318,17 +319,13 @@ function onSelectionKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && selection.active.value) selection.exit()
 }
 
-function scheduleSearch(value: string): void {
-  if (searchTimer !== undefined) window.clearTimeout(searchTimer)
-  searchTimer = window.setTimeout(() => {
-    searchTimer = undefined
-    void loadRecordingEntries(value)
-  }, 250)
-}
+const recordingSearch = useDebouncedCallback((value: string) => {
+  void loadRecordingEntries(value)
+}, RECORDING_SEARCH_DEBOUNCE_MS)
 
 watch(search, value => {
   selection.clear()
-  scheduleSearch(value)
+  recordingSearch.schedule(value)
 })
 
 watch(
@@ -384,7 +381,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onSelectionKeydown)
-  if (searchTimer !== undefined) window.clearTimeout(searchTimer)
+  recordingSearch.cancel()
 })
 </script>
 
@@ -536,7 +533,7 @@ onBeforeUnmount(() => {
                       {{ directionLabel(recording) }} ·
                       {{
                         recording.playable
-                          ? formatDuration(recording.duration_seconds)
+                          ? formatCompletedDuration(recording.duration_seconds)
                           : statusLabel(recording)
                       }}
                     </small>
@@ -704,7 +701,7 @@ onBeforeUnmount(() => {
               </div>
               <div>
                 <dt>{{ t('dashboard.duration') }}</dt>
-                <dd>{{ formatDuration(selected.duration_seconds) }}</dd>
+                <dd>{{ formatCompletedDuration(selected.duration_seconds) }}</dd>
               </div>
               <div>
                 <dt>{{ t('dashboard.direction') }}</dt>
@@ -721,7 +718,7 @@ onBeforeUnmount(() => {
               </div>
               <div>
                 <dt>{{ t('recordings.size') }}</dt>
-                <dd>{{ formatSize(selected.size_bytes) }}</dd>
+                <dd>{{ formatBytes(selected.size_bytes, 'recording') }}</dd>
               </div>
               <div>
                 <dt>{{ t('recordings.relatedCall') }}</dt>

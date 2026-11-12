@@ -5,7 +5,7 @@ import { MessageSquareText, PhoneIncoming, PhoneMissed, PhoneOutgoing } from '@l
 import { communicationActivities, type CommunicationActivity } from '../composables/useCommunicationActivity'
 import { messageThreadRoute } from '../router/messageRoute'
 import { callsResource, ensureSearchData, threadsResource } from '../state/workspace'
-import { formatDuration, formatRelativeDate } from '../utils/format'
+import { formatCompletedDuration, formatRelativeDate } from '../utils/format'
 import { normalizedPhoneIdentity } from '../utils/lineIdentity'
 
 // The latest calls and messages with the same numbers, so a detail page answers
@@ -42,7 +42,7 @@ function title(activity: CommunicationActivity): string {
 
 function detail(activity: CommunicationActivity): string {
   if (activity.kind === 'message') return activity.thread.last_content || ''
-  return activity.call.duration_seconds > 0 ? formatDuration(activity.call.duration_seconds) : ''
+  return activity.call.duration_seconds > 0 ? formatCompletedDuration(activity.call.duration_seconds) : ''
 }
 
 function destination(activity: CommunicationActivity) {

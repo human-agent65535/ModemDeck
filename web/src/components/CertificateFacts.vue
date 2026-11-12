@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatDateTime } from '../utils/format'
 
 const props = defineProps<{
   notBefore: string
@@ -12,7 +13,7 @@ const props = defineProps<{
   fingerprint: string
 }>()
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const fingerprintParts = computed(() => {
   const groups = props.fingerprint.split(':')
   if (groups.length < 2) return [props.fingerprint]
@@ -21,16 +22,7 @@ const fingerprintParts = computed(() => {
 })
 
 function formatTimestamp(value: string): string {
-  if (!value) return t('tls.notProvided')
-  const date = new Date(value)
-  if (!Number.isFinite(date.getTime())) return value
-  return new Intl.DateTimeFormat(locale.value, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
+  return value ? formatDateTime(value, 'numeric') : t('tls.notProvided')
 }
 </script>
 

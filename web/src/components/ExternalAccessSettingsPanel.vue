@@ -25,6 +25,7 @@ import { ApiError } from '../api/types'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
+import { formatDateTime } from '../utils/format'
 import OverlayDialog from './OverlayDialog.vue'
 import SelectControl from './SelectControl.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
@@ -46,7 +47,7 @@ const props = withDefaults(
     headingLevel: 3
   }
 )
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const isAdmin = computed(() => sessionState.role === 'admin')
 const showConnectivity = computed(
   () => props.mode !== 'pairing' && isAdmin.value
@@ -266,13 +267,7 @@ function errorMessage(cause: unknown, fallback: string): string {
 }
 
 function formatTimestamp(value?: string): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (!Number.isFinite(date.getTime())) return value
-  return new Intl.DateTimeFormat(locale.value, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(date)
+  return value ? formatDateTime(value, 'medium') : ''
 }
 
 function applyPairingStatus(status: IOSPairingStatus): void {

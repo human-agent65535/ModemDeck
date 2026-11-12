@@ -181,6 +181,13 @@ import type {
   UserAccount
 } from './types'
 import { ApiError } from './types'
+import {
+  objectValue,
+  requiredBoolean,
+  stringValue,
+  type ParseFailure
+} from './parse'
+import { randomRequestID } from '../utils/id'
 
 const API_ROOT = '/api/v1'
 const READ_REQUEST_TIMEOUT_MS = 15_000
@@ -260,14 +267,6 @@ let authenticationRequestGeneration = 0
 let authenticationRequestController = new AbortController()
 let authenticationRequiredHandler: () => void = () => undefined
 const conditionalJSONCache = new Map<string, { etag: string; body: unknown }>()
-
-function requestID(): string {
-  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
-  bytes[6] = ((bytes[6] || 0) & 0x0f) | 0x40
-  bytes[8] = ((bytes[8] || 0) & 0x3f) | 0x80
-  const encoded = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
-  return `${encoded.slice(0, 8)}-${encoded.slice(8, 12)}-${encoded.slice(12, 16)}-${encoded.slice(16, 20)}-${encoded.slice(20)}`
-}
 
 export function setClientCSRFToken(token?: string): void {
   currentCSRFToken = token?.trim() || ''
@@ -422,17 +421,11 @@ function parseAccountSessions(value: unknown): AccountSession[] {
   })
 }
 
-function requiredRecord(value: unknown, path: string): Record<string, unknown> {
-  const source = recordValue(value)
-  if (!source) throw new ApiError(`${path} 必须是对象`, 0, 'invalid_response')
-  return source
-}
+// Response checks in this file surface as ApiError so callers see invalid_response.
+const invalidResponse: ParseFailure = message => new ApiError(message, 0, 'invalid_response')
 
-function stringValue(source: Record<string, unknown>, key: string): string {
-  const value = source[key]
-  if (typeof value === 'string') return value.trim()
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  return ''
+function requiredRecord(value: unknown, path: string): Record<string, unknown> {
+  return objectValue(value, path, invalidResponse)
 }
 
 function requiredStringValue(
@@ -450,11 +443,7 @@ function requiredBooleanValue(
   path: string,
   key: string
 ): boolean {
-  const value = source[key]
-  if (typeof value !== 'boolean') {
-    throw new ApiError(`${path}.${key} 必须是布尔值`, 0, 'invalid_response')
-  }
-  return value
+  return requiredBoolean(source, path, key, invalidResponse)
 }
 
 const UPDATE_STATUSES = new Set<UpdateStatus>([
@@ -1635,7 +1624,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         contract.path,
         contract.method,
-        createMessagePayload({ ...input, request_id: input.request_id || requestID() }),
+        createMessagePayload({ ...input, request_id: input.request_id || randomRequestID() }),
         contract.successStatus
       )
     )
@@ -1835,7 +1824,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         `${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/sim/commands`,
         'POST',
-        { request_id: requestID(), ...input },
+        { request_id: randomRequestID(), ...input },
         200
       )
     )
@@ -1855,7 +1844,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         `${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/profiles`,
         'PUT',
-        { request_id: requestID(), ...input },
+        { request_id: randomRequestID(), ...input },
         200
       )
     )
@@ -1869,7 +1858,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         `${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/profiles`,
         'DELETE',
-        { request_id: requestID(), ...input },
+        { request_id: randomRequestID(), ...input },
         200
       )
     )
@@ -1886,7 +1875,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         `${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/ussd`,
         'POST',
-        { request_id: requestID(), ...input },
+        { request_id: randomRequestID(), ...input },
         200
       )
     )
@@ -1913,7 +1902,7 @@ const realGateway: ConfiguredModemDeckGateway = {
         contract.path,
         contract.method,
         createDeviceConfigurationPayload({
-          request_id: requestID(),
+          request_id: randomRequestID(),
           operation: 'reset_usb',
           expected_device_revision: expectedDeviceRevision
         }),
@@ -2166,7 +2155,7 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async prepareCall(lineKey, number, recordingEnabled) {
     const value = requiredRecord(await writeJSON(`${API_ROOT}/calls/prepare`, 'POST',
-      createCallPayload(lineKey, number, requestID(), recordingEnabled), 201), 'call_preparation')
+      createCallPayload(lineKey, number, randomRequestID(), recordingEnabled), 201), 'call_preparation')
     return { preparation_id: requiredStringValue(value, 'call_preparation', 'preparation_id'),
       recording_enabled: requiredBooleanValue(value, 'call_preparation', 'recording_enabled'),
       media_socket_path: requiredStringValue(value, 'call_preparation', 'media_socket_path'),
@@ -2189,7 +2178,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       contract.method,
       createCallActionPayload(
         action,
-        requestID(),
+        randomRequestID(),
         recordingEnabled
       ),
       contract.successStatus
@@ -2201,7 +2190,7 @@ const realGateway: ConfiguredModemDeckGateway = {
     await writeJSON(
       contract.path,
       contract.method,
-      createDTMFPayload(digit, requestID()),
+      createDTMFPayload(digit, randomRequestID()),
       contract.successStatus
     )
   },

@@ -639,6 +639,11 @@ export function markMissedCallsRead(): Promise<void> {
   return missedCallsReadRequest
 }
 
+/** Missed calls not yet seen, as counted by the dashboard and the attention snapshot. */
+export function unreadMissedCallCount(calls: readonly CallRecord[]): number {
+  return calls.filter(call => call.missed && !call.read).length
+}
+
 export function callCanHaveReadState(call: CallRecord): boolean {
   return call.missed
 }
@@ -1173,10 +1178,6 @@ export async function deleteContacts(contacts: Contact[]): Promise<void> {
   contactsResource.data = contactsResource.data.filter(item => !deleted.has(item.id))
 }
 
-function normalizedAddress(value: string): string {
-  return normalizedPhoneIdentity(value) || value.trim().toLocaleLowerCase()
-}
-
 function findThreadForSentMessage(
   threads: MessageThread[],
   input: SendMessageInput,
@@ -1186,7 +1187,7 @@ function findThreadForSentMessage(
   return threads.find(
     thread =>
       thread.line_id === lineID &&
-      normalizedAddress(thread.peer) === normalizedAddress(sent.peer)
+      normalizedPhoneIdentity(thread.peer) === normalizedPhoneIdentity(sent.peer)
   )
 }
 

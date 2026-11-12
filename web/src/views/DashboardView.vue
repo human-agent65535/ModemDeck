@@ -102,6 +102,7 @@ import {
   threadReadErrors,
   threadIsUnread,
   threadsResource,
+  unreadMissedCallCount,
   updateMissedCallsReadState
 } from '../state/workspace'
 import {
@@ -168,9 +169,7 @@ const unreadMessages = computed(() =>
     0
   )
 )
-const missedCalls = computed(
-  () => callsResource.data.filter(call => call.missed && !call.read).length
-)
+const missedCalls = computed(() => unreadMissedCallCount(callsResource.data))
 // Communication metrics only: monthly traffic already has its own section below.
 const callsToday = computed(() => {
   const today = new Date().toDateString()

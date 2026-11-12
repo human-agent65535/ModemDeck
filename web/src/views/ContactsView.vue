@@ -63,6 +63,7 @@ import {
 } from '../state/workspace'
 import { phoneDestination, primaryPhone, primaryPhoneDestination } from '../utils/format'
 import { userErrorMessage } from '../utils/errorMessage'
+import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
 
 const route = useRoute()
 const router = useRouter()
@@ -94,16 +95,14 @@ const contactArrivals = useListArrivals(
 )
 
 const filteredContacts = computed(() => {
-  const query = search.value.trim().toLocaleLowerCase()
-  const digits = query.replace(/\D/g, '')
+  const query = communicationQuery(search.value)
   return contactsResource.data
     .filter(contact => {
-      if (!query) return true
-      return (
-        contact.display_name.toLocaleLowerCase().includes(query) ||
-        (digits.length > 0 &&
-          contact.phones.some(phone => phone.number.replace(/\D/g, '').includes(digits)))
-      )
+      if (!query.text) return true
+      return matchesCommunicationQuery(query, {
+        text: [contact.display_name],
+        numbers: contact.phones.map(phone => phone.number)
+      })
     })
     .slice()
     .sort((a, b) => a.display_name.localeCompare(b.display_name))

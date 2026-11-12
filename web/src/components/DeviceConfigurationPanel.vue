@@ -31,6 +31,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { gateway } from '../api/client'
+import { knownCallBearerLabel } from '../callBearer'
 import { ApiError } from '../api/types'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
@@ -449,20 +450,11 @@ const selectedLineCall = computed(() => {
     ) || null
   )
 })
-const selectedCallBearer = computed(() => {
-  switch (selectedLineCall.value?.bearer?.trim().toLowerCase()) {
-    case 'volte':
-      return 'VoLTE'
-    case 'vowifi':
-      return 'VoWiFi'
-    case 'gsm':
-    case 'cs':
-    case 'circuit-switched':
-      return 'GSM / CS'
-    default:
-      return ''
-  }
-})
+// Locale-independent lowercasing first, so a Turkish-locale browser still reads
+// `VOWIFI` as VoWiFi; the helper itself lowercases with the browser locale.
+const selectedCallBearer = computed(() =>
+  knownCallBearerLabel(selectedLineCall.value?.bearer?.trim().toLowerCase())
+)
 const selectedLineVoLTEEnabled = computed(() => {
   const volte = hardware.value?.volte
   return volte?.policy_known === true && volte.policy === 'enabled'

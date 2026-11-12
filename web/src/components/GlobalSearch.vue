@@ -12,6 +12,7 @@ import {
   threadsResource
 } from '../state/workspace'
 import { formatRelativeDate, primaryPhone } from '../utils/format'
+import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
 import { messageThreadRoute } from '../router/messageRoute'
 import SearchField from './SearchField.vue'
 
@@ -21,18 +22,17 @@ const root = ref<HTMLElement | null>(null)
 const query = ref('')
 const open = ref(false)
 
-const normalized = computed(() => query.value.trim().toLocaleLowerCase())
-const digits = computed(() => normalized.value.replace(/\D/g, ''))
+const normalized = computed(() => communicationQuery(query.value))
 
+// Matches only names carried on each record; it does not look up contact names.
 const contactResults = computed(() =>
   contactsResource.data
     .filter(contact => {
-      if (!normalized.value) return false
-      return (
-        contact.display_name.toLocaleLowerCase().includes(normalized.value) ||
-        (digits.value.length > 0 &&
-          contact.phones.some(phone => phone.number.replace(/\D/g, '').includes(digits.value)))
-      )
+      if (!normalized.value.text) return false
+      return matchesCommunicationQuery(normalized.value, {
+        text: [contact.display_name],
+        numbers: contact.phones.map(phone => phone.number)
+      })
     })
     .slice(0, 4)
 )
@@ -40,12 +40,11 @@ const contactResults = computed(() =>
 const threadResults = computed(() =>
   threadsResource.data
     .filter(thread => {
-      if (!normalized.value) return false
-      return (
-        (thread.contact_name || '').toLocaleLowerCase().includes(normalized.value) ||
-        (digits.value.length > 0 && thread.peer.replace(/\D/g, '').includes(digits.value)) ||
-        (thread.last_content || '').toLocaleLowerCase().includes(normalized.value)
-      )
+      if (!normalized.value.text) return false
+      return matchesCommunicationQuery(normalized.value, {
+        text: [thread.contact_name, thread.last_content],
+        numbers: [thread.peer]
+      })
     })
     .slice(0, 4)
 )
@@ -53,11 +52,11 @@ const threadResults = computed(() =>
 const callResults = computed(() =>
   callsResource.data
     .filter(call => {
-      if (!normalized.value) return false
-      return (
-        (call.display_name || '').toLocaleLowerCase().includes(normalized.value) ||
-        (digits.value.length > 0 && call.remote_number.replace(/\D/g, '').includes(digits.value))
-      )
+      if (!normalized.value.text) return false
+      return matchesCommunicationQuery(normalized.value, {
+        text: [call.display_name],
+        numbers: [call.remote_number]
+      })
     })
     .slice(0, 4)
 )

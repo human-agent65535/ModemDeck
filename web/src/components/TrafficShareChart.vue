@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatBytes } from '../utils/format'
 
 export type TrafficShareSegment = {
   id: string
@@ -33,19 +34,6 @@ const rows = computed(() =>
     })
     .sort((left, right) => right.bytes - left.bytes)
 )
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB', 'TB', 'PB']
-  let value = bytes / 1024
-  let unit = units[0]
-  for (let index = 1; index < units.length && value >= 1024; index += 1) {
-    value /= 1024
-    unit = units[index]
-  }
-  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2
-  return `${value.toFixed(precision)} ${unit}`
-}
 
 function percent(share: number): string {
   return `${Math.round(share * 100)}%`

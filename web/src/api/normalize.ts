@@ -17,39 +17,23 @@ import type {
   SystemLanguage
 } from './types'
 import { isLineColorPresetID } from './types'
+import {
+  objectValue,
+  requiredBoolean,
+  requiredString as parseRequiredString,
+  requiredTimestamp,
+  stringValue,
+  type JsonRecord
+} from './parse'
 
-type JsonRecord = Record<string, unknown>
-
-function objectValue(value: unknown, path: string): JsonRecord {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${path} 必须是对象`)
-  }
-  return value as JsonRecord
-}
-
+// Bootstrap and list payloads accept numeric IDs, so required strings take numbers here.
 function requiredString(source: JsonRecord, path: string, key: string): string {
-  const value = source[key]
-  if (typeof value === 'string' && value.trim()) return value.trim()
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  throw new Error(`${path} 缺少 ${key}`)
-}
-
-function stringValue(source: JsonRecord, key: string): string {
-  const value = source[key]
-  if (typeof value === 'string') return value.trim()
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  return ''
+  return parseRequiredString(source, path, key, { acceptNumber: true })
 }
 
 function numberValue(source: JsonRecord, key: string, fallback = 0): number {
   const value = Number(source[key])
   return Number.isFinite(value) ? value : fallback
-}
-
-function requiredBoolean(source: JsonRecord, path: string, key: string): boolean {
-  const value = source[key]
-  if (typeof value === 'boolean') return value
-  throw new Error(`${path}.${key} 必须是布尔值`)
 }
 
 function nullableNumber(source: JsonRecord, key: string, zeroIsUnknown = false): number | null {
@@ -61,9 +45,7 @@ function nullableNumber(source: JsonRecord, key: string, zeroIsUnknown = false):
 }
 
 function timestamp(source: JsonRecord, path: string, key: string): string {
-  const value = requiredString(source, path, key)
-  if (!Number.isFinite(Date.parse(value))) throw new Error(`${path}.${key} 不是有效时间`)
-  return value
+  return requiredTimestamp(source, path, key, { acceptNumber: true })
 }
 
 function optionalTimestamp(source: JsonRecord, key: string): string | undefined {

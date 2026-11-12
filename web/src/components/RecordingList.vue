@@ -11,7 +11,7 @@ import {
   recordingListState
 } from '../state/recording'
 import { requestConfirmation } from '../state/confirmation'
-import { formatDateTime, formatDuration } from '../utils/format'
+import { formatBytes, formatCompletedDuration, formatDateTime } from '../utils/format'
 import { userErrorMessage } from '../utils/errorMessage'
 
 const { t } = useI18n()
@@ -30,12 +30,6 @@ const current = computed(() =>
         error: ''
       }
 )
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.max(0.1, bytes / 1024).toFixed(1)} KB`
-  return `${Math.max(0.1, bytes / (1024 * 1024)).toFixed(1)} MB`
-}
 
 function downloadName(id: string, contentType: string): string {
   const normalized = contentType.toLocaleLowerCase()
@@ -144,13 +138,13 @@ watch(
                matters when a call was recorded in several parts. -->
           <strong>
             {{ formatDateTime(recording.recorded_at) }} ·
-            {{ formatDuration(recording.duration_seconds) }}
+            {{ formatCompletedDuration(recording.duration_seconds) }}
           </strong>
           <span>
             <template v-if="current.data.length > 1">
               {{ t('recordings.segment', { number: recording.segment_index }) }} ·
             </template>
-            {{ formatSize(recording.size_bytes) }}
+            {{ formatBytes(recording.size_bytes, 'recording') }}
           </span>
         </div>
         <RecordingPlayer

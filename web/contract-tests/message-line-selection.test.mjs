@@ -64,7 +64,7 @@ test('message loads, reads, and post-send reconciliation use backend line identi
   assert.match(source, /thread\.line_id === lineID/)
   assert.match(
     source,
-    /normalizedAddress\(thread\.peer\) === normalizedAddress\(sent\.peer\)/
+    /normalizedPhoneIdentity\(thread\.peer\) === normalizedPhoneIdentity\(sent\.peer\)/
   )
   assert.doesNotMatch(source, /thread\.(?:local_phone|imsi|iccid)/)
   assert.doesNotMatch(source, /const key = `\$\{sent\.iccid\}\|\$\{sent\.peer\}`/)

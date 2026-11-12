@@ -13,9 +13,9 @@ import zhTW from '../src/i18n/locales/zh-TW.ts'
 import {
   maximumPasswordBytes,
   minimumPasswordCharacters,
-  passwordByteCount,
   passwordCharacterCount
 } from '../src/utils/password.ts'
+import { utf8ByteLength } from '../src/utils/utf8.ts'
 
 const source = path => readFile(new URL(path, import.meta.url), 'utf8')
 
@@ -46,7 +46,8 @@ test('account settings validate password replacement and end the current session
   assert.equal(minimumPasswordCharacters, 8)
   assert.equal(maximumPasswordBytes, 1024)
   assert.equal(passwordCharacterCount('密码密码密码密码'), 8)
-  assert.equal(passwordByteCount('密码密码密码密码'), 24)
+  assert.equal(utf8ByteLength('密码密码密码密码'), 24)
+  assert.match(component, /utf8ByteLength\(newPassword\.value\) > maximumPasswordBytes/)
   assert.match(component, /passwordCharacterCount\(newPassword\.value\)/)
   assert.match(component, /newPassword\.value !== confirmation\.value/)
   assert.match(component, /await changePassword/)

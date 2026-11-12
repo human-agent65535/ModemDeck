@@ -35,7 +35,7 @@ test('dashboard notification cards activate their corresponding filters', () => 
   )
   assert.match(
     dashboard,
-    /callsResource\.data\.filter\(call => call\.missed && !call\.read\)\.length/
+    /const missedCalls = computed\(\(\) => unreadMissedCallCount\(callsResource\.data\)\)/
   )
   assert.match(chinese, /missedCalls: '新未接来电'/)
   assert.match(english, /missedCalls: 'New missed calls'/)

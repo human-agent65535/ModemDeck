@@ -16,10 +16,8 @@ import {
   isLoopbackAddress,
   normalizedIPAddress
 } from '../src/utils/ipAddress.ts'
-import {
-  proxyCredentialError,
-  utf8ByteLength
-} from '../src/utils/proxyCredentials.ts'
+import { proxyCredentialError } from '../src/utils/proxyCredentials.ts'
+import { utf8ByteLength } from '../src/utils/utf8.ts'
 import {
   calculateNetworkRate,
   formatNetworkRate

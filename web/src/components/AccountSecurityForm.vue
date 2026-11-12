@@ -8,10 +8,10 @@ import { changePassword } from '../state/session'
 import {
   maximumPasswordBytes,
   minimumPasswordCharacters,
-  passwordByteCount,
   passwordCharacterCount
 } from '../utils/password'
 import { userErrorMessage } from '../utils/errorMessage'
+import { utf8ByteLength } from '../utils/utf8'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -36,7 +36,7 @@ function validationError(): string {
   if (passwordCharacterCount(newPassword.value) < minimumPasswordCharacters) {
     return t('account.passwordTooShort', { count: minimumPasswordCharacters })
   }
-  if (passwordByteCount(newPassword.value) > maximumPasswordBytes) {
+  if (utf8ByteLength(newPassword.value) > maximumPasswordBytes) {
     return t('account.passwordTooLong', { count: maximumPasswordBytes })
   }
   if (newPassword.value.includes('\0')) {

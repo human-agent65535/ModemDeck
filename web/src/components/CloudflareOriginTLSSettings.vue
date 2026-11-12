@@ -7,6 +7,7 @@ import type { CloudflareOriginTLSStatus } from '../api/types'
 import { ApiError } from '../api/types'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
+import { utf8ByteLength } from '../utils/utf8'
 import CertificateFacts from './CertificateFacts.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 import TextareaControl from './TextareaControl.vue'
@@ -83,7 +84,7 @@ function validatePEM(
   kind: 'certificate' | 'private-key'
 ): string {
   const text = value.trim()
-  if (new TextEncoder().encode(text).byteLength > MAX_PEM_BYTES) {
+  if (utf8ByteLength(text) > MAX_PEM_BYTES) {
     throw new Error(
       kind === 'certificate'
         ? t('tls.certificateTooLarge')

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CalendarDays, ChartNoAxesCombined, RadioTower, Waypoints } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
+import { formatBytes } from '../utils/format'
 
 const { t } = useI18n()
 defineProps<{
@@ -11,19 +12,6 @@ defineProps<{
   runningProxies: number
   totalProxies: number
 }>()
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB', 'TB', 'PB']
-  let value = bytes / 1024
-  let unit = units[0]
-  for (let index = 1; index < units.length && value >= 1024; index += 1) {
-    value /= 1024
-    unit = units[index]
-  }
-  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2
-  return `${value.toFixed(precision)} ${unit}`
-}
 </script>
 
 <template>

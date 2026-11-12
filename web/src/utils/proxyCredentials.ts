@@ -1,14 +1,11 @@
 import type { ProxyMode } from '../api/types'
+import { utf8ByteLength } from './utf8'
 
 const MAX_USERNAME_BYTES = 128
 const MAX_PASSWORD_BYTES = 512
 const MAX_SOCKS5_PASSWORD_BYTES = 255
 
 type Translator = (key: string) => string
-
-export function utf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength
-}
 
 export function proxyCredentialError(
   mode: ProxyMode,

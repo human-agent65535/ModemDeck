@@ -3,10 +3,26 @@ import { translate } from '../i18n'
 
 export type LineTagLine = Pick<LineSummary, 'id' | 'line_label' | 'line_color'>
 
+/**
+ * Removes the punctuation people type inside a phone number: whitespace, ( ) . - /.
+ * `internationalDoubleZero` also rewrites a leading `00` exit code as `+`; only
+ * avatar comparison does that, address matching keeps `0049…` and `+49…` apart.
+ */
+export function compactPhoneSyntax(
+  value: string,
+  options: { internationalDoubleZero?: boolean } = {}
+): string {
+  const compact = value.trim().replace(/[\s().\-/]/g, '')
+  if (options.internationalDoubleZero && /^00[1-9]\d+$/.test(compact)) {
+    return `+${compact.slice(2)}`
+  }
+  return compact
+}
+
 export function normalizedPhoneIdentity(value: string | undefined): string {
   const source = value?.trim() || ''
   if (!source) return ''
-  const compact = source.replace(/[\s().\-/]/g, '')
+  const compact = compactPhoneSyntax(source)
   if (/^\+[1-9]\d{7,14}$/.test(compact)) return compact
   return source.toLocaleLowerCase()
 }

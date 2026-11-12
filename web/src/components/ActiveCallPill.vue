@@ -6,7 +6,7 @@ import { callMediaState } from '../state/callMedia'
 import { presentedCallSession } from '../state/callTestRuntime'
 import { showCallSurface } from '../state/ui'
 import { contactForNumber, displayPhoneNumber } from '../state/workspace'
-import { formatCallClock } from '../utils/format'
+import { formatCallElapsed } from '../utils/format'
 
 // A minimized call stays visible in the header, like Meet's or Slack's call pill,
 // so returning to it is one click instead of reopening the dialer.
@@ -29,7 +29,7 @@ const peer = computed(() => {
 const clock = computed(() => {
   const start = session.value?.active_at
   if (!start) return ''
-  return formatCallClock(Math.max(0, Math.floor((now.value - Date.parse(start)) / 1000)))
+  return formatCallElapsed(start, now.value)
 })
 const status = computed(() => {
   if (props.ringing) return t('calls.incoming')

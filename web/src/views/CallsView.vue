@@ -74,9 +74,10 @@ import {
   setCallsFavorite,
   updateMissedCallsReadState
 } from '../state/workspace'
-import { formatDateTime, formatDuration } from '../utils/format'
+import { formatCompletedDuration, formatDateTime } from '../utils/format'
 import { isContactPhoneCandidate } from '../utils/communicationAddress'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
+import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
 import { userErrorMessage } from '../utils/errorMessage'
 
 const props = withDefaults(
@@ -141,8 +142,7 @@ const filters = computed<Array<{ value: CallFilter; label: string }>>(() => [
 ])
 
 const filteredCalls = computed(() => {
-  const query = search.value.trim().toLocaleLowerCase()
-  const digits = query.replace(/\D/g, '')
+  const query = communicationQuery(search.value)
   const filteredLine =
     lineFilterKey.value === 'all'
       ? undefined
@@ -158,9 +158,11 @@ const filteredCalls = computed(() => {
       const matchesLine =
         !filteredLine || (callLine ? lineKey(callLine) === lineFilterKey.value : false)
       const matchesSearch =
-        !query ||
-        (call.display_name || '').toLocaleLowerCase().includes(query) ||
-        (digits.length > 0 && call.remote_number.replace(/\D/g, '').includes(digits))
+        !query.text ||
+        matchesCommunicationQuery(query, {
+          text: [call.display_name],
+          numbers: [call.remote_number]
+        })
       return (
         matchesFilter &&
         matchesLine &&
@@ -971,7 +973,7 @@ onBeforeUnmount(() => {
                   {{
                     selected.missed
                       ? t('dashboard.notConnected')
-                      : formatDuration(selected.duration_seconds)
+                      : formatCompletedDuration(selected.duration_seconds)
                   }}
                 </dd>
               </div>

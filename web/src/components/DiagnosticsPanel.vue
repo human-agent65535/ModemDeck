@@ -38,6 +38,7 @@ import type {
   LineSummary
 } from '../api/types'
 import { ApiError } from '../api/types'
+import { useDebouncedCallback } from '../composables/useDebouncedCallback'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { audioState, refreshAudioDevices } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
@@ -61,6 +62,7 @@ import SelectControl from './SelectControl.vue'
 import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
 import SectionSkeleton from './skeletons/SectionSkeleton.vue'
 import { userErrorMessage } from '../utils/errorMessage'
+import { formatDateTime } from '../utils/format'
 
 type SnapshotState = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
 type LogConnectionState =
@@ -69,10 +71,11 @@ type LogConnectionState =
   | 'reconnecting'
   | 'paused'
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const MAX_LOCAL_LOGS = 1000
 const HISTORY_LIMIT = 500
 const SNAPSHOT_INTERVAL_MS = 10_000
+const LOG_FILTER_DEBOUNCE_MS = 300
 
 const snapshot = ref<DiagnosticsSnapshot | null>(null)
 const snapshotState = ref<SnapshotState>('idle')
@@ -102,7 +105,6 @@ const {
 
 let closeLogStream: (() => void) | null = null
 let reconnectTimer: number | undefined
-let filterTimer: number | undefined
 let snapshotTimer: number | undefined
 let reconnectAttempt = 0
 let streamGeneration = 0
@@ -559,15 +561,8 @@ function callAudioUnavailable(call: DiagnosticActiveCall): boolean {
 }
 
 function formatTimestamp(value: string, timeOnly = false): string {
-  const parsed = Date.parse(value)
-  if (!Number.isFinite(parsed)) return value || '—'
-  return new Intl.DateTimeFormat(locale.value, {
-    ...(timeOnly ? {} : { month: '2-digit', day: '2-digit' }),
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  }).format(new Date(parsed))
+  // An unparseable value comes back unchanged; only an empty one needs the dash.
+  return formatDateTime(value, timeOnly ? 'logTime' : 'log') || '—'
 }
 
 function formatFields(fields?: Record<string, unknown>): string {
@@ -759,13 +754,11 @@ function handleLogScroll(): void {
   }
 }
 
-watch([logLevel, logComponent, logSearch], () => {
-  if (filterTimer !== undefined) window.clearTimeout(filterTimer)
-  filterTimer = window.setTimeout(() => {
-    filterTimer = undefined
-    void loadLogs()
-  }, 300)
-})
+const logFilterReload = useDebouncedCallback(() => {
+  void loadLogs()
+}, LOG_FILTER_DEBOUNCE_MS)
+
+watch([logLevel, logComponent, logSearch], () => logFilterReload.schedule())
 
 watch(autoFollow, enabled => {
   if (enabled) void scrollToLatest()
@@ -819,7 +812,7 @@ onBeforeUnmount(() => {
   disposed = true
   streamGeneration += 1
   closeStream()
-  if (filterTimer !== undefined) window.clearTimeout(filterTimer)
+  logFilterReload.cancel()
   if (snapshotTimer !== undefined) window.clearInterval(snapshotTimer)
 })
 </script>

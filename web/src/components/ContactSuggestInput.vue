@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Search } from '@lucide/vue'
 import type { Contact, ContactPhone } from '../api/types'
 import { phoneDestination, primaryPhone } from '../utils/format'
+import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
 import BaseAvatar from './BaseAvatar.vue'
 import PopoverTransition from './PopoverTransition.vue'
 
@@ -46,17 +47,17 @@ const listboxId = `${inputId}-listbox`
 const resolvedPlaceholder = computed(() => props.placeholder || t('dialer.numberOrContact'))
 
 const suggestions = computed<Suggestion[]>(() => {
-  const query = props.modelValue.trim().toLocaleLowerCase()
-  if (!query) return []
-  const digits = query.replace(/\D/g, '')
+  const query = communicationQuery(props.modelValue)
+  if (!query.text) return []
   return props.contacts
     .flatMap(contact =>
       contact.phones
-        .filter(phone => {
-          const nameMatch = contact.display_name.toLocaleLowerCase().includes(query)
-          const phoneMatch = digits.length > 0 && phone.number.replace(/\D/g, '').includes(digits)
-          return nameMatch || phoneMatch
-        })
+        .filter(phone =>
+          matchesCommunicationQuery(query, {
+            text: [contact.display_name],
+            numbers: [phone.number]
+          })
+        )
         .map(phone => ({ contact, phone }))
     )
     .slice(0, 6)

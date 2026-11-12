@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { knownCallBearerLabel } from '../src/callBearer.ts'
 
 const devicePanel = new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url)
 const diagnosticsPanel = new URL('../src/components/DiagnosticsPanel.vue', import.meta.url)
@@ -21,9 +22,15 @@ test('module voice settings separate the user policy from an observed bearer', a
   assert.doesNotMatch(source, /diagnostics\.browserAudio/)
   assert.match(source, /t\('device\.voiceMode'\)/)
   assert.match(source, /t\('device\.currentCallBearer'\)/)
-  assert.match(source, /case 'volte':[\s\S]*return 'VoLTE'/)
-  assert.match(source, /case 'vowifi':[\s\S]*return 'VoWiFi'/)
-  assert.match(source, /case 'gsm':[\s\S]*case 'cs':[\s\S]*return 'GSM \/ CS'/)
+  assert.match(
+    source,
+    /knownCallBearerLabel\(selectedLineCall\.value\?\.bearer\?\.trim\(\)\.toLowerCase\(\)\)/
+  )
+  assert.doesNotMatch(source, /case 'volte':/)
+  assert.equal(knownCallBearerLabel('volte'), 'VoLTE')
+  assert.equal(knownCallBearerLabel('vowifi'), 'VoWiFi')
+  assert.equal(knownCallBearerLabel('gsm'), 'GSM / CS')
+  assert.equal(knownCallBearerLabel('cs'), 'GSM / CS')
   assert.match(
     source,
     /const selectedLineVoLTEEnabled = computed[\s\S]*volte\?\.policy_known === true && volte\.policy === 'enabled'/

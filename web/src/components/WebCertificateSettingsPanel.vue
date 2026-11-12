@@ -17,6 +17,7 @@ import type { TLSSettings } from '../api/types'
 import { ApiError } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
+import { formatBytes } from '../utils/format'
 import FileDropControl from './FileDropControl.vue'
 import CertificateFacts from './CertificateFacts.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
@@ -47,11 +48,6 @@ const renewalLabel = computed(() =>
     ? t('tls.automaticRenewal')
     : t('tls.noAutomaticRenewal')
 )
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  return `${Math.ceil(bytes / 1024)} KiB`
-}
 
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status === 403) {
@@ -271,7 +267,7 @@ onMounted(() => {
               :prompt="t('tls.chooseCertificate')"
               :description="
                 certificateFile
-                  ? formatFileSize(certificateFile.size)
+                  ? formatBytes(certificateFile.size, 'roundedKiB')
                   : t('tls.certificateChain')
               "
               :accept="PEM_ACCEPT"
@@ -290,7 +286,7 @@ onMounted(() => {
               :prompt="t('tls.choosePrivateKey')"
               :description="
                 privateKeyFile
-                  ? formatFileSize(privateKeyFile.size)
+                  ? formatBytes(privateKeyFile.size, 'roundedKiB')
                   : t('tls.matchingPrivateKey')
               "
               :accept="PEM_ACCEPT"

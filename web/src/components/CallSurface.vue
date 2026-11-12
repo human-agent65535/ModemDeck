@@ -40,7 +40,7 @@ import {
   lineSupports
 } from '../state/workspace'
 import { knownCallBearerLabel } from '../callBearer'
-import { formatCallClock } from '../utils/format'
+import { formatCallElapsed } from '../utils/format'
 import { lineTone } from '../utils/lineTone'
 import { phoneKeypad } from '../utils/phoneKeypad'
 import AudioDeviceControls from './AudioDeviceControls.vue'
@@ -119,8 +119,7 @@ const phaseLabel = computed(() => {
 function callClock(call: CallSession | undefined): string {
   const start = call?.active_at
   if (!start) return ''
-  const end = call?.ended_at ? Date.parse(call.ended_at) : now.value
-  return formatCallClock(Math.max(0, Math.floor((end - Date.parse(start)) / 1000)))
+  return formatCallElapsed(start, call?.ended_at ? Date.parse(call.ended_at) : now.value)
 }
 const duration = computed(() => callClock(session.value))
 const incoming = computed(

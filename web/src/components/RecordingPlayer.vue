@@ -8,6 +8,7 @@ import {
   cancelSelectedAudioOutputApplication
 } from '../state/audio'
 import { userErrorMessage } from '../utils/errorMessage'
+import { formatPlaybackTime } from '../utils/format'
 
 const props = withDefaults(
   defineProps<{
@@ -39,17 +40,6 @@ const timelineMaximum = computed(() => Math.max(1, duration.value))
 const timelineValue = computed(() =>
   Math.min(timelineMaximum.value, Math.max(0, currentTime.value))
 )
-
-function playbackTime(seconds: number): string {
-  const normalized = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0
-  const hours = Math.floor(normalized / 3600)
-  const minutes = Math.floor((normalized % 3600) / 60)
-  const remainder = normalized % 60
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
-  }
-  return `${minutes}:${String(remainder).padStart(2, '0')}`
-}
 
 function syncTimeline(element: HTMLAudioElement): void {
   currentTime.value = Number.isFinite(element.currentTime) ? element.currentTime : 0
@@ -210,13 +200,13 @@ onBeforeUnmount(() => {
           :value="timelineValue"
           :disabled="duration <= 0"
           :aria-label="t('recordings.seek')"
-          :aria-valuetext="playbackTime(currentTime)"
+          :aria-valuetext="formatPlaybackTime(currentTime)"
           @input="seek"
         />
       </span>
       <span class="recording-audio-player__time" aria-hidden="true">
-        <span>{{ playbackTime(currentTime) }}</span>
-        <span>{{ playbackTime(duration) }}</span>
+        <span>{{ formatPlaybackTime(currentTime) }}</span>
+        <span>{{ formatPlaybackTime(duration) }}</span>
       </span>
     </span>
 

@@ -97,6 +97,7 @@ import {
 } from '../state/workspace'
 import { formatMessageDay, formatMessageTime } from '../utils/format'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
+import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
 import {
   findRecipientThread,
   messageReturnRoute,
@@ -251,8 +252,7 @@ const messageFilters = computed<Array<{ value: MessageReadFilter; label: string 
   { value: 'read', label: t('messages.read') }
 ])
 const filteredThreads = computed(() => {
-  const query = search.value.trim().toLocaleLowerCase()
-  const digits = query.replace(/\D/g, '')
+  const query = communicationQuery(search.value)
   const filteredLine =
     lineFilterKey.value === 'all'
       ? undefined
@@ -266,12 +266,11 @@ const filteredThreads = computed(() => {
       !retainedUnreadThreadKeys.value.has(thread.key)
     ) return false
     if (messageFilter.value === 'read' && threadIsUnread(thread)) return false
-    if (!query) return true
-    return (
-      (thread.contact_name || '').toLocaleLowerCase().includes(query) ||
-      (digits.length > 0 && thread.peer.replace(/\D/g, '').includes(digits)) ||
-      (thread.last_content || '').toLocaleLowerCase().includes(query)
-    )
+    if (!query.text) return true
+    return matchesCommunicationQuery(query, {
+      text: [thread.contact_name, thread.last_content],
+      numbers: [thread.peer]
+    })
   })
 })
 const batchThreads = computed(() => selection.selected(filteredThreads.value))

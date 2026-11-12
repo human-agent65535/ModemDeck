@@ -4,7 +4,8 @@ import {
   callsResource,
   refreshCalls,
   refreshThreads,
-  threadsResource
+  threadsResource,
+  unreadMissedCallCount
 } from './workspace'
 
 type VisibilityTarget = Pick<
@@ -35,7 +36,7 @@ export function currentCommunicationAttention(): CommunicationAttentionSnapshot 
         : undefined,
     missedCalls:
       callsResource.status === 'ready'
-        ? callsResource.data.filter(call => call.missed && !call.read).length
+        ? unreadMissedCallCount(callsResource.data)
         : undefined
   }
 }
