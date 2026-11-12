@@ -23,6 +23,8 @@ import PageContentFrame from '../components/PageContentFrame.vue'
 import SettingsAsyncBoundary from '../components/settings/SettingsAsyncBoundary.vue'
 import SettingsContentTransition from '../components/settings/SettingsContentTransition.vue'
 import {
+  SETTINGS_SECTION_ORDER,
+  SETTINGS_SECTION_TEXT,
   settingsSectionGroup,
   visibleSettingsSectionIDs
 } from '../components/settings/settingsNavigation'
@@ -83,76 +85,29 @@ const { t } = useI18n()
 const logoutPending = ref(false)
 const logoutError = ref('')
 const isAdmin = computed(() => sessionState.role === 'admin')
-const canManageExternalAccess = isAdmin
 const canPairIOS = computed(() => sessionState.iosPairingEnabled)
-const sectionCatalog = computed<SettingsSectionDefinition[]>(() => [
-  {
-    id: 'preferences',
-    label: t('settings.system'),
-    description: t('settings.systemDescription'),
-    icon: SlidersHorizontal
-  },
-  {
-    id: 'security',
-    label: t('settings.account'),
-    description: t('settings.accountDescription'),
-    icon: ShieldCheck
-  },
-  {
-    id: 'audio',
-    label: t('settings.audio'),
-    description: t('settings.audioDescription'),
-    icon: Volume2
-  },
-  {
-    id: 'pairing',
-    label: t('settings.iosApp'),
-    description: t('settings.iosAppDescription'),
-    icon: KeyRound
-  },
-  {
-    id: 'contacts',
-    label: t('settings.contactsSync'),
-    description: t('settings.contactsSyncDescription'),
-    icon: ContactRound
-  },
-  {
-    id: 'users',
-    label: t('settings.users'),
-    description: t('settings.usersDescription'),
-    icon: UserRound
-  },
-  {
-    id: 'devices',
-    label: t('settings.devices'),
-    description: t('settings.devicesDescription'),
-    icon: RadioTower
-  },
-  {
-    id: 'telegram',
-    label: t('settings.telegram'),
-    description: t('settings.telegramDescription'),
-    icon: Send
-  },
-  {
-    id: 'connectivity',
-    label: t('settings.tls'),
-    description: t('settings.tlsDescription'),
-    icon: Globe2
-  },
-  {
-    id: 'diagnostics',
-    label: t('settings.diagnostics'),
-    description: t('settings.diagnosticsDescription'),
-    icon: Activity
-  },
-  {
-    id: 'about',
-    label: t('settings.about'),
-    description: t('settings.aboutDescription'),
-    icon: Info
-  }
-])
+// Names and descriptions come from settingsNavigation; this page adds the icon.
+const SECTION_ICONS: Record<SettingsSection, SettingsSectionDefinition['icon']> = {
+  preferences: SlidersHorizontal,
+  security: ShieldCheck,
+  audio: Volume2,
+  pairing: KeyRound,
+  contacts: ContactRound,
+  users: UserRound,
+  devices: RadioTower,
+  telegram: Send,
+  connectivity: Globe2,
+  diagnostics: Activity,
+  about: Info
+}
+const sectionCatalog = computed<SettingsSectionDefinition[]>(() =>
+  SETTINGS_SECTION_ORDER.map(id => ({
+    id,
+    label: t(SETTINGS_SECTION_TEXT[id].label),
+    description: t(SETTINGS_SECTION_TEXT[id].description),
+    icon: SECTION_ICONS[id]
+  }))
+)
 const sections = computed<SettingsSectionDefinition[]>(() => {
   const catalog = new Map(sectionCatalog.value.map(section => [section.id, section]))
   return visibleSettingsSectionIDs({
@@ -195,34 +150,6 @@ watch(
   selectedSection,
   section => {
     if (section === 'devices') void loadBootstrap()
-  },
-  { immediate: true }
-)
-
-watch(
-  [() => route.params.section, () => sessionState.role, canPairIOS],
-  ([value]) => {
-    const section = String(value || '')
-    let destination: SettingsSection | '' = ''
-    if (section === 'account') {
-      destination = sessionState.role === 'admin' ? 'users' : 'preferences'
-    } else if (section === 'external-access') {
-      destination = canManageExternalAccess.value
-        ? 'connectivity'
-        : canPairIOS.value
-          ? 'pairing'
-          : ''
-    } else if (section === 'web-certificate') {
-      destination = canManageExternalAccess.value ? 'connectivity' : ''
-    } else if (section === 'ios') {
-      destination = canPairIOS.value ? 'pairing' : ''
-    }
-    if (!destination) return
-    void router.replace({
-      name: 'settings',
-      params: { section: destination },
-      query: route.query
-    })
   },
   { immediate: true }
 )

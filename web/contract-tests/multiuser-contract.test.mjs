@@ -180,7 +180,7 @@ test('multi-user UI exposes only authorized settings and communication areas', a
     ])
 
   assert.doesNotMatch(settings, /mustChangePassword/)
-  assert.match(settings, /id: 'users'/)
+  assert.match(settings, /^  users: [A-Z]\w+,?$/m)
   assert.match(settings, /visibleSettingsSectionIDs/)
   assert.match(settingsNavigation, /const ADMIN_ONLY_SECTIONS/)
   assert.match(settingsNavigation, /'users'/)
@@ -194,7 +194,8 @@ test('multi-user UI exposes only authorized settings and communication areas', a
     settings,
     /canPairIOS = computed\(\(\) => sessionState\.iosPairingEnabled\)/
   )
-  assert.match(settings, /destination = canManageExternalAccess\.value/)
+  // The legacy section redirects are decided in the router from the same roles.
+  assert.match(settingsNavigation, /case 'external-access':\s*if \(visibility\.isAdmin\) return 'connectivity'/)
   assert.doesNotMatch(settings, /externalAccessEnabled|loadExternalAccessVisibility/)
   assert.match(settings, /<UserSettingsPanel/)
   assert.match(users, /gateway\.listUsers\(\)/)
@@ -261,7 +262,7 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.doesNotMatch(shell, /accountRestricted|mustChangePassword/)
   assert.doesNotMatch(router, /mustChangePassword/)
   assert.doesNotMatch(router, /to\.name === 'traffic'/)
-  assert.match(settings, /id: 'devices'/)
+  assert.match(settings, /^  devices: [A-Z]\w+,?$/m)
   assert.match(users, /bootstrapResource\.data\?\.line_catalog/)
   assert.doesNotMatch(users, /if \(user\.role === 'admin'\) return t\('users\.allLines'\)/)
   assert.doesNotMatch(client, /must_change_password/)

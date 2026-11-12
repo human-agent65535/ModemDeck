@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isSettingsSection, SETTINGS_SECTION_TEXT } from './settings/settingsNavigation'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterView, useRoute, useRouter } from 'vue-router'
@@ -170,20 +171,7 @@ const mobileMoreCurrent = computed(() =>
 const mobileSettingsSection = computed(() => {
   if (route.name !== 'settings') return ''
   const section = String(route.params.section || '')
-  const labels: Record<string, string> = {
-    preferences: t('settings.system'),
-    security: t('settings.account'),
-    users: t('settings.users'),
-    contacts: t('settings.contactsSync'),
-    audio: t('settings.audio'),
-    pairing: t('settings.iosApp'),
-    devices: t('settings.devices'),
-    telegram: t('settings.telegram'),
-    connectivity: t('settings.tls'),
-    diagnostics: t('settings.diagnostics'),
-    about: t('settings.about')
-  }
-  return labels[section] || ''
+  return isSettingsSection(section) ? t(SETTINGS_SECTION_TEXT[section].label) : ''
 })
 const settingsUserDetailOpen = computed(
   () =>

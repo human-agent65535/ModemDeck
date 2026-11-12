@@ -279,8 +279,8 @@ test('settings separate administrator infrastructure from self-service pairing',
     )
   ])
 
-  assert.match(settingsView, /id: 'pairing'/)
-  assert.match(settingsView, /id: 'connectivity'/)
+  assert.match(settingsView, /^  pairing: [A-Z]\w+,?$/m)
+  assert.match(settingsView, /^  connectivity: [A-Z]\w+,?$/m)
   assert.match(settingsView, /visibleSettingsSectionIDs\(/)
   assert.match(
     settingsNavigation,

@@ -299,7 +299,7 @@ test('audio settings expose persisted devices and browser-local communication so
       readFile(new URL('../../.dockerignore', import.meta.url), 'utf8')
     ])
 
-  assert.match(settings, /id: 'audio'/)
+  assert.match(settings, /^  audio: [A-Z]\w+,?$/m)
   assert.match(settings, /<AudioSettingsForm/)
   assert.match(form, /ringtoneCatalog/)
   assert.match(form, /notificationCatalog/)

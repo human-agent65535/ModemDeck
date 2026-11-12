@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
-import { ensureSession } from '../state/session'
+import { legacySettingsSectionDestination } from '../components/settings/settingsNavigation'
+import { ensureSession, sessionState } from '../state/session'
 import {
   messageComposeContextFromReference,
   messageThreadKeyFromReference
@@ -103,6 +104,23 @@ router.beforeEach(async to => {
     return {
       name: 'login',
       query: { redirect: to.fullPath }
+    }
+  }
+
+  // Section names from earlier releases keep working. The destination depends
+  // on what this user may open, so it is decided after the session is known.
+  if (to.name === 'settings') {
+    const destination = legacySettingsSectionDestination(String(to.params.section || ''), {
+      isAdmin: sessionState.role === 'admin',
+      canPairIOS: sessionState.iosPairingEnabled
+    })
+    if (destination) {
+      return {
+        name: 'settings',
+        params: { section: destination },
+        query: to.query,
+        replace: true
+      }
     }
   }
   return true

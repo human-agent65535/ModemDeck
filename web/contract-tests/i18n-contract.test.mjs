@@ -187,7 +187,7 @@ test('app loads the public session before mounting the i18n-enabled UI', () => {
 })
 
 test('account settings include the current user language preference', () => {
-  assert.match(settingsView, /id: 'preferences'/)
+  assert.match(settingsView, /^  preferences: [A-Z]\w+,?$/m)
   assert.match(settingsView, /selectedSection === 'preferences'/)
   assert.match(accountPanel, /<SystemSettingsForm(?:\s+v-if="[^"]+")?\s*\/>/)
   assert.match(systemForm, /value: 'auto'/)

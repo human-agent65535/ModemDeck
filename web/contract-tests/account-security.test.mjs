@@ -66,7 +66,7 @@ test('account settings validate password replacement and end the current session
       security.indexOf('<AccountSessionsPanel')
   )
   assert.doesNotMatch(system, /<AccountSecurityForm \/>/)
-  assert.match(settings, /id: 'security'/)
+  assert.match(settings, /^  security: [A-Z]\w+,?$/m)
   assert.match(settings, /selectedSection === 'security'/)
   assert.match(system, /<SelectControl/)
   assert.doesNotMatch(system, /<select/)

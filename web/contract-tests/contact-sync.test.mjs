@@ -128,7 +128,7 @@ test('contact transfer exists only in settings, not on the contacts page', async
     readFile(new URL('../src/views/ContactsView.vue', import.meta.url), 'utf8')
   ])
 
-  assert.match(settings, /id: 'contacts'/)
+  assert.match(settings, /^  contacts: [A-Z]\w+,?$/m)
   assert.match(settings, /<ContactSyncSettings/)
   assert.match(panel, /requestGoogleContactsToken/)
   assert.match(panel, /parseVCard/)

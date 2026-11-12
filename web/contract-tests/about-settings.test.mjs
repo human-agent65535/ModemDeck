@@ -228,7 +228,7 @@ test('about panel checks automatically and applies only through the updater', as
     readFile(new URL('../src/i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
   ])
 
-  assert.match(settingsView, /id: 'about'/)
+  assert.match(settingsView, /^  about: [A-Z]\w+,?$/m)
   assert.match(panel, /gateway\.checkForUpdates\(refresh\)/)
   assert.match(panel, /@click="checkForUpdates\(true\)"/)
   assert.match(panel, /:class="\{ spin: checking \}"/)

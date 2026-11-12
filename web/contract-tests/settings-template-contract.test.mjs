@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
+  isSettingsSection,
+  legacySettingsSectionDestination,
+  SETTINGS_SECTION_ORDER,
+  SETTINGS_SECTION_TEXT,
   settingsSectionGroup,
   visibleSettingsSectionIDs
 } from '../src/components/settings/settingsNavigation.ts'
@@ -10,15 +14,58 @@ async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
 }
 
-test('settings navigation prioritizes audio and pairing before contact transfer', async () => {
-  const view = await source('../src/views/SettingsView.vue')
-  const audioIndex = view.indexOf("id: 'audio'")
-  const pairingIndex = view.indexOf("id: 'pairing'")
-  const contactsIndex = view.indexOf("id: 'contacts'")
+test('settings navigation prioritizes audio and pairing before contact transfer', () => {
+  const audioIndex = SETTINGS_SECTION_ORDER.indexOf('audio')
+  const pairingIndex = SETTINGS_SECTION_ORDER.indexOf('pairing')
+  const contactsIndex = SETTINGS_SECTION_ORDER.indexOf('contacts')
 
   assert.ok(audioIndex >= 0)
   assert.ok(pairingIndex > audioIndex)
   assert.ok(contactsIndex > pairingIndex)
+})
+
+test('every settings section is named once, for the page and the mobile title alike', async () => {
+  const [view, shell] = await Promise.all([
+    source('../src/views/SettingsView.vue'),
+    source('../src/components/AppShell.vue')
+  ])
+  assert.deepEqual(Object.keys(SETTINGS_SECTION_TEXT).sort(), [...SETTINGS_SECTION_ORDER].sort())
+  for (const section of SETTINGS_SECTION_ORDER) {
+    assert.match(SETTINGS_SECTION_TEXT[section].label, /^settings\.\w+$/)
+    assert.equal(isSettingsSection(section), true)
+  }
+  assert.equal(isSettingsSection('external-access'), false)
+  assert.match(view, /label: t\(SETTINGS_SECTION_TEXT\[id\]\.label\)/)
+  assert.match(shell, /isSettingsSection\(section\) \? t\(SETTINGS_SECTION_TEXT\[section\]\.label\) : ''/)
+  // Neither file keeps its own list of section names.
+  assert.doesNotMatch(view, /label: t\('settings\./)
+  assert.doesNotMatch(shell, /: t\('settings\.(system|account|users|audio|iosApp|devices|telegram|tls|diagnostics|about|contactsSync)'\)/)
+})
+
+test('section names from earlier releases redirect only where the user may go', async () => {
+  const admin = { isAdmin: true, canPairIOS: true }
+  const member = { isAdmin: false, canPairIOS: false }
+  const pairingMember = { isAdmin: false, canPairIOS: true }
+  assert.equal(legacySettingsSectionDestination('account', admin), 'users')
+  assert.equal(legacySettingsSectionDestination('account', member), 'preferences')
+  assert.equal(legacySettingsSectionDestination('external-access', admin), 'connectivity')
+  assert.equal(legacySettingsSectionDestination('external-access', pairingMember), 'pairing')
+  assert.equal(legacySettingsSectionDestination('external-access', member), '')
+  assert.equal(legacySettingsSectionDestination('web-certificate', admin), 'connectivity')
+  assert.equal(legacySettingsSectionDestination('web-certificate', member), '')
+  assert.equal(legacySettingsSectionDestination('ios', pairingMember), 'pairing')
+  assert.equal(legacySettingsSectionDestination('ios', member), '')
+  for (const current of [...SETTINGS_SECTION_ORDER, 'no-such-section', '']) {
+    assert.equal(legacySettingsSectionDestination(current, admin), '')
+  }
+
+  const [router, view] = await Promise.all([
+    source('../src/router/index.ts'),
+    source('../src/views/SettingsView.vue')
+  ])
+  assert.match(router, /legacySettingsSectionDestination\(String\(to\.params\.section \|\| ''\)/)
+  assert.match(router, /query: to\.query,\s*replace: true/)
+  assert.doesNotMatch(view, /external-access|web-certificate/)
 })
 
 test('settings navigation groups personal and managed surfaces behind one visibility catalog', async () => {
@@ -384,9 +431,7 @@ test('master-detail settings are flush and mobile page titles cover every sectio
     masterDetail,
     /padding: 12px 16px[\s\S]*max\(var\(--settings-page-end-gutter\), env\(safe-area-inset-bottom\)\);/
   )
-  assert.match(shell, /pairing: t\('settings\.iosApp'\)/)
-  assert.match(shell, /connectivity: t\('settings\.tls'\)/)
-  assert.match(shell, /about: t\('settings\.about'\)/)
+  assert.match(shell, /SETTINGS_SECTION_TEXT\[section\]\.label/)
 })
 
 test('master-detail resources use the template-owned search field', async () => {
