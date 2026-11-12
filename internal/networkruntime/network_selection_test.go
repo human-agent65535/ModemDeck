@@ -508,3 +508,31 @@ func assertNetworkRuntimeError(t *testing.T, err error, code ErrorCode) {
 		t.Fatalf("error code = %q, want %q (error: %v)", runtimeError.Code, code, err)
 	}
 }
+
+func TestNetworkSelectionAgentErrorsKeepTheirClass(t *testing.T) {
+	for class, want := range map[agentclient.ErrorClass]ErrorCode{
+		agentclient.ClassInvalidArgument:    CodeInvalidArgument,
+		agentclient.ClassNotFound:           CodeNotFound,
+		agentclient.ClassConflict:           CodeOperationConflict,
+		agentclient.ClassNotSupported:       CodeNotSupported,
+		agentclient.ClassPermissionDenied:   CodePermissionDenied,
+		agentclient.ClassFailedPrecondition: CodeFailedPrecondition,
+		agentclient.ClassNetworkRejected:    CodeNetworkRejected,
+		agentclient.ClassUnavailable:        CodeUnavailable,
+		agentclient.ClassVerification:       CodeVerification,
+		agentclient.ClassInternal:           CodeInternal,
+	} {
+		var translated *Error
+		if !errors.As(translateNetworkSelectionAgentError(&agentclient.OperationError{
+			Code:    string(class),
+			Message: "agent answer",
+		}), &translated) || translated.Code != want {
+			t.Fatalf("class %s translated to %+v, want code %s", class, translated, want)
+		}
+	}
+	var transport *Error
+	if !errors.As(translateNetworkSelectionAgentError(errors.New("connection refused")), &transport) ||
+		transport.Code != CodeUnavailable {
+		t.Fatalf("transport failure translated to %+v, want unavailable", transport)
+	}
+}

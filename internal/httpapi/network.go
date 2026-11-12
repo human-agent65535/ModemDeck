@@ -553,6 +553,22 @@ func (api *API) writeNetworkError(
 				runtimeError.Message,
 				runtimeError.Field,
 			)
+		case networkruntime.CodePermissionDenied:
+			writeError(
+				response,
+				http.StatusForbidden,
+				"permission_denied",
+				runtimeError.Message,
+				runtimeError.Field,
+			)
+		case networkruntime.CodeVerification:
+			writeError(
+				response,
+				http.StatusBadGateway,
+				"verification_failed",
+				runtimeError.Message,
+				runtimeError.Field,
+			)
 		case networkruntime.CodeUnavailable:
 			writeError(
 				response,

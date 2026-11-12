@@ -13,6 +13,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -1081,5 +1082,25 @@ func TestCommunicationErrorsHaveStableHTTPMapping(t *testing.T) {
 				t.Fatalf("internal dependency error leaked: %s", response.Body.String())
 			}
 		})
+	}
+}
+
+func TestNetworkErrorsFromTheAgentKeepTheirHTTPStatus(t *testing.T) {
+	api, err := New(&fakeRepository{}, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	for code, want := range map[networkruntime.ErrorCode]struct {
+		status int
+		code   string
+	}{
+		networkruntime.CodePermissionDenied:  {http.StatusForbidden, "permission_denied"},
+		networkruntime.CodeVerification:      {http.StatusBadGateway, "verification_failed"},
+		networkruntime.CodeOperationConflict: {http.StatusConflict, "operation_conflict"},
+	} {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/network/selection", nil)
+		api.writeNetworkError(response, request, "select network", &networkruntime.Error{Code: code, Message: "agent answer"})
+		assertAPIError(t, response, want.status, want.code)
 	}
 }

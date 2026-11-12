@@ -15,9 +15,17 @@ func TestTranslateAgentErrorPreservesActionableModemManagerClasses(t *testing.T)
 		code string
 		want error
 	}{
+		{code: "invalid_argument", want: ErrInvalidArgument},
+		{code: "not_found", want: ErrNotFound},
+		{code: "conflict", want: ErrConflict},
+		{code: "not_supported", want: ErrNotSupported},
 		{code: "failed_precondition", want: ErrFailedPrecondition},
 		{code: "network_rejected", want: ErrNetworkRejected},
 		{code: "permission_denied", want: ErrPermissionDenied},
+		{code: "unavailable", want: ErrUnavailable},
+		{code: "verification_failed", want: ErrVerification},
+		{code: "internal", want: ErrInternal},
+		{code: "a code added by a newer Agent", want: ErrInternal},
 	}
 	for _, test := range tests {
 		test := test

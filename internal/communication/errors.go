@@ -73,30 +73,10 @@ func operationError(code ErrorCode, operation, message string, cause error) erro
 }
 
 func translateAgentError(operation string, err error) error {
-	var agentError *agentclient.OperationError
-	if !errors.As(err, &agentError) {
+	class, agentError, ok := agentclient.ClassifyOperationError(err)
+	if !ok {
 		return operationError(CodeUnavailable, operation, "host agent is unavailable", err)
 	}
-	code := CodeInternal
-	switch agentError.Code {
-	case "invalid_argument":
-		code = CodeInvalidArgument
-	case "not_found":
-		code = CodeNotFound
-	case "conflict":
-		code = CodeConflict
-	case "not_supported":
-		code = CodeNotSupported
-	case "failed_precondition":
-		code = CodeFailedPrecondition
-	case "permission_denied":
-		code = CodePermissionDenied
-	case "network_rejected":
-		code = CodeNetworkRejected
-	case "unavailable":
-		code = CodeUnavailable
-	case "verification_failed":
-		code = CodeVerification
-	}
-	return operationError(code, operation, agentError.Message, err)
+	// Every Agent class is a communication error code of the same name.
+	return operationError(ErrorCode(class), operation, agentError.Message, err)
 }

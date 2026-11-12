@@ -575,8 +575,8 @@ func translateNetworkSelectionAgentError(err error) error {
 			err,
 		)
 	}
-	var operationErrorValue *agentclient.OperationError
-	if !errors.As(err, &operationErrorValue) {
+	class, agentError, ok := agentclient.ClassifyOperationError(err)
+	if !ok {
 		return operationError(
 			CodeUnavailable,
 			"",
@@ -584,24 +584,14 @@ func translateNetworkSelectionAgentError(err error) error {
 			err,
 		)
 	}
-	code := CodeInternal
-	switch operationErrorValue.Code {
-	case "invalid_argument":
-		code = CodeInvalidArgument
-	case "not_found":
-		code = CodeNotFound
-	case "conflict":
+	// An Agent class is the network error code of the same name, except that
+	// "conflict" here means a competing operation: this package's CodeConflict
+	// is a stale revision.
+	code := ErrorCode(class)
+	if class == agentclient.ClassConflict {
 		code = CodeOperationConflict
-	case "not_supported":
-		code = CodeNotSupported
-	case "failed_precondition":
-		code = CodeFailedPrecondition
-	case "network_rejected":
-		code = CodeNetworkRejected
-	case "unavailable":
-		code = CodeUnavailable
 	}
-	return operationError(code, "", operationErrorValue.Message, err)
+	return operationError(code, "", agentError.Message, err)
 }
 
 func networkSelectionErrorMessage(err error) string {

@@ -15,9 +15,11 @@ const (
 	CodeConflict           ErrorCode = "revision_conflict"
 	CodeOperationConflict  ErrorCode = "operation_conflict"
 	CodeNotSupported       ErrorCode = "not_supported"
+	CodePermissionDenied   ErrorCode = "permission_denied"
 	CodeFailedPrecondition ErrorCode = "failed_precondition"
 	CodeNetworkRejected    ErrorCode = "network_rejected"
 	CodeUnavailable        ErrorCode = "unavailable"
+	CodeVerification       ErrorCode = "verification_failed"
 	CodeInternal           ErrorCode = "internal"
 )
 

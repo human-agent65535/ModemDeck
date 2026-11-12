@@ -956,6 +956,24 @@ func callSession(
 	}
 }
 
+// communicationErrorResponses is the one mapping from a communication error to
+// its HTTP status and public error code. The code is also the logged class.
+var communicationErrorResponses = []struct {
+	err    error
+	status int
+	code   string
+}{
+	{communication.ErrInvalidArgument, http.StatusBadRequest, "invalid_argument"},
+	{communication.ErrNotFound, http.StatusNotFound, "not_found"},
+	{communication.ErrConflict, http.StatusConflict, "conflict"},
+	{communication.ErrNotSupported, http.StatusNotImplemented, "not_supported"},
+	{communication.ErrFailedPrecondition, http.StatusPreconditionFailed, "failed_precondition"},
+	{communication.ErrPermissionDenied, http.StatusForbidden, "permission_denied"},
+	{communication.ErrNetworkRejected, http.StatusUnprocessableEntity, "network_rejected"},
+	{communication.ErrUnavailable, http.StatusServiceUnavailable, "communications_unavailable"},
+	{communication.ErrVerification, http.StatusBadGateway, "verification_failed"},
+}
+
 func (api *API) writeCommunicationError(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -973,51 +991,21 @@ func (api *API) writeCommunicationError(
 		"error",
 		err,
 	)
-	switch {
-	case errors.Is(err, communication.ErrInvalidArgument):
-		writeError(response, http.StatusBadRequest, "invalid_argument", err.Error(), "")
-	case errors.Is(err, communication.ErrNotFound):
-		writeError(response, http.StatusNotFound, "not_found", err.Error(), "")
-	case errors.Is(err, communication.ErrConflict):
-		writeError(response, http.StatusConflict, "conflict", err.Error(), "")
-	case errors.Is(err, communication.ErrNotSupported):
-		writeError(response, http.StatusNotImplemented, "not_supported", err.Error(), "")
-	case errors.Is(err, communication.ErrFailedPrecondition):
-		writeError(response, http.StatusPreconditionFailed, "failed_precondition", err.Error(), "")
-	case errors.Is(err, communication.ErrPermissionDenied):
-		writeError(response, http.StatusForbidden, "permission_denied", err.Error(), "")
-	case errors.Is(err, communication.ErrNetworkRejected):
-		writeError(response, http.StatusUnprocessableEntity, "network_rejected", err.Error(), "")
-	case errors.Is(err, communication.ErrUnavailable):
-		writeError(response, http.StatusServiceUnavailable, "communications_unavailable", err.Error(), "")
-	case errors.Is(err, communication.ErrVerification):
-		writeError(response, http.StatusBadGateway, "verification_failed", err.Error(), "")
-	default:
-		api.writeInternalError(response, request, operation, err)
+	for _, known := range communicationErrorResponses {
+		if errors.Is(err, known.err) {
+			writeError(response, known.status, known.code, err.Error(), "")
+			return
+		}
 	}
+	api.writeInternalError(response, request, operation, err)
 }
 
+// communicationErrorClass is the public error code the client receives for err.
 func communicationErrorClass(err error) string {
-	switch {
-	case errors.Is(err, communication.ErrInvalidArgument):
-		return "invalid_argument"
-	case errors.Is(err, communication.ErrNotFound):
-		return "not_found"
-	case errors.Is(err, communication.ErrConflict):
-		return "conflict"
-	case errors.Is(err, communication.ErrNotSupported):
-		return "not_supported"
-	case errors.Is(err, communication.ErrFailedPrecondition):
-		return "failed_precondition"
-	case errors.Is(err, communication.ErrPermissionDenied):
-		return "permission_denied"
-	case errors.Is(err, communication.ErrNetworkRejected):
-		return "network_rejected"
-	case errors.Is(err, communication.ErrUnavailable):
-		return "unavailable"
-	case errors.Is(err, communication.ErrVerification):
-		return "verification_failed"
-	default:
-		return "internal"
+	for _, known := range communicationErrorResponses {
+		if errors.Is(err, known.err) {
+			return known.code
+		}
 	}
+	return "internal_error"
 }
