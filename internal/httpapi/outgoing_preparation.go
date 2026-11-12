@@ -141,29 +141,11 @@ func (api *API) prepareOutgoingCall(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	api.preparationsMu.Lock()
-	defer api.preparationsMu.Unlock()
-	if api.preparations == nil {
-		api.preparations = make(map[string]*outgoingPreparation)
-	}
-	if requestID != "" {
-		for _, p := range api.preparations {
-			if p.owner != owner || p.input.RequestID != requestID {
-				continue
-			}
-			p.mu.Lock()
-			defer p.mu.Unlock()
-			if p.input.LineID != input.LineID || p.input.Number != input.Number || !sameRecordingChoice(p.recordingChoice, input.RecordingEnabled) {
-				writeError(w, 409, "call_request_conflict", "Call request parameters changed", "")
-				return
-			}
-			if p.state == preparationCancelled || p.state == preparationFailed || !time.Now().Before(p.expires) {
-				writeError(w, 409, "outgoing_preparation_expired", "Prepare a new call request", "")
-				return
-			}
-			writeJSON(w, 201, preparationResponse(p))
-			return
-		}
+	// The table lock only guards the table. The recording default, the lease
+	// reservation and its renewal run outside it, so one slow database or lease
+	// call does not hold up every other user's dial.
+	if api.replayOutgoingPreparation(w, owner, requestID, input) {
+		return
 	}
 	recordingChoice := input.RecordingEnabled
 	recordingEnabled := false
@@ -182,8 +164,14 @@ func (api *API) prepareOutgoingCall(w http.ResponseWriter, r *http.Request) {
 		recordingEnabled = settings.DefaultEnabled
 	}
 	input.RecordingEnabled = &recordingEnabled
+	api.preparationsMu.Lock()
+	if api.preparations == nil {
+		api.preparations = make(map[string]*outgoingPreparation)
+	}
 	api.pruneOutgoingPreparationsLocked(time.Now())
-	if len(api.preparations) >= maxOutgoingPreparations {
+	full := len(api.preparations) >= maxOutgoingPreparations
+	api.preparationsMu.Unlock()
+	if full {
 		writeError(w, 503, "media_unavailable", "Too many call preparations", "")
 		return
 	}
@@ -192,12 +180,18 @@ func (api *API) prepareOutgoingCall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "media_unavailable", "Call preparation is unavailable", "")
 		return
 	}
+	suppliedRequestID := requestID
 	if requestID == "" {
 		requestID = id
 	}
 	input.RequestID = requestID
 	_, err = leases.PrepareOutgoingFor(r.Context(), id, input.LineID, owner)
 	if err != nil {
+		// The same request may have been prepared by a concurrent retry while
+		// this one waited; that preparation holds the reservation and answers.
+		if api.replayOutgoingPreparation(w, owner, suppliedRequestID, input) {
+			return
+		}
 		api.writeCallLeaseError(w, r, "reserve outgoing media", err)
 		return
 	}
@@ -208,14 +202,49 @@ func (api *API) prepareOutgoingCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := &outgoingPreparation{id: id, owner: owner, input: input, recordingChoice: recordingChoice, created: time.Now(), expires: expires}
-	api.preparations[id] = p
 	p.mu.Lock()
 	p.expiry = time.AfterFunc(outgoingPrepareDuration, func() { api.expirePreparation(p) })
 	p.mu.Unlock()
+	api.preparationsMu.Lock()
+	api.preparations[id] = p
+	api.preparationsMu.Unlock()
 	api.logger.Info("outgoing media prepared", "component", "calls", "preparation_id", id, "request_id", requestID, "line_id", input.LineID)
 	api.publishLiveState()
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 201, preparationResponse(p))
+}
+
+// replayOutgoingPreparation answers a repeated prepare request from the
+// preparation its first arrival created, and reports whether it did. A request
+// without a request ID is never a repeat.
+func (api *API) replayOutgoingPreparation(w http.ResponseWriter, owner calllease.Owner, requestID string, input startCallRequest) bool {
+	if requestID == "" {
+		return false
+	}
+	api.preparationsMu.Lock()
+	var existing *outgoingPreparation
+	for _, p := range api.preparations {
+		if p.owner == owner && p.input.RequestID == requestID {
+			existing = p
+			break
+		}
+	}
+	api.preparationsMu.Unlock()
+	if existing == nil {
+		return false
+	}
+	existing.mu.Lock()
+	defer existing.mu.Unlock()
+	if existing.input.LineID != input.LineID || existing.input.Number != input.Number || !sameRecordingChoice(existing.recordingChoice, input.RecordingEnabled) {
+		writeError(w, 409, "call_request_conflict", "Call request parameters changed", "")
+		return true
+	}
+	if existing.state == preparationCancelled || existing.state == preparationFailed || !time.Now().Before(existing.expires) {
+		writeError(w, 409, "outgoing_preparation_expired", "Prepare a new call request", "")
+		return true
+	}
+	writeJSON(w, 201, preparationResponse(existing))
+	return true
 }
 
 func preparationResponse(p *outgoingPreparation) any {
