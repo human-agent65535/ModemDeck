@@ -479,7 +479,9 @@ func (api *API) requestAuthentication(
 		); revokeErr != nil {
 			api.logger.Error("end calls for invalid session", "error", revokeErr)
 		}
-		_ = api.authenticator.Logout(request.Context(), token)
+		if logoutErr := api.authenticator.Logout(request.Context(), token); logoutErr != nil {
+			api.logger.Warn("remove invalid session", "error", logoutErr)
+		}
 		api.clearAuthCookies(response)
 		if writeFailure {
 			writeError(response, http.StatusUnauthorized, "authentication_required", "Authentication is required", "")

@@ -2,6 +2,7 @@ package mediaapp
 
 import (
 	"context"
+	"errors"
 
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/calllifecycle"
@@ -47,8 +48,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	}
 	media, err := New(options.Refresher, options.Calls, core)
 	if err != nil {
-		_ = core.Close(context.Background())
-		return nil, err
+		return nil, errors.Join(err, core.Close(context.Background()))
 	}
 	return &Runtime{Core: core, Media: media, Leases: leases}, nil
 }

@@ -178,7 +178,8 @@ func (d *alsaCommandDevice) Read(destination []byte) (int, error) {
 	if d.captureOffset >= len(d.captureTransfer) {
 		if _, err := io.ReadFull(d.capture, d.captureTransfer); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				_ = d.captureProcess.wait()
+				// arecord closed its output: its exit status says why.
+				err = errors.Join(err, d.captureProcess.wait())
 			}
 			return 0, commandIOError("arecord", d.captureErrors, err)
 		}

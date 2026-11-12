@@ -142,7 +142,15 @@ func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]
 	if entries, recordingErr := a.repository.RecordingEntries(
 		ctx,
 		store.RecordingQuery{Limit: store.MaxQueryLimit},
-	); recordingErr == nil {
+	); recordingErr != nil {
+		// The call list is still useful without recording marks, but a failed
+		// query is not the same as "no recordings".
+		slog.Warn(
+			"recordings could not be read for the Telegram call list",
+			"component", "telegram",
+			"error", recordingErr,
+		)
+	} else {
 		for _, entry := range entries {
 			if entry.Playable {
 				recorded[entry.Call.ID] = struct{}{}

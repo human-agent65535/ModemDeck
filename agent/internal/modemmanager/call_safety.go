@@ -145,11 +145,7 @@ func (p *Provider) terminateCall(
 		return p.forceTerminateCall(ctx, operation, call, parsed, err)
 	}
 
-	if _, isATCall := parsed.ATCallLines[call.ID]; isATCall {
-		p.publishChange()
-	} else {
-		p.publishChange()
-	}
+	p.publishChange()
 	return nil
 }
 

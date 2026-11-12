@@ -143,7 +143,7 @@ func (client *Client) request(
 		case "update_in_progress":
 			return ErrOperationRunning
 		default:
-			return ErrUnavailable
+			return fmt.Errorf("%w: updater answered HTTP %d (%q)", ErrUnavailable, response.StatusCode, remote.Code)
 		}
 	}
 	if output == nil {

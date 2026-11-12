@@ -1917,7 +1917,15 @@ func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (stor
 	); err != nil {
 		return store.Message{}, operationError(CodeInternal, operation, "message command result could not be finalized", err)
 	}
-	_, _ = s.Refresh(ctx)
+	if _, err := s.Refresh(ctx); err != nil {
+		// The message was accepted; only the view of it is late. The next
+		// snapshot brings it in.
+		s.loggerForDiagnostics().Warn(
+			"live state could not be refreshed after sending a message",
+			"component", "communication",
+			"error", err,
+		)
+	}
 	if refreshed, err := s.repository.MessageByRequestID(outcomeContext, requestID); err == nil {
 		return refreshed, nil
 	}
