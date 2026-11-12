@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/phone"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 )
 
 type stableLineEvidence struct {
@@ -1308,18 +1309,12 @@ func validProvisionalStableLineID(value string) bool {
 }
 
 func parseMigrationTime(value string) time.Time {
-	value = strings.TrimSpace(value)
-	for _, layout := range []string{
-		time.RFC3339Nano,
-		"2006-01-02 15:04:05.999999999-07:00",
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05",
-		time.DateOnly,
-	} {
-		parsed, err := time.Parse(layout, value)
-		if err == nil {
-			return parsed.UTC()
-		}
+	if parsed, ok := timeutil.ParseDatabaseTime(value); ok {
+		return parsed.UTC()
+	}
+	// Rows written before line observations carried a time of day.
+	if parsed, err := time.Parse(time.DateOnly, strings.TrimSpace(value)); err == nil {
+		return parsed.UTC()
 	}
 	return time.Time{}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 	"strings"
 	"time"
 )
@@ -117,29 +118,13 @@ func rowsError(operation string, err error) error {
 }
 
 func durationSeconds(start, end string) int64 {
-	startedAt, ok := parseDatabaseTime(start)
+	startedAt, ok := timeutil.ParseDatabaseTime(start)
 	if !ok {
 		return 0
 	}
-	endedAt, ok := parseDatabaseTime(end)
+	endedAt, ok := timeutil.ParseDatabaseTime(end)
 	if !ok || endedAt.Before(startedAt) {
 		return 0
 	}
 	return int64(endedAt.Sub(startedAt) / time.Second)
-}
-
-func parseDatabaseTime(value string) (time.Time, bool) {
-	value = strings.TrimSpace(value)
-	for _, layout := range []string{
-		time.RFC3339Nano,
-		"2006-01-02 15:04:05.999999999-07:00",
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05",
-	} {
-		parsed, err := time.Parse(layout, value)
-		if err == nil {
-			return parsed, true
-		}
-	}
-	return time.Time{}, false
 }

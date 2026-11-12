@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 	"strings"
 	"testing"
 	"time"
@@ -209,7 +210,7 @@ func TestExpiredRecordingRequestCleanupUsesBoundedIndexes(t *testing.T) {
 		 )
 		 ORDER BY request.created_at ASC, request.request_id ASC
 		 LIMIT ?`,
-		time.Now().UTC().Format(sqliteTimestampLayout),
+		time.Now().UTC().Format(timeutil.SQLiteTimestampLayout),
 		2,
 	)
 	if err != nil {

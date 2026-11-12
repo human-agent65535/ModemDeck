@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 	"strings"
 	"time"
 )
@@ -134,14 +135,14 @@ func (s *Store) PendingApplePushDeliveries(
 		); err != nil {
 			return nil, fmt.Errorf("scan pending Apple push delivery: %w", err)
 		}
-		parsed, err := time.Parse(time.RFC3339Nano, occurredAt)
-		if err != nil {
-			return nil, fmt.Errorf("parse Apple push occurrence: %w", err)
+		parsed, ok := timeutil.ParseDatabaseTime(occurredAt)
+		if !ok {
+			return nil, fmt.Errorf("parse Apple push occurrence: stored time %q is corrupt", occurredAt)
 		}
 		delivery.OccurredAt = parsed.UTC()
-		parsed, err = time.Parse(time.RFC3339Nano, expiresAt)
-		if err != nil {
-			return nil, fmt.Errorf("parse Apple push expiry: %w", err)
+		parsed, ok = timeutil.ParseDatabaseTime(expiresAt)
+		if !ok {
+			return nil, fmt.Errorf("parse Apple push expiry: stored time %q is corrupt", expiresAt)
 		}
 		delivery.ExpiresAt = parsed.UTC()
 		deliveries = append(deliveries, delivery)
@@ -227,9 +228,9 @@ func (s *Store) NextApplePushDeliveryAttempt(
 	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
 		return time.Time{}, false, nil
 	}
-	next, err := time.Parse(time.RFC3339Nano, raw.String)
-	if err != nil {
-		return time.Time{}, false, fmt.Errorf("parse next Apple push attempt: %w", err)
+	next, ok := timeutil.ParseDatabaseTime(raw.String)
+	if !ok {
+		return time.Time{}, false, fmt.Errorf("parse next Apple push attempt: stored time %q is corrupt", raw.String)
 	}
 	return next.UTC(), true, nil
 }
@@ -378,9 +379,9 @@ func (s *Store) PendingTelegramNotificationDeliveries(
 		); err != nil {
 			return nil, fmt.Errorf("scan pending Telegram notification: %w", err)
 		}
-		parsed, err := time.Parse(time.RFC3339Nano, occurredAt)
-		if err != nil {
-			return nil, fmt.Errorf("parse Telegram notification occurrence: %w", err)
+		parsed, ok := timeutil.ParseDatabaseTime(occurredAt)
+		if !ok {
+			return nil, fmt.Errorf("parse Telegram notification occurrence: stored time %q is corrupt", occurredAt)
 		}
 		delivery.OccurredAt = parsed.UTC()
 		deliveries = append(deliveries, delivery)

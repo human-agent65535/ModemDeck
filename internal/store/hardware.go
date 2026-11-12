@@ -10,6 +10,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/modemidentity"
 	"github.com/human-agent65535/modemdeck/internal/phone"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 )
 
 var (
@@ -1766,7 +1767,7 @@ func closeMissingCalls(
 			continue
 		}
 		occurredAt := snapshot.ObservedAt
-		if parsed, ok := parseDatabaseTime(call.createdAt); ok {
+		if parsed, ok := timeutil.ParseDatabaseTime(call.createdAt); ok {
 			occurredAt = parsed.UTC()
 		}
 		if err := enqueueNotification(

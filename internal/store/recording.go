@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 )
 
 const (
@@ -31,7 +32,6 @@ const (
 	maxRecordingIdentifier     = 128
 	maxRecordingPathBytes      = 512
 	maxRecordingCleanupBatch   = 1024
-	sqliteTimestampLayout      = "2006-01-02 15:04:05"
 )
 
 var (
@@ -362,7 +362,7 @@ func (s *Store) DeleteExpiredCallRecordingRequests(
 			ORDER BY request.created_at ASC, request.request_id ASC
 			LIMIT ?
 		 )`,
-		createdBefore.UTC().Format(sqliteTimestampLayout),
+		createdBefore.UTC().Format(timeutil.SQLiteTimestampLayout),
 		limit,
 	)
 	if err != nil {

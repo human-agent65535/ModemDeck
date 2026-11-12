@@ -2,8 +2,10 @@ package communication
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 )
 
 // validateSnapshotCallLines rejects a snapshot in which a call names a line the
@@ -31,4 +33,49 @@ func validateSnapshotCallLines(snapshot agentclient.Snapshot) error {
 		}
 	}
 	return nil
+}
+
+// maxReportedTimestampIDs bounds the set of objects already reported by
+// logUnreadableModemTimestamps.
+const maxReportedTimestampIDs = 1024
+
+// logUnreadableModemTimestamps reports messages and delivery reports whose
+// modem timestamp is present but cannot be read. The projection stores the
+// snapshot's observation time for them, which silently changes when the user
+// sees the message as sent or received. An object is reported once; a missing
+// timestamp is normal and is not reported.
+func (s *Service) logUnreadableModemTimestamps(snapshot agentclient.Snapshot) {
+	report := func(kind, id, lineID, value string) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		if _, ok := timeutil.ParseModemTimestamp(value); ok {
+			return
+		}
+		key := kind + "\x00" + lineID + "\x00" + id
+		s.timestampReportMu.Lock()
+		if _, reported := s.reportedTimestamps[key]; reported {
+			s.timestampReportMu.Unlock()
+			return
+		}
+		if s.reportedTimestamps == nil || len(s.reportedTimestamps) >= maxReportedTimestampIDs {
+			s.reportedTimestamps = make(map[string]struct{})
+		}
+		s.reportedTimestamps[key] = struct{}{}
+		s.timestampReportMu.Unlock()
+		s.loggerForDiagnostics().Warn(
+			"modem timestamp could not be read; the observation time is stored instead",
+			"component", "communication",
+			"kind", kind,
+			"endpoint_id", id,
+			"endpoint_line_id", lineID,
+			"value", value,
+		)
+	}
+	for _, message := range snapshot.Messages {
+		report("message", message.ID, message.LineID, message.Timestamp)
+	}
+	for _, deliveryReport := range snapshot.DeliveryReports {
+		report("delivery report", deliveryReport.ID, deliveryReport.LineID, deliveryReport.Timestamp)
+	}
 }

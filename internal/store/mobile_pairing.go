@@ -13,6 +13,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 )
 
 var (
@@ -765,7 +766,7 @@ func newIOSPairingCredentialID() (string, error) {
 }
 
 func iosPairingTimestamp(value string) string {
-	parsed, ok := parseDatabaseTime(value)
+	parsed, ok := timeutil.ParseDatabaseTime(value)
 	if !ok {
 		return ""
 	}

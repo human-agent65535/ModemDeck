@@ -14,6 +14,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
+	"log/slog"
 )
 
 type fakeAgent struct {
@@ -2478,5 +2479,33 @@ func TestRefreshRefusesASnapshotWhoseCallNamesAnUnknownLine(t *testing.T) {
 	}
 	if repository.snapshot.Revision != "" || len(repository.snapshot.Calls) != 0 {
 		t.Fatalf("stored snapshot = %+v; an inconsistent snapshot must not be stored", repository.snapshot)
+	}
+}
+
+func TestUnreadableModemTimestampIsReportedOnce(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.November, 12, 11, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	agent.snapshot.Messages = []agentclient.Message{
+		{ID: "message-bad", LineID: "line-1", Number: "+818012345678", Text: "a", Direction: "incoming", State: "received", Timestamp: "yesterday"},
+		{ID: "message-good", LineID: "line-1", Number: "+818012345678", Text: "b", Direction: "incoming", State: "received", Timestamp: "2026-11-12T10:00:00+09"},
+		{ID: "message-unstamped", LineID: "line-1", Number: "+818012345678", Text: "c", Direction: "incoming", State: "received"},
+	}
+	service, err := New(agent, &fakeRepository{}, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	var output bytes.Buffer
+	service.SetLogger(slog.New(slog.NewTextHandler(&output, nil)))
+
+	for range 2 {
+		service.logUnreadableModemTimestamps(agent.snapshot)
+	}
+	if got := strings.Count(output.String(), "modem timestamp could not be read"); got != 1 {
+		t.Fatalf("reports = %d, want 1; log = %s", got, output.String())
+	}
+	if !strings.Contains(output.String(), "message-bad") {
+		t.Fatalf("the report does not name the message: %s", output.String())
 	}
 }

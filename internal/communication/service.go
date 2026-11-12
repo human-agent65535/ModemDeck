@@ -27,6 +27,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/phone"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 )
 
 const (
@@ -254,6 +255,8 @@ type Service struct {
 	runtime                 runtimeevents.Publisher
 	random                  io.Reader
 	now                     func() time.Time
+	timestampReportMu       sync.Mutex
+	reportedTimestamps      map[string]struct{}
 	loggerMu                sync.RWMutex
 	logger                  *slog.Logger
 	diagnosticLogMu         sync.Mutex
@@ -499,6 +502,7 @@ func (s *Service) commitSnapshotLocked(
 	if err := validateSnapshotCallLines(snapshot); err != nil {
 		return s.recordRefreshFailure("validate host agent snapshot", err)
 	}
+	s.logUnreadableModemTimestamps(snapshot)
 	stableLines, err := s.repository.Lines(ctx)
 	if err != nil {
 		return s.recordRefreshFailure("read stable line identities", err)
@@ -2767,7 +2771,7 @@ func projectSnapshot(
 		if !found {
 			continue
 		}
-		timestamp, parsed := parseModemManagerTimestamp(report.Timestamp)
+		timestamp, parsed := timeutil.ParseModemTimestamp(report.Timestamp)
 		if !parsed {
 			timestamp = snapshot.ObservedAt
 		}
@@ -2998,7 +3002,7 @@ func projectMessage(
 	observedAt time.Time,
 	revision int64,
 ) store.HardwareMessage {
-	timestamp, parsed := parseModemManagerTimestamp(message.Timestamp)
+	timestamp, parsed := timeutil.ParseModemTimestamp(message.Timestamp)
 	if !parsed {
 		timestamp = observedAt
 	}

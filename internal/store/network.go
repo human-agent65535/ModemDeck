@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 	"math"
 	"math/big"
 	"strings"
@@ -331,7 +332,7 @@ func (s *Store) applyNetworkCounterSamples(
 			endpointScopeID,
 		).Scan(&previousEpoch, &previousRX, &previousTX, &previousObservedAt)
 
-		previousTime, previousTimeKnown := parseDatabaseTime(stringValue(previousObservedAt))
+		previousTime, previousTimeKnown := timeutil.ParseDatabaseTime(stringValue(previousObservedAt))
 		var deltaRX, deltaTX uint64
 		switch {
 		case errors.Is(err, sql.ErrNoRows):

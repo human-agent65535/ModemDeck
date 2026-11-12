@@ -8,6 +8,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/recording"
 	"github.com/human-agent65535/modemdeck/internal/store"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
 )
 
 type recordingSettingsRequest struct {
@@ -386,9 +387,19 @@ func (api *API) downloadRecording(
 		return
 	}
 	defer download.File.Close()
+	// ServeContent sends no Last-Modified for the zero time.
 	modified := time.Time{}
 	if download.Segment.EndedAt != nil {
-		modified, _ = time.Parse(time.RFC3339Nano, *download.Segment.EndedAt)
+		if parsed, ok := timeutil.ParseDatabaseTime(*download.Segment.EndedAt); ok {
+			modified = parsed
+		} else {
+			api.logger.Warn(
+				"recording end time could not be read; Last-Modified is omitted",
+				"component", "recording",
+				"segment_id", download.Segment.ID,
+				"value", *download.Segment.EndedAt,
+			)
+		}
 	}
 	response.Header().Set("Content-Type", "audio/ogg")
 	response.Header().Set("Content-Disposition", `attachment; filename="`+download.Segment.ID+`.ogg"`)

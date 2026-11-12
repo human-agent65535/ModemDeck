@@ -10,6 +10,8 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegram"
+	"github.com/human-agent65535/modemdeck/internal/timeutil"
+	"log/slog"
 )
 
 type CommunicationService interface {
@@ -117,7 +119,7 @@ func (a adapters) RecentSMS(ctx context.Context, query telegram.SMSQuery) ([]tel
 			Peer:        message.Peer,
 			ContactName: contactName,
 			Body:        message.Content,
-			ReceivedAt:  parseDatabaseTime(message.Timestamp),
+			ReceivedAt:  storedTime("message", message.Timestamp),
 		})
 	}
 	return result, nil
@@ -156,9 +158,9 @@ func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]
 		if _, ok := allowed[lineID]; !ok {
 			continue
 		}
-		occurredAt := parseDatabaseTime(call.EndedAt)
+		occurredAt := storedTime("call end", call.EndedAt)
 		if occurredAt.IsZero() {
-			occurredAt = parseDatabaseTime(call.StartedAt)
+			occurredAt = storedTime("call start", call.StartedAt)
 		}
 		_, hasRecording := recorded[call.ID]
 		contactName := ""
@@ -280,9 +282,19 @@ func lineAvailable(state string) bool {
 	}
 }
 
-func parseDatabaseTime(value string) time.Time {
-	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
-	if err != nil {
+// storedTime reads a stored time for a Telegram message. A value that cannot be
+// read is reported, because the zero time it leaves is shown to the user.
+func storedTime(kind, value string) time.Time {
+	parsed, ok := timeutil.ParseDatabaseTime(value)
+	if !ok {
+		if strings.TrimSpace(value) != "" {
+			slog.Warn(
+				"stored time could not be read for Telegram",
+				"component", "telegram",
+				"kind", kind,
+				"value", value,
+			)
+		}
 		return time.Time{}
 	}
 	return parsed.UTC()
