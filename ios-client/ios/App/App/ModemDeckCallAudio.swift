@@ -219,6 +219,7 @@ final class ModemDeckCallAudioSession: NSObject {
     private var connectCompletion: ConnectionCompletion?
     private var connectDeadline = Date.distantPast
     private var connectTimeout: DispatchWorkItem?
+    private var commitExchange: ModemDeckMediaRequest?
     private var reconnectDeadline = Date.distantPast
     private var reconnectAttempts = 0
     private var reconnectTimeout: DispatchWorkItem?
@@ -380,10 +381,28 @@ final class ModemDeckCallAudioSession: NSObject {
         guard preparationGate.beginCommit(socketReady: ready, audioRunning: activated && engine?.isRunning == true, uplinkReady: uplinkReady) else { return }
         setConnectionStage("committing_outgoing")
         recordConnectionEvent("outgoing_commit_started")
-        request(path: preparationPath(preparation.preparationId) + "/commit", method: "POST",
-                json: ["audio_running": true]) { [weak self] result in
+        let commit: URLRequest
+        do {
+            commit = try authorizedRequest(
+                credential: credential,
+                path: preparationPath(preparation.preparationId) + "/commit",
+                method: "POST",
+                headers: ["Accept": "application/json", "Content-Type": "application/json"],
+                body: try JSONSerialization.data(withJSONObject: ["audio_running": true]),
+                timeout: 10
+            )
+        } catch {
+            failMedia(error); return
+        }
+        // The server replays an accepted commit, so a lost response is asked for again with
+        // the same request instead of abandoning a call that may already be dialing.
+        let exchange = ModemDeckMediaRequest(queue: queue)
+        exchange.onRetry = { [weak self] _, _ in self?.recordConnectionEvent("outgoing_commit_retried") }
+        commitExchange = exchange
+        exchange.start(commit, deadline: Date().addingTimeInterval(15)) { [weak self] data, response, error in
             guard let self else { return }
-            switch result {
+            self.commitExchange = nil
+            switch Self.exchangeResult(data, response, error) {
             case .success(let data):
                 let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
                 guard let response = try? decoder.decode(ModemDeckCallResponse.self, from: data) else {
@@ -980,6 +999,7 @@ final class ModemDeckCallAudioSession: NSObject {
         telemetryTimer?.cancel(); telemetryTimer = nil
         connectTimeout?.cancel(); connectTimeout = nil
         reconnectTimeout?.cancel(); reconnectTimeout = nil
+        commitExchange?.cancel(); commitExchange = nil
         urlSession.invalidateAndCancel()
         if let preparation { cancelPreparation(preparation.preparationId) }
         else if mediaClaimed { releaseMedia() }
@@ -1199,29 +1219,25 @@ final class ModemDeckCallAudioSession: NSObject {
             return
         }
         urlSession.diagnosticDataTask(with: request) { [weak self] data, response, error in
-            self?.queue.async {
-                if let error {
-                    completion(.failure(error))
-                    return
-                }
-                guard let response = response as? HTTPURLResponse else {
-                    completion(.failure(ModemDeckCallAudioError.invalidResponse))
-                    return
-                }
-                guard (200..<300).contains(response.statusCode) else {
-                    if let error = ModemDeckServerError.decode(data),
-                       let message = error.message, !message.isEmpty {
-                        completion(.failure(ModemDeckAPIError.server(
-                            status: response.statusCode, code: error.code ?? "", message: message
-                        )))
-                        return
-                    }
-                    completion(.failure(ModemDeckHTTPError(status: response.statusCode)))
-                    return
-                }
-                completion(.success(data ?? Data()))
-            }
+            self?.queue.async { completion(Self.exchangeResult(data, response, error)) }
         }.resume()
+    }
+
+    private static func exchangeResult(_ data: Data?, _ response: URLResponse?, _ error: Error?) -> Result<Data, Error> {
+        if let error { return .failure(error) }
+        guard let response = response as? HTTPURLResponse else {
+            return .failure(ModemDeckCallAudioError.invalidResponse)
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            if let error = ModemDeckServerError.decode(data),
+               let message = error.message, !message.isEmpty {
+                return .failure(ModemDeckAPIError.server(
+                    status: response.statusCode, code: error.code ?? "", message: message
+                ))
+            }
+            return .failure(ModemDeckHTTPError(status: response.statusCode))
+        }
+        return .success(data ?? Data())
     }
 
     private var activeCallsPath: String {

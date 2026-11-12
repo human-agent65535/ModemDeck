@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -13,6 +13,10 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 test('media exchange retries preserve the offer, deadline and hangup cancellation', {
   skip: process.platform !== 'darwin', timeout: 60_000
 }, async () => {
+  // The retry under test is the one the outgoing call commit goes through.
+  const audio = await readFile(path.join(root, 'ios/App/App/ModemDeckCallAudio.swift'), 'utf8')
+  assert.match(audio, /let exchange = ModemDeckMediaRequest\(queue: queue\)[\s\S]*?exchange\.start\(commit, deadline:/)
+  assert.match(audio, /commitExchange\?\.cancel\(\); commitExchange = nil/)
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'modemdeck-media-request-test-'))
   try {
     const executable = path.join(temporary, 'media-request-tests')

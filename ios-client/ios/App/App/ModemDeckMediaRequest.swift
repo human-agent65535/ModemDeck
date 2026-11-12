@@ -1,7 +1,8 @@
 import Foundation
 
-/// Retries only the idempotent media exchange, with the exact same offer and
-/// owner. Each attempt gets a fresh connection pool; CallKit's deadline wins.
+/// Sends one request the server answers the same way twice (the outgoing call commit), and
+/// asks once more, unchanged, when the connection fails before an answer arrives. Each
+/// attempt gets a fresh connection pool; the caller's deadline wins.
 final class ModemDeckMediaRequest {
     typealias Reply = (Data?, URLResponse?, Error?) -> Void
     typealias Sender = (URLRequest, @escaping Reply) -> (() -> Void)
