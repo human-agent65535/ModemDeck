@@ -1298,6 +1298,33 @@ struct ModemDeckContactEditor: View {
     }
 }
 
+/// A sender shown as a short name (a bank, a carrier service) has no number to reply to.
+func modemDeckOneWaySender(_ address: String) -> Bool {
+    let source = address.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !source.isEmpty, source.count <= 32 else { return false }
+    let allowed = CharacterSet.letters
+        .union(.decimalDigits)
+        .union(CharacterSet(charactersIn: " ._-"))
+    return source.unicodeScalars.contains { CharacterSet.letters.contains($0) } &&
+        source.unicodeScalars.allSatisfy { allowed.contains($0) }
+}
+
+struct ModemDeckOneWaySenderNotice: View {
+    @ObservedObject var controller: ModemDeckSessionController
+
+    var body: some View {
+        Label(
+            controller.text("此发送方不接受回复", "This sender does not accept replies"),
+            systemImage: "lock"
+        )
+        .font(.subheadline.weight(.medium))
+        .foregroundColor(.mdMuted)
+        .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.compactRowHeight)
+        .background(Color.mdSurface)
+        .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
+    }
+}
+
 struct ModemDeckDirectMessageView: View {
     let number: String
     let displayName: String
@@ -1401,7 +1428,7 @@ struct ModemDeckDirectMessageView: View {
                 .padding(.horizontal, ModemDeckSpacing.md)
                 .padding(.vertical, ModemDeckSpacing.md)
             }
-            if let line = defaultLine {
+            if let line = defaultLine, !modemDeckOneWaySender(number) {
                 HStack(spacing: 6) {
                     Text(controller.text("发送线路", "Sending from"))
                         .font(.caption)
@@ -1415,7 +1442,12 @@ struct ModemDeckDirectMessageView: View {
                 .background(Color.mdSurface)
                 .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
             }
-            composer
+            // The same rule as a conversation: a name instead of a number cannot be written to.
+            if modemDeckOneWaySender(number) {
+                ModemDeckOneWaySenderNotice(controller: controller)
+            } else {
+                composer
+            }
         }
         .background(Color.mdBackground)
         .modemDeckInteractiveBack()
@@ -2359,15 +2391,7 @@ struct ModemDeckConversationView: View {
         contact != nil || !(thread.contactId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
-    private var oneWaySender: Bool {
-        let source = thread.peer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !source.isEmpty, source.count <= 32 else { return false }
-        let allowed = CharacterSet.letters
-            .union(.decimalDigits)
-            .union(CharacterSet(charactersIn: " ._-"))
-        return source.unicodeScalars.contains { CharacterSet.letters.contains($0) } &&
-            source.unicodeScalars.allSatisfy { allowed.contains($0) }
-    }
+    private var oneWaySender: Bool { modemDeckOneWaySender(thread.peer) }
 
     private var canPresentMessages: Bool {
         if initialLoadFinished || store.authoritativeLoadCompleted { return true }
@@ -2550,15 +2574,7 @@ struct ModemDeckConversationView: View {
                 .padding(.horizontal, ModemDeckSpacing.md)
 
             if oneWaySender {
-                Label(
-                    controller.text("此发送方不接受回复", "This sender does not accept replies"),
-                    systemImage: "lock"
-                )
-                .font(.subheadline.weight(.medium))
-                .foregroundColor(.mdMuted)
-                .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.compactRowHeight)
-                .background(Color.mdSurface)
-                .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
+                ModemDeckOneWaySenderNotice(controller: controller)
             } else {
                 let canSend = !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
                     !store.sending && controller.isOnline

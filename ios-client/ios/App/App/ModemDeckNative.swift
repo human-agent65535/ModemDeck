@@ -574,7 +574,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         var testRemainingMS = 0
         var serverInputDBFS = -96
         var capturedPeakDBFS = -96
-        var receivedPackets = 0
+        var serverReceivedPackets = 0
         var microphoneDBFS: Int?
         var mediaState = "connecting"
         var localCapturedFrames = 0
@@ -2312,7 +2312,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             "localSentPackets": call.localSentPackets,
             "serverInputDBFS": call.serverInputDBFS,
             "capturedPeakDBFS": call.capturedPeakDBFS,
-            "receivedPackets": call.receivedPackets,
+            "serverReceivedPackets": call.serverReceivedPackets,
             "muted": mutedCallUUIDs.contains(uuid),
             "createdAt": ModemDeckDateText.timestamp(call.createdAt, fractionalSeconds: true)
         ]
@@ -2469,7 +2469,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             self.presentedCalls[uuid]?.testRemainingMS = status.remainingMS
             self.presentedCalls[uuid]?.serverInputDBFS = status.inputDBFS
             self.presentedCalls[uuid]?.capturedPeakDBFS = status.capturedPeakDBFS
-            self.presentedCalls[uuid]?.receivedPackets = status.receivedPackets
+            self.presentedCalls[uuid]?.serverReceivedPackets = status.receivedPackets
             self.publishCallState()
         }
         audioSession.onMediaStateChanged = { [weak self] state in

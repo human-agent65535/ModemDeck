@@ -794,7 +794,8 @@ struct ModemDeckPresentedCall: Identifiable, Equatable {
     var testRemainingMS = 0
     var serverInputDBFS = -96
     var capturedPeakDBFS = -96
-    var receivedPackets = 0
+    /// Uplink packets the server reports having received from this device during an audio test.
+    var serverReceivedPackets = 0
     var microphoneDBFS: Int?
     var mediaState = "connecting"
     var localCapturedFrames = 0
@@ -936,7 +937,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 testRemainingMS: state["testRemainingMS"] as? Int ?? 0,
                 serverInputDBFS: state["serverInputDBFS"] as? Int ?? -96,
                 capturedPeakDBFS: state["capturedPeakDBFS"] as? Int ?? -96,
-                receivedPackets: state["receivedPackets"] as? Int ?? 0,
+                serverReceivedPackets: state["serverReceivedPackets"] as? Int ?? 0,
                 microphoneDBFS: state["microphoneDBFS"] as? Int,
                 mediaState: state["mediaState"] as? String ?? "connecting",
                 localCapturedFrames: state["localCapturedFrames"] as? Int ?? 0,
@@ -1422,7 +1423,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             "state": state, "testCall": audioTest, "testAudio": audioTest,
             "testPhase": audioTest ? phase : "", "testRemainingMS": remaining,
             "microphoneDBFS": level, "serverInputDBFS": -26, "capturedPeakDBFS": -18,
-            "receivedPackets": 120, "localCapturedFrames": 160, "localSentPackets": 150,
+            "serverReceivedPackets": 120, "localCapturedFrames": 160, "localSentPackets": 150,
             "mediaState": "active", "muted": false,
             "createdAt": ModemDeckDateText.timestamp(Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime), fractionalSeconds: false)
         ]

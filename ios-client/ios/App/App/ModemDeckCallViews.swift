@@ -3123,7 +3123,7 @@ struct ModemDeckActiveCallView: View {
     private var testAudioHint: String {
         if call.muted { return controller.text("麦克风已静音", "Microphone is muted") }
         if ["playback", "playback_prompt", "pause"].contains(call.testPhase) {
-            if call.receivedPackets == 0 {
+            if call.serverReceivedPackets == 0 {
                 if call.localCapturedFrames == 0 { return controller.text("等待麦克风开始收音", "Waiting for microphone capture") }
                 if call.localSentPackets == 0 { return controller.text("正在发送麦克风音频…", "Sending microphone audio…") }
                 return controller.text("等待服务端确认收音…", "Waiting for the server audio report…")

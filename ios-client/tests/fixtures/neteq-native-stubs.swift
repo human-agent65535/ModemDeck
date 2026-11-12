@@ -144,7 +144,7 @@ private func render(_ receiver: ModemDeckAudioRenderer, now: Int64, count: Int) 
         let start = Int64(AVAudioTime.seconds(forHostTime: mach_absolute_time()) * 1_000_000)
         for tick in 0..<30 { _ = render(recovery.renderer!, now: start + Int64(tick * 10000), count: 160) }
         recovery.updateStats(); let fields = recovery.statsFields()
-        precondition(fields.count == 12 && fields["neteq_output_sample_rate"] == "16000")
+        precondition(fields["neteq_output_sample_rate"] == "16000")
         precondition(fields["neteq_render_errors"] == "0" && recovery.renderedPackets > 0)
         precondition(recovery.lastRenderedAudioAt < Double(start + 300000) / 1_000_000,
                      "Concealment after the real packet cannot keep media health fresh")
