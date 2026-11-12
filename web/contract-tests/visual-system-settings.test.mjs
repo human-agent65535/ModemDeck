@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { h, ref } from 'vue'
+import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
+import { useUnsavedChangesGuard } from '../src/composables/useUnsavedChangesGuard.ts'
+import { answerConfirmation, confirmationState } from '../src/state/confirmation.ts'
+import { mountComponent } from './helpers/component-harness.mjs'
 
 async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
@@ -67,8 +72,100 @@ test('explicit-save settings keep Save in reach and ask before discarding edits'
   for (const form of [users, telegram]) {
     assert.match(form, /useUnsavedChangesGuard\(\s*\(\) => !creating\.value && !saving\.value && formChanged\.value\s*\)/)
     assert.match(form, /t\('common\.unsavedChanges'\)/)
+    // Choosing another entry changes the form before the route guard runs, so
+    // selection asks first through the guard's returned check.
+    assert.match(form, /if \(!\(await confirmDiscardChanges\(\)\)\) return/)
   }
   assert.match(styles, /\.settings-form-actions \{[\s\S]*?position: sticky;[\s\S]*?bottom: 0;/)
+})
+
+test('every explicit-save settings panel with drafts is guarded by the shared check', async () => {
+  const [devices, contactSync] = await Promise.all([
+    source('../src/components/DeviceConfigurationPanel.vue'),
+    source('../src/components/ContactSyncSettings.vue')
+  ])
+  // Device workbench: module name, line identity and the connection profile.
+  assert.match(
+    devices,
+    /const deviceDraftsDirty = computed\(\s*\(\) => moduleNameDirty\.value \|\| lineIdentityDirty\.value \|\| profileDirty\.value\s*\)/
+  )
+  assert.match(devices, /useUnsavedChangesGuard\(\s*\(\) => !discardAlreadyConfirmed && deviceDraftsDirty\.value\s*\)/)
+  assert.match(
+    devices,
+    /async function chooseLine[\s\S]*?if \(!\(await confirmDiscardDeviceDrafts\(\)\)\) return[\s\S]*?selectLine\(line\)/
+  )
+  // Contact sync: the Google Client ID is saved explicitly.
+  assert.match(contactSync, /const clientIDDirty = computed\(\(\) => clientID\.value\.trim\(\) !== savedClientID\.value\)/)
+  assert.match(contactSync, /useUnsavedChangesGuard\(clientIDDirty\)/)
+})
+
+test('the unsaved-changes guard asks before leaving, switching entries or closing the tab', async t => {
+  const previousWindow = globalThis.window
+  const browserWindow = new EventTarget()
+  globalThis.window = browserWindow
+  t.after(() => {
+    if (previousWindow === undefined) delete globalThis.window
+    else globalThis.window = previousWindow
+    while (confirmationState.request) answerConfirmation(false)
+  })
+
+  const dirty = ref(false)
+  let confirmDiscard
+  const Guarded = {
+    setup() {
+      confirmDiscard = useUnsavedChangesGuard(() => dirty.value)
+      return () => null
+    }
+  }
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/settings', component: Guarded },
+      { path: '/elsewhere', component: { render: () => null } }
+    ]
+  })
+  await router.push('/settings?entry=a')
+  const { unmount } = mountComponent({ render: () => h(RouterView) }, { plugins: [router] })
+  t.after(unmount)
+  const settle = () => new Promise(resolve => setImmediate(resolve))
+  const closeTab = () => {
+    const event = new Event('beforeunload', { cancelable: true })
+    browserWindow.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+
+  // Clean forms never ask.
+  await router.push('/settings?entry=b')
+  assert.equal(confirmationState.request, null)
+  assert.equal(router.currentRoute.value.fullPath, '/settings?entry=b')
+  assert.equal(closeTab(), false)
+  assert.equal(await confirmDiscard(), true)
+
+  // A dirty form asks on route update (another entry) and on leaving; Cancel stays.
+  dirty.value = true
+  assert.equal(closeTab(), true)
+  for (const target of ['/settings?entry=c', '/elsewhere']) {
+    const navigation = router.push(target)
+    await settle()
+    assert.equal(confirmationState.request?.tone, 'danger')
+    answerConfirmation(false)
+    await navigation
+    assert.equal(router.currentRoute.value.fullPath, '/settings?entry=b')
+  }
+
+  // The returned check asks the same question for in-page selection changes.
+  const asked = confirmDiscard()
+  assert.ok(confirmationState.request)
+  answerConfirmation(true)
+  assert.equal(await asked, true)
+
+  // Discard lets navigation through, and an unmounted form stops guarding the tab.
+  const leaving = router.push('/elsewhere')
+  await settle()
+  answerConfirmation(true)
+  await leaving
+  assert.equal(router.currentRoute.value.fullPath, '/elsewhere')
+  assert.equal(closeTab(), false)
 })
 
 test('data pages keep their layout stable and controls where they act', async () => {

@@ -10,6 +10,10 @@ import {
   settingsSectionGroup,
   visibleSettingsSectionIDs
 } from '../src/components/settings/settingsNavigation.ts'
+import { useSettingsMutation } from '../src/composables/useSettingsMutation.ts'
+import { feedbackState, resetFeedback } from '../src/state/feedback.ts'
+import { cssRules, paddingBottom, rulesFor, styleBlocks } from './helpers/css-rules.mjs'
+import { withSetup } from './helpers/component-harness.mjs'
 
 async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
@@ -425,14 +429,26 @@ test('master-detail settings are flush and mobile page titles cover every sectio
     masterDetail,
     /\.settings-master-detail__detail-content \{[\s\S]*overflow-y: auto;[\s\S]*overscroll-behavior: contain;/
   )
-  assert.match(
-    masterDetail,
-    /padding: 0 24px var\(--settings-page-end-gutter\);/
+  // The detail pane ends on the shared page-end gutter at every width; phones
+  // also clear the home indicator. Side padding is free to move to tokens.
+  const detailContent = rulesFor(
+    styleBlocks(masterDetail).join('\n'),
+    '.settings-master-detail__detail-content'
+  ).filter(rule => paddingBottom(rule) !== undefined)
+  const desktopPadding = detailContent.filter(rule => rule.conditions.length === 0)
+  const phonePadding = detailContent.filter(rule =>
+    rule.conditions.some(condition => /max-width: 640px/.test(condition))
   )
-  assert.match(
-    masterDetail,
-    /padding: 12px 16px[\s\S]*max\(var\(--settings-page-end-gutter\), env\(safe-area-inset-bottom\)\);/
-  )
+  assert.ok(desktopPadding.length > 0, 'the detail pane sets its bottom padding')
+  assert.ok(phonePadding.length > 0, 'phones set the detail pane bottom padding')
+  for (const rule of detailContent) {
+    const bottom = paddingBottom(rule)
+    assert.match(bottom, /var\(--settings-page-end-gutter\)/, `bottom padding: ${bottom}`)
+    assert.doesNotMatch(bottom, /^\d/, `bottom padding is not a literal: ${bottom}`)
+  }
+  for (const rule of phonePadding) {
+    assert.match(paddingBottom(rule), /env\(safe-area-inset-bottom\)/)
+  }
   assert.match(shell, /SETTINGS_SECTION_TEXT\[section\]\.label/)
 })
 
@@ -549,6 +565,11 @@ test('settings sections animate while resource and communication entities switch
   assert.match(view, /<SettingsContentTransition :content-key="selectedSection">/)
   assert.match(transition, /@media \(min-width: 641px\)/)
   assert.match(transition, /animation: settings-content-in var\(--motion-base\)/)
+  // A skeleton only shimmers: the section enters when content has replaced it.
+  assert.match(
+    transition,
+    /\.settings-content-transition:has\(\.settings-skeleton\) \{\s*animation: none;/
+  )
   assert.match(masterDetail, /detailKey\?: string \| number \| null/)
   assert.match(masterDetail, /settings-master-detail__detail-content/)
   assert.doesNotMatch(masterDetail, /settings-master-detail-content-in|opacity:\s*0/)
@@ -584,6 +605,180 @@ test('page width modes are shared instead of owned by business panels', async ()
   for (const panel of [account, audio, contacts, externalAccess]) {
     assert.doesNotMatch(panel, /max-width:\s*(760|880)px/)
   }
+})
+
+// Content widths in Settings come from tokens in style.css (or PageContentFrame).
+// A pixel literal is allowed only where it caps one control or chip, not a column
+// of content; each entry names the rule and why it is local.
+const LOCAL_MAX_WIDTHS = new Map([
+  ['LineTag.vue .line-tag 104px', 'shared line chip truncates long labels'],
+  ['LineTag.vue .line-tag--dot 120px', 'dotted line chip variant truncates long labels'],
+  [
+    'DeviceConfigurationPanel.vue .line-label-form__name > :deep(.line-tag) 160px',
+    'preview chip inside the line label form'
+  ],
+  [
+    'DeviceConfigurationPanel.vue .module-name-editor min(100%, 460px)',
+    'inline input plus Save/Cancel buttons for the module name'
+  ],
+  [
+    'DeviceConfigurationPanel.vue .network-selection-mode 340px',
+    'two-option segmented control'
+  ],
+  [
+    'DiagnosticsPanel.vue .diagnostic-line-select 220px',
+    'line select in the log toolbar, matching its own width: min(220px, 32vw)'
+  ]
+])
+// Reported, not explained: these cap a block of content with a pixel width that
+// no settings token carries. Remove an entry when its rule moves to a token.
+const UNTOKENIZED_CONTENT_WIDTHS = new Set([
+  'DeviceConfigurationPanel.vue .voice-capabilities 1120px',
+  'UserSettingsPanel.vue .user-admin-summary 620px'
+])
+
+async function settingsComponentSources() {
+  const { readdir } = await import('node:fs/promises')
+  const root = new URL('../src/', import.meta.url)
+  const seen = new Map()
+  const queue = [new URL('views/SettingsView.vue', root)]
+  const settingsDir = new URL('components/settings/', root)
+  for (const entry of await readdir(settingsDir)) {
+    if (entry.endsWith('.vue')) queue.push(new URL(entry, settingsDir))
+  }
+  while (queue.length > 0) {
+    const url = queue.pop()
+    if (seen.has(url.href)) continue
+    const text = await readFile(url, 'utf8')
+    seen.set(url.href, text)
+    for (const match of text.matchAll(/(?:from\s+|import\()\s*'(\.[^']+\.vue)'/g)) {
+      queue.push(new URL(match[1], url))
+    }
+  }
+  return [...seen].map(([href, text]) => [href.slice(root.href.length), text])
+}
+
+test('settings content widths come from tokens, with pixel caps only on local controls', async () => {
+  const files = await settingsComponentSources()
+  const names = files.map(([file]) => file)
+  for (const panel of [
+    'components/AccountSettingsPanel.vue',
+    'components/AudioSettingsForm.vue',
+    'components/ContactSyncSettings.vue',
+    'components/ExternalAccessSettingsPanel.vue',
+    'components/UserSettingsPanel.vue',
+    'components/TelegramSettingsForm.vue',
+    'components/DeviceConfigurationPanel.vue',
+    'components/settings/SettingsMasterDetail.vue'
+  ]) {
+    assert.ok(names.includes(panel), `${panel} is scanned`)
+  }
+
+  const found = []
+  for (const [file, text] of files) {
+    for (const rule of cssRules(styleBlocks(text).join('\n'))) {
+      // A width inside a @media or @container condition is a breakpoint, not a cap.
+      if (rule.conditions.length > 0) continue
+      for (const { property, value } of rule.declarations) {
+        if (property !== 'max-width' || !/\d+px/.test(value)) continue
+        found.push(`${file.split('/').pop()} ${rule.selectors.join(', ')} ${value}`)
+      }
+    }
+  }
+
+  const unexplained = found.filter(
+    entry => !LOCAL_MAX_WIDTHS.has(entry) && !UNTOKENIZED_CONTENT_WIDTHS.has(entry)
+  )
+  assert.deepEqual(unexplained, [], 'use a token from style.css or explain a local control cap')
+  const stale = [...LOCAL_MAX_WIDTHS.keys(), ...UNTOKENIZED_CONTENT_WIDTHS].filter(
+    entry => !found.includes(entry)
+  )
+  assert.deepEqual(stale, [], 'remove allow-list entries whose rule no longer exists')
+})
+
+test('settings mutation reports success and failure, and ignores superseded saves', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  resetFeedback()
+  t.after(resetFeedback)
+  const { result: mutation, unmount } = withSetup(() =>
+    useSettingsMutation({
+      errorMessage: cause => `Could not save: ${cause.message}`,
+      successMessage: () => 'Saved',
+      toast: 'both',
+      savedDuration: 1000
+    })
+  )
+  t.after(unmount)
+  assert.equal(mutation.status.value, 'idle')
+
+  // A failing save: saving, then error with the caller's text and an error toast.
+  let rejectSave
+  const failing = mutation.run(() => new Promise((_, reject) => { rejectSave = reject }))
+  assert.equal(mutation.status.value, 'saving')
+  assert.equal(mutation.saving.value, true)
+  rejectSave(new Error('revision conflict'))
+  assert.deepEqual(await failing, { ok: false, error: 'Could not save: revision conflict' })
+  assert.equal(mutation.status.value, 'error')
+  assert.equal(mutation.error.value, 'Could not save: revision conflict')
+  assert.deepEqual(
+    feedbackState.items.map(item => [item.tone, item.message]),
+    [['error', 'Could not save: revision conflict']]
+  )
+
+  // A succeeding save clears the error, returns the value and returns to idle.
+  resetFeedback()
+  const saved = await mutation.run(async () => ({ revision: 4 }))
+  assert.deepEqual(saved, { ok: true, value: { revision: 4 } })
+  assert.equal(mutation.status.value, 'saved')
+  assert.equal(mutation.saved.value, true)
+  assert.equal(mutation.error.value, '')
+  assert.deepEqual(feedbackState.items.map(item => [item.tone, item.message]), [['success', 'Saved']])
+  t.mock.timers.tick(1000)
+  assert.equal(mutation.status.value, 'idle')
+
+  // An older save that settles after a newer one started cannot overwrite it,
+  // in either order and whether it fails or succeeds.
+  resetFeedback()
+  let rejectOlder
+  let resolveNewer
+  const older = mutation.run(() => new Promise((_, reject) => { rejectOlder = reject }))
+  const newer = mutation.run(() => new Promise(resolve => { resolveNewer = resolve }))
+  rejectOlder(new Error('older failure'))
+  await older
+  assert.equal(mutation.status.value, 'saving')
+  assert.equal(mutation.error.value, '')
+  assert.deepEqual(feedbackState.items, [])
+  resolveNewer('newest')
+  assert.deepEqual(await newer, { ok: true, value: 'newest' })
+  assert.equal(mutation.status.value, 'saved')
+
+  let resolveFirst
+  let rejectSecond
+  const first = mutation.run(() => new Promise(resolve => { resolveFirst = resolve }))
+  const second = mutation.run(() => new Promise((_, reject) => { rejectSecond = reject }))
+  rejectSecond(new Error('second failure'))
+  await second
+  resolveFirst('first')
+  await first
+  assert.equal(mutation.status.value, 'error')
+  assert.equal(mutation.error.value, 'Could not save: second failure')
+  // The superseded success started no reset timer that could clear the error.
+  t.mock.timers.tick(5000)
+  assert.equal(mutation.status.value, 'error')
+
+  // Callers own rollback: each immediate preference restores its previous value
+  // when the result is not ok. Their setup is in .vue files, so this checks the
+  // branch exists; the composable contract above is what feeds it.
+  const [profile, defaultLine, language, recording] = await Promise.all([
+    source('../src/components/AccountProfileSetting.vue'),
+    source('../src/components/DefaultLineSettingsForm.vue'),
+    source('../src/components/SystemSettingsForm.vue'),
+    source('../src/components/RecordingSettingsForm.vue')
+  ])
+  assert.match(profile, /if \(result\.ok\) \{[\s\S]*?\} else \{\s*selectedContactID\.value = sessionState\.profileContactID/)
+  assert.match(defaultLine, /const previous = selected\.value[\s\S]*?if \(!result\.ok\) selected\.value = previous/)
+  assert.match(language, /const previous = selected\.value[\s\S]*?\} else \{\s*selected\.value = previous\s*await setSystemLanguage\(previous\)/)
+  assert.match(recording, /if \(!result\.ok\) \{\s*pendingEnabled\.value = Boolean\(recordingSettingsState\.data\?\.default_enabled\)/)
 })
 
 test('save behavior distinguishes immediate preferences from dirty resource forms', async () => {

@@ -17,7 +17,7 @@ import {
   incomingCallRoute
 } from '../src/state/call.ts'
 import { gateway } from '../src/api/client.ts'
-import { messageThreadKeyFromReference } from '../src/router/messageRoute.ts'
+import { messageThreadKeyFromReference, messageThreadRoute } from '../src/router/messageRoute.ts'
 import {
   loadMessages,
   messagesFor,
@@ -182,6 +182,81 @@ test('a queued stale SMS still converges persisted message state', async () => {
     shutdownMessageRuntime()
     gateway.subscribeMessageEvents = originalSubscribe
     gateway.listThreads = originalListThreads
+    resetWorkspaceState()
+  }
+})
+
+test('an SSE reconnect refreshes the thread list and the visible thread, the first open does not', async () => {
+  const originalSubscribe = gateway.subscribeMessageEvents
+  const originalListThreads = gateway.listThreads
+  const originalListMessages = gateway.listMessages
+  const thread = {
+    key: event.thread_key,
+    line_id: event.line_id,
+    peer: event.peer,
+    last_timestamp: event.timestamp,
+    last_content: event.content,
+    last_message_id: event.message_id,
+    unread_count: 0,
+    marked_unread: false,
+    favorite: false
+  }
+  const meta = { next_cursor: '', has_more: false }
+  const settle = () => new Promise(resolve => setImmediate(resolve))
+  let handlers
+  let closed = 0
+  const threadReads = []
+  const messageReads = []
+
+  try {
+    shutdownMessageRuntime()
+    resetWorkspaceState()
+    gateway.subscribeMessageEvents = currentHandlers => {
+      handlers = currentHandlers
+      return () => { closed += 1 }
+    }
+    gateway.listThreads = async query => {
+      threadReads.push(query)
+      return { items: [{ ...thread }], meta }
+    }
+    gateway.listMessages = async query => {
+      messageReads.push(query)
+      return { items: [], meta }
+    }
+    initializeMessageRuntime({
+      currentRoute: { value: { ...messageThreadRoute(thread.key), query: {} } }
+    })
+
+    // The first open is the initial connection: the page loads its own data.
+    handlers.onOpen()
+    await settle()
+    assert.equal(threadReads.length, 0)
+    assert.equal(messageReads.length, 0)
+
+    // A reopen means events may have been missed while disconnected.
+    handlers.onOpen()
+    await settle()
+    assert.equal(threadReads.length, 1)
+    assert.deepEqual(messageReads.map(query => [query.line_id, query.peer]), [[thread.line_id, thread.peer]])
+
+    handlers.onOpen()
+    await settle()
+    assert.equal(threadReads.length, 2, 'every later reconnect refreshes again')
+
+    // After shutdown a new runtime starts over: its first open does not refresh.
+    shutdownMessageRuntime()
+    assert.equal(closed, 1)
+    initializeMessageRuntime({
+      currentRoute: { value: { name: 'dashboard', params: {}, query: {} } }
+    })
+    handlers.onOpen()
+    await settle()
+    assert.equal(threadReads.length, 2)
+  } finally {
+    shutdownMessageRuntime()
+    gateway.subscribeMessageEvents = originalSubscribe
+    gateway.listThreads = originalListThreads
+    gateway.listMessages = originalListMessages
     resetWorkspaceState()
   }
 })
@@ -439,10 +514,6 @@ test('communication notifications share one explicit browser preference', async 
   assert.match(
     runtime,
     /onMessage:[\s\S]*?queueIncomingMessageArrival\(event\)[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\)/
-  )
-  assert.match(
-    runtime,
-    /onOpen:[\s\S]*?if \(streamOpened\)[\s\S]*?refreshMessageWorkspace\(/
   )
   assert.doesNotMatch(runtimeEvents, /case 'messages'|RuntimeResource/)
   const messageSubscriptionStart = client.indexOf('subscribeMessageEvents(')

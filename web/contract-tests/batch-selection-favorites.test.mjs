@@ -193,6 +193,79 @@ test('all communication list panes expose selection and their eligible batch act
   assert.doesNotMatch(selectableRow, /border-radius: 5px/)
 })
 
+// The body of `async function name(...) { ... }`, found by matching braces.
+function functionBody(text, name) {
+  const start = text.indexOf(`async function ${name}(`)
+  assert.ok(start >= 0, `${name} exists`)
+  const open = text.indexOf('{', text.indexOf(')', start))
+  let depth = 0
+  for (let index = open; index < text.length; index += 1) {
+    if (text[index] === '{') depth += 1
+    if (text[index] === '}' && --depth === 0) return text.slice(open + 1, index)
+  }
+  assert.fail(`${name} has a closing brace`)
+}
+
+test('every batch delete asks for confirmation and stops on Cancel before deleting', async () => {
+  const views = {
+    Messages: ['../src/views/MessagesView.vue', ['deleteMessageThreads']],
+    Calls: ['../src/views/CallsView.vue', ['deleteCalls']],
+    Recordings: ['../src/views/RecordingsView.vue', ['deleteRecordings']],
+    Dashboard: ['../src/views/DashboardView.vue', ['deleteMessageThreads', 'deleteCalls']],
+    Contacts: ['../src/views/ContactsView.vue', ['deleteContacts']]
+  }
+  for (const [name, [path, deletes]] of Object.entries(views)) {
+    const view = await source(path)
+    assert.match(view, /import \{ requestConfirmation \} from '\.\.\/state\/confirmation'/, name)
+    assert.match(view, /@click="batchDelete"/, name)
+    const body = functionBody(view, 'batchDelete')
+    const ask = body.search(/const confirmed = await requestConfirmation\(\{/)
+    const stop = body.search(/if \(!confirmed\) return\b/)
+    assert.ok(ask >= 0, `${name} batch delete asks first`)
+    assert.ok(stop > ask, `${name} batch delete stops when the answer is Cancel`)
+    assert.match(body.slice(ask, stop), /tone: 'danger'/, `${name} confirmation is destructive`)
+    // Nothing is removed (state or server) before the answer.
+    assert.doesNotMatch(body.slice(0, stop), /\bdelete[A-Z]\w*\(|gateway\./, `${name} deletes only after confirming`)
+    for (const call of deletes) {
+      const at = body.search(new RegExp(`\\b${call}\\(`))
+      assert.ok(at > stop, `${name} calls ${call} after confirmation`)
+    }
+  }
+})
+
+test('Messages batch delete deletes nothing on Cancel and the selection on Delete', async t => {
+  const { gateway } = await import('../src/api/client.ts')
+  const { answerConfirmation, confirmationState } = await import('../src/state/confirmation.ts')
+  const { flushView, mountMessagesView } = await import('./helpers/messages-view.mjs')
+  const view = await mountMessagesView(t)
+  const deletions = []
+  const original = gateway.updateMessageThreads
+  gateway.updateMessageThreads = async (action, queries) => {
+    deletions.push([action, queries.map(query => query.peer)])
+  }
+  t.after(() => {
+    gateway.updateMessageThreads = original
+    while (confirmationState.request) answerConfirmation(false)
+  })
+
+  view.state.selection.enter()
+  view.state.selection.toggle(view.threads[1])
+  const cancelled = view.state.batchDelete()
+  await flushView()
+  assert.equal(confirmationState.request?.tone, 'danger')
+  assert.deepEqual(deletions, [])
+  answerConfirmation(false)
+  await cancelled
+  assert.deepEqual(deletions, [])
+  assert.equal(view.state.selection.count.value, 1)
+
+  const confirmed = view.state.batchDelete()
+  await flushView()
+  answerConfirmation(true)
+  await confirmed
+  assert.deepEqual(deletions, [['delete', [view.threads[1].peer]]])
+})
+
 test('message conversation read and favorite state are independent and persistent in the gateway', async () => {
   const gateway = createFixtureGateway()
   const thread = (await gateway.listThreads()).items.find(item => !item.favorite)
