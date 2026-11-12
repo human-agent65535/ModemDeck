@@ -161,6 +161,15 @@ private final class ModemDeckOfflineCache {
         }
     }
 
+    /// For state that must not be lost to a crash right after it changes.
+    func writeNow<T: Encodable>(_ value: T, key: String) {
+        guard let fileURL = scopedFileURL(key: key) else { return }
+        queue.sync {
+            guard let data = try? JSONEncoder().encode(value) else { return }
+            write(data, to: fileURL)
+        }
+    }
+
     func write<T: Encodable>(_ value: T, key: String, credential: ModemDeckCredential? = nil) {
         // Capture the pairing scope before queueing: a pending write must never
         // land in a replacement account's cache. The serial queue preserves order.
@@ -1023,88 +1032,19 @@ struct ModemDeckServerError: Decodable {
     }
 }
 
-private struct ModemDeckOperationIdentity {
-    let key: String
-    let requestID: String
-}
-
-private final class ModemDeckOperationJournal {
-    private struct Entry: Codable {
-        let requestID: String
-        let updatedAt: TimeInterval
-    }
-
-    private let defaults: UserDefaults
-    private let storageKey = "modemdeck.pending-operation-identities.v1"
-    private static let retention: TimeInterval = 7 * 24 * 60 * 60
-    private let lock = NSLock()
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
-
-    func identity(scope: String, kind: String, parts: [String]) -> ModemDeckOperationIdentity {
-        let fingerprint = digest(([scope, kind] + parts).joined(separator: "\u{0}"))
-        let now = Date().timeIntervalSince1970
-        lock.lock()
-        defer { lock.unlock() }
-        // Identities include a per-draft send attempt, so an unresolved entry
-        // is only reused while that draft can still be resent. Drafts live in
-        // memory; entries older than a week can never be matched again.
-        var entries = load().filter { now - $0.value.updatedAt < Self.retention }
-        if let existing = entries[fingerprint] {
-            entries[fingerprint] = Entry(requestID: existing.requestID, updatedAt: now)
-            save(entries)
-            return ModemDeckOperationIdentity(key: fingerprint, requestID: existing.requestID)
-        }
-        let requestID = "ios-\(UUID().uuidString.lowercased())"
-        entries[fingerprint] = Entry(requestID: requestID, updatedAt: now)
-        save(entries)
-        return ModemDeckOperationIdentity(key: fingerprint, requestID: requestID)
-    }
-
-    func complete(_ identity: ModemDeckOperationIdentity) {
-        lock.lock()
-        defer { lock.unlock() }
-        var entries = load()
-        guard entries.removeValue(forKey: identity.key) != nil else { return }
-        save(entries)
-    }
-
-    private func load() -> [String: Entry] {
-        guard let data = defaults.data(forKey: storageKey),
-              let entries = try? JSONDecoder().decode([String: Entry].self, from: data) else {
-            return [:]
-        }
-        return entries
-    }
-
-    private func save(_ entries: [String: Entry]) {
-        if entries.isEmpty {
-            defaults.removeObject(forKey: storageKey)
-            return
-        }
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        defaults.set(data, forKey: storageKey)
-    }
-
-    private func digest(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
-    }
-}
-
 final class ModemDeckAPIClient {
     let credentialStore: ModemDeckCredentialStore
 
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
-    private let operationJournal = ModemDeckOperationJournal()
     private let offlineCache: ModemDeckOfflineCache
 
     init(credentialStore: ModemDeckCredentialStore) {
         self.credentialStore = credentialStore
         offlineCache = ModemDeckOfflineCache(credentialStore: credentialStore)
+        // Earlier builds kept SMS request IDs here; the stored outbox replaced it.
+        UserDefaults.standard.removeObject(forKey: "modemdeck.pending-operation-identities.v1")
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60
@@ -1244,42 +1184,33 @@ final class ModemDeckAPIClient {
         offlineCache.write(messages, key: messageCacheKey(lineID: lineID, peer: peer))
     }
 
-    /// `attempt` identifies one send from one draft. Tapping send again on the
-    /// same unedited draft reuses it, so an ambiguous timeout is retried without
-    /// a second SMS; an edited draft or a later message gets a new identity.
-    func sendMessage(lineID: String, to: String, content: String, attempt: String) async throws -> ModemDeckMessage {
+    func cachedOutbox() -> [ModemDeckOutgoingMessage] {
+        offlineCache.read([ModemDeckOutgoingMessage].self, key: "message-outbox") ?? []
+    }
+
+    /// Written before this returns: an unconfirmed SMS must be on disk before its request leaves.
+    func cacheOutbox(_ outbox: [ModemDeckOutgoingMessage]) {
+        offlineCache.writeNow(outbox, key: "message-outbox")
+    }
+
+    /// `requestID` belongs to one unconfirmed SMS in the messages store's outbox, which keeps it
+    /// across retries and relaunches for as long as the outcome is unknown.
+    func sendMessage(lineID: String, to: String, content: String, requestID: String) async throws -> ModemDeckMessage {
         struct Payload: Encodable {
             let requestId: String
             let lineId: String
             let to: String
             let content: String
         }
-        let operation = try operationIdentity(
-            kind: "send-message",
-            parts: [lineID, to, content, attempt]
+        let payload = Payload(requestId: requestID, lineId: lineID, to: to, content: content)
+        let response = try await decode(
+            ModemDeckMessageResponse.self,
+            path: "/api/v1/messages",
+            method: "POST",
+            headers: ["Idempotency-Key": requestID],
+            body: try encoder.encode(payload)
         )
-        let payload = Payload(
-            requestId: operation.requestID,
-            lineId: lineID,
-            to: to,
-            content: content
-        )
-        do {
-            let response = try await decode(
-                ModemDeckMessageResponse.self,
-                path: "/api/v1/messages",
-                method: "POST",
-                headers: ["Idempotency-Key": operation.requestID],
-                body: try encoder.encode(payload)
-            )
-            operationJournal.complete(operation)
-            return response.message
-        } catch {
-            if !preservesOperationIdentity(error) {
-                operationJournal.complete(operation)
-            }
-            throw error
-        }
+        return response.message
     }
 
     func unreadSummary() async throws -> ModemDeckUnreadSummary {
@@ -1941,20 +1872,9 @@ final class ModemDeckAPIClient {
         }
     }
 
-    private func operationIdentity(
-        kind: String,
-        parts: [String]
-    ) throws -> ModemDeckOperationIdentity {
-        guard let credential = try credentialStore.load() else {
-            throw ModemDeckAPIError.notPaired
-        }
-        let scope = SHA256.hash(
-            data: Data("\(credential.serverURL)\u{0}\(credential.token)".utf8)
-        ).map { String(format: "%02x", $0) }.joined()
-        return operationJournal.identity(scope: scope, kind: kind, parts: parts)
-    }
-
-    private func preservesOperationIdentity(_ error: Error) -> Bool {
+    /// True when the server may have accepted a write although its request failed: the
+    /// retry must then carry the same request ID. A definite refusal gets a new one.
+    func sendOutcomeUnknown(_ error: Error) -> Bool {
         if let apiError = error as? ModemDeckAPIError {
             switch apiError {
             case .invalidResponse:

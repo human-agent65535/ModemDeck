@@ -1306,12 +1306,11 @@ struct ModemDeckDirectMessageView: View {
     @ObservedObject var controller: ModemDeckSessionController
     var preferredLineID: String? = nil
     @ObservedObject private var messagesStore: ModemDeckMessagesStore
+    @ObservedObject private var pendingSends: ModemDeckMessageOutbox
     @Environment(\.presentationMode) private var presentationMode
 
     @State private var content = ""
-    @State private var sendAttempt = UUID().uuidString
     @State private var sending = false
-    @State private var errorMessage = ""
     @State private var thread: ModemDeckMessageThread?
     @State private var sentMessages: [ModemDeckMessage] = []
 
@@ -1330,6 +1329,7 @@ struct ModemDeckDirectMessageView: View {
         self.controller = controller
         self.preferredLineID = preferredLineID
         _messagesStore = ObservedObject(wrappedValue: controller.messagesStore)
+        _pendingSends = ObservedObject(wrappedValue: controller.messagesStore.pendingSends)
     }
 
     private var defaultLine: ModemDeckLine? {
@@ -1384,12 +1384,23 @@ struct ModemDeckDirectMessageView: View {
                             showsDeliveryStatus: true
                         )
                     }
+                    // Unconfirmed sends to this number, including ones from before a relaunch.
+                    ForEach(unconfirmed) { outgoing in
+                        ModemDeckOutgoingBubble(
+                            outgoing: outgoing,
+                            controller: controller,
+                            retry: { deliver(outgoing.content, attempt: outgoing.id, lineID: outgoing.lineID) },
+                            edit: {
+                                pendingSends.discard(outgoing.id)
+                                if content.isEmpty { content = outgoing.content }
+                            },
+                            discard: { pendingSends.discard(outgoing.id) }
+                        )
+                    }
                 }
                 .padding(.horizontal, ModemDeckSpacing.md)
                 .padding(.vertical, ModemDeckSpacing.md)
             }
-            ModemDeckInlineError(message: errorMessage)
-                .padding(.horizontal, ModemDeckSpacing.md)
             if let line = defaultLine {
                 HStack(spacing: 6) {
                     Text(controller.text("发送线路", "Sending from"))
@@ -1409,8 +1420,6 @@ struct ModemDeckDirectMessageView: View {
         .background(Color.mdBackground)
         .modemDeckInteractiveBack()
         .modemDeckImmersiveScreen()
-        // An edited draft is a new message; an unedited one is a retry.
-        .onChange(of: content) { _ in sendAttempt = UUID().uuidString }
         .task {
             if messagesStore.threads.isEmpty { await messagesStore.load() }
             resolveExistingThread()
@@ -1453,23 +1462,31 @@ struct ModemDeckDirectMessageView: View {
         .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
     }
 
+    private var unconfirmed: [ModemDeckOutgoingMessage] {
+        guard let line = defaultLine else { return [] }
+        return pendingSends.messages(lineID: line.id, peer: number)
+    }
+
     private func send() {
-        guard controller.isOnline, let line = defaultLine else { return }
+        guard controller.isOnline, !sending, let line = defaultLine else { return }
         let message = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
-        let attempt = sendAttempt
-        let original = content
+        // The text moves into a sending bubble at once, as in a conversation; a failure
+        // stays on that bubble with retry.
+        content = ""
+        deliver(message, attempt: ModemDeckOutgoingMessage.newAttempt(), lineID: line.id)
+    }
+
+    private func deliver(_ message: String, attempt: String, lineID: String) {
+        guard controller.isOnline, !sending else { return }
         sending = true
         Task {
             do {
-                let sent = try await controller.api.sendMessage(lineID: line.id, to: number, content: message, attempt: attempt)
+                let sent = try await pendingSends.deliver(lineID: lineID, to: number, content: message, attempt: attempt)
                 sentMessages.append(sent)
-                // Clear only what was sent; text edited during the send stays.
-                if content == original { content = "" }
-                errorMessage = ""
                 await messagesStore.load()
                 let target = messagesStore.threads.modemDeckThread(lineID: sent.lineId, number: sent.peer) ??
-                    messagesStore.threads.modemDeckThread(lineID: line.id, number: number)
+                    messagesStore.threads.modemDeckThread(lineID: lineID, number: number)
                 if let target {
                     // The editor is replaced by the conversation: carry over anything typed
                     // while the list refreshed so it is not lost.
@@ -1481,7 +1498,6 @@ struct ModemDeckDirectMessageView: View {
                 }
             } catch {
                 ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
-                errorMessage = error.localizedDescription
             }
             sending = false
         }
@@ -1495,7 +1511,7 @@ struct ModemDeckNewMessageView: View {
     @State private var selectedLineID = ""
     @State private var recipient = ""
     @State private var content = ""
-    @State private var sendAttempt = UUID().uuidString
+    @State private var sendAttempt = ModemDeckOutgoingMessage.newAttempt()
     @State private var sending = false
     @State private var errorMessage = ""
 
@@ -1606,7 +1622,10 @@ struct ModemDeckNewMessageView: View {
         .onAppear { chooseLine() }
         .onChange(of: lines.map(\.id)) { _ in chooseLine() }
         // An edited draft is a new message; an unedited one is a retry.
-        .onChange(of: content) { _ in sendAttempt = UUID().uuidString }
+        // Another line, recipient or text is another SMS; an unchanged form is a retry.
+        .onChange(of: [selectedLineID, recipient, content]) { _ in
+            sendAttempt = ModemDeckOutgoingMessage.newAttempt()
+        }
         .interactiveDismissDisabled(sending)
     }
 
@@ -1648,12 +1667,17 @@ struct ModemDeckNewMessageView: View {
         errorMessage = ""
         Task {
             do {
-                _ = try await controller.api.sendMessage(lineID: line.id, to: number, content: message, attempt: attempt)
+                _ = try await controller.messagesStore.pendingSends.deliver(lineID: line.id, to: number, content: message, attempt: attempt)
                 Task { await controller.messagesStore.load() }
                 onSent()
                 presentationMode.wrappedValue.dismiss()
             } catch {
                 ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+                // This form keeps a refused message for correction. One that may have gone
+                // out stays recorded, and shows in its conversation until it is settled.
+                if !controller.api.sendOutcomeUnknown(error) {
+                    controller.messagesStore.pendingSends.discard(attempt)
+                }
                 errorMessage = error.localizedDescription
                 sending = false
             }
@@ -2880,10 +2904,8 @@ private struct ModemDeckOutgoingBubble: View {
     let edit: () -> Void
     let discard: () -> Void
 
-    private var failed: Bool {
-        if case .failed = outgoing.state { return true }
-        return false
-    }
+    /// Not in flight: the user decides whether to retry, edit or delete it.
+    private var failed: Bool { outgoing.state != .sending }
 
     var body: some View {
         HStack {
@@ -2921,7 +2943,9 @@ private struct ModemDeckOutgoingBubble: View {
                 if failed {
                     Button(action: retry) {
                         Label(
-                            controller.text("未送达 · 轻点重试", "Not Delivered · Tap to Retry"),
+                            outgoing.state == .unconfirmed
+                                ? controller.text("未确认送达 · 轻点重试", "Not Confirmed · Tap to Retry")
+                                : controller.text("未送达 · 轻点重试", "Not Delivered · Tap to Retry"),
                             systemImage: "exclamationmark.circle.fill"
                         )
                         .font(.caption2.weight(.semibold))

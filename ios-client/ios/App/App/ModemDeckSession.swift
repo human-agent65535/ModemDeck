@@ -1534,16 +1534,13 @@ final class ModemDeckMessageDraft: ObservableObject {
         didSet {
             revision += 1
             // Bindings can rewrite the same text; only a real edit is a new SMS.
-            if text != oldValue { sendAttempt = UUID().uuidString }
+            if text != oldValue { sendAttempt = ModemDeckOutgoingMessage.newAttempt() }
         }
     }
     private(set) var revision = 0
     /// Stays the same until the text changes, so resending an unedited draft
     /// retries the same SMS instead of sending another one.
-    private(set) var sendAttempt = UUID().uuidString
-    /// Unconfirmed sends live with the thread's draft, not the conversation screen, so a
-    /// failed SMS is still there to retry after the user leaves and returns.
-    @Published var outbox: [ModemDeckOutgoingMessage] = []
+    private(set) var sendAttempt = ModemDeckOutgoingMessage.newAttempt()
 
     func clear(ifRevision expected: Int) {
         if revision == expected { text = "" }
@@ -1565,6 +1562,8 @@ final class ModemDeckMessagesStore: ObservableObject {
     private var scope = 0
     private var reloadWaiters: [CheckedContinuation<Void, Never>] = []
     private var drafts: [String: ModemDeckMessageDraft] = [:]
+    /// Unconfirmed sends belong to the pairing, not to a screen or a thread's draft.
+    let pendingSends: ModemDeckMessageOutbox
 
     func draft(for threadID: String) -> ModemDeckMessageDraft {
         if let existing = drafts[threadID] { return existing }
@@ -1576,10 +1575,12 @@ final class ModemDeckMessagesStore: ObservableObject {
     init(api: ModemDeckAPIClient, contactsStore: ModemDeckContactsStore) {
         self.api = api
         self.contactsStore = contactsStore
+        pendingSends = ModemDeckMessageOutbox(api: api)
         contactsStore.$contacts.assign(to: &$contacts)
     }
 
     func restore(threads: [ModemDeckMessageThread], unread: ModemDeckUnreadSummary) {
+        pendingSends.restore()
         guard revision == 0 else { return }
         self.threads = threads
         unreadSummary = unread
@@ -1593,6 +1594,7 @@ final class ModemDeckMessagesStore: ObservableObject {
             return
         }
         loading = true
+        pendingSends.restore()
         let scope = scope
         defer {
             if scope == self.scope {
@@ -1684,23 +1686,125 @@ final class ModemDeckMessagesStore: ObservableObject {
         reloadRequested = false
         threads = []
         drafts.removeAll()
+        pendingSends.reset()
         unreadSummary = .empty
         updateSystemBadge(0)
         errorMessage = ""
     }
 }
 
-/// An SMS the user has sent that the server has not confirmed yet. It keeps its send attempt as
-/// its identity, so retrying a failed one resends the same SMS rather than a second copy.
-struct ModemDeckOutgoingMessage: Identifiable, Equatable {
-    enum State: Equatable {
+/// An SMS the user has sent that the server has not confirmed yet. `id` is the send attempt and
+/// never changes; `requestID` is what the server deduplicates on, and is kept for as long as the
+/// server may already hold the SMS, so retrying resends the same SMS rather than a second copy.
+struct ModemDeckOutgoingMessage: Identifiable, Equatable, Codable {
+    enum State: Equatable, Codable {
         case sending
         case failed(reason: String)
+        /// The app stopped before the server answered; the SMS may or may not have gone out.
+        case unconfirmed
     }
 
     let id: String
+    var requestID: String
+    let lineID: String
+    let peer: String
     let content: String
     var state: State
+
+    static func newAttempt() -> String { "ios-\(UUID().uuidString.lowercased())" }
+
+    func belongs(toLine lineID: String, peer: String) -> Bool {
+        self.lineID == lineID && ModemDeckPhoneIdentity.sameThreadPeer(self.peer, peer)
+    }
+
+    /// A send that was in flight when the app stopped can no longer be waited for.
+    var afterRelaunch: ModemDeckOutgoingMessage {
+        guard state == .sending else { return self }
+        var copy = self
+        copy.state = .unconfirmed
+        return copy
+    }
+}
+
+/// Every SMS the user sent that the server has not confirmed, whichever screen sent it, and the
+/// one way an SMS leaves the app. It is stored with the pairing's data, so a send interrupted
+/// by the app being killed comes back as a bubble to retry under its original request instead
+/// of being retyped as a second SMS.
+@MainActor
+final class ModemDeckMessageOutbox: ObservableObject {
+    @Published private(set) var messages: [ModemDeckOutgoingMessage] = []
+    private let api: ModemDeckAPIClient
+    private var restored = false
+    private var scope = 0
+
+    init(api: ModemDeckAPIClient) {
+        self.api = api
+        restore()
+    }
+
+    /// Reads the stored messages once per pairing.
+    func restore() {
+        guard !restored else { return }
+        restored = true
+        messages = api.cachedOutbox().map(\.afterRelaunch)
+    }
+
+    /// The pairing ended; its stored copy goes with the rest of its cached data.
+    func reset() {
+        scope += 1
+        restored = false
+        messages = []
+    }
+
+    func messages(lineID: String, peer: String) -> [ModemDeckOutgoingMessage] {
+        messages.filter { $0.belongs(toLine: lineID, peer: peer) }
+    }
+
+    /// The unconfirmed message is recorded before the request starts and removed only when
+    /// the server confirms it.
+    func deliver(lineID: String, to peer: String, content: String, attempt: String) async throws -> ModemDeckMessage {
+        restore()
+        let scope = scope
+        var outgoing = ModemDeckOutgoingMessage(
+            id: attempt, requestID: attempt, lineID: lineID, peer: peer, content: content, state: .sending
+        )
+        if let known = messages.first(where: { $0.id == attempt }) {
+            // A request ID stands for one exact SMS; anything else under it is a different one.
+            let sameMessage = known.lineID == lineID && known.peer == peer && known.content == content
+            outgoing.requestID = sameMessage ? known.requestID : ModemDeckOutgoingMessage.newAttempt()
+        }
+        store(outgoing)
+        do {
+            let message = try await api.sendMessage(
+                lineID: lineID, to: peer, content: content, requestID: outgoing.requestID
+            )
+            if scope == self.scope { discard(attempt) }
+            return message
+        } catch {
+            if scope == self.scope {
+                outgoing.state = .failed(reason: error.localizedDescription)
+                // The server answers a request it has already refused with the same refusal,
+                // so only a send whose outcome is unknown keeps its request for the retry.
+                if !api.sendOutcomeUnknown(error) { outgoing.requestID = ModemDeckOutgoingMessage.newAttempt() }
+                store(outgoing)
+            }
+            throw error
+        }
+    }
+
+    func discard(_ attempt: String) {
+        messages.removeAll { $0.id == attempt }
+        api.cacheOutbox(messages)
+    }
+
+    private func store(_ outgoing: ModemDeckOutgoingMessage) {
+        if let index = messages.firstIndex(where: { $0.id == outgoing.id }) {
+            messages[index] = outgoing
+        } else {
+            messages.append(outgoing)
+        }
+        api.cacheOutbox(messages)
+    }
 }
 
 @MainActor
@@ -1710,7 +1814,6 @@ final class ModemDeckConversationStore: ObservableObject {
     @Published private(set) var outbox: [ModemDeckOutgoingMessage] = []
     @Published private(set) var loading = false
     @Published private(set) var sending = false
-    private let pending: ModemDeckMessageDraft
     @Published private(set) var loadingOlder = false
     @Published private(set) var hasMore = false
     @Published private(set) var authoritativeLoadCompleted = false
@@ -1727,9 +1830,11 @@ final class ModemDeckConversationStore: ObservableObject {
         self.api = api
         self.thread = thread
         self.messagesStore = messagesStore
-        pending = messagesStore.draft(for: thread.id)
         messages = api.cachedMessages(lineID: thread.lineId, peer: thread.peer)
-        pending.$outbox.assign(to: &$outbox)
+        outbox = messagesStore.pendingSends.messages(lineID: thread.lineId, peer: thread.peer)
+        messagesStore.pendingSends.$messages
+            .map { $0.filter { $0.belongs(toLine: thread.lineId, peer: thread.peer) } }
+            .assign(to: &$outbox)
     }
 
     func load() async {
@@ -1847,20 +1952,14 @@ final class ModemDeckConversationStore: ObservableObject {
         guard !normalized.isEmpty, !sending else { return false }
         sending = true
         defer { sending = false }
-        if let index = pending.outbox.firstIndex(where: { $0.id == attempt }) {
-            pending.outbox[index].state = .sending
-        } else {
-            pending.outbox.append(ModemDeckOutgoingMessage(id: attempt, content: normalized, state: .sending))
-        }
         do {
-            let message = try await api.sendMessage(
+            let message = try await messagesStore.pendingSends.deliver(
                 lineID: thread.lineId,
                 to: thread.peer,
                 content: normalized,
                 attempt: attempt
             )
             revision += 1
-            pending.outbox.removeAll { $0.id == attempt }
             messages.append(message)
             api.cacheMessages(messages, lineID: thread.lineId, peer: thread.peer)
             // A confirmed send must not wait for a separate history refresh.
@@ -1870,9 +1969,6 @@ final class ModemDeckConversationStore: ObservableObject {
         } catch {
             ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             // The failed bubble carries the failure and its retry; no separate banner.
-            if let index = pending.outbox.firstIndex(where: { $0.id == attempt }) {
-                pending.outbox[index].state = .failed(reason: error.localizedDescription)
-            }
             return false
         }
     }
@@ -1883,7 +1979,7 @@ final class ModemDeckConversationStore: ObservableObject {
     }
 
     func discard(_ outgoing: ModemDeckOutgoingMessage) {
-        pending.outbox.removeAll { $0.id == outgoing.id }
+        messagesStore.pendingSends.discard(outgoing.id)
     }
 }
 

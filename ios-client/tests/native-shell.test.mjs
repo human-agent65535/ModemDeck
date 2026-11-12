@@ -815,16 +815,16 @@ test('unresolved native writes retain one operation identity across ambiguous re
   ])
 
   assert.match(api, /status == 408 \|\| status == 409 \|\| status == 425/)
-  // The SMS identity belongs to one send of one draft, not to its text: an
-  // unedited retry reuses it, while the same words sent later are a new SMS.
-  assert.match(api, /kind: "send-message",\s*parts: \[lineID, to, content, attempt\]/)
-  assert.match(session, /@Published var text = "" \{\s*didSet \{\s*revision \+= 1[\s\S]*?if text != oldValue \{ sendAttempt = UUID\(\)\.uuidString \}/)
+  // The SMS request belongs to one unconfirmed message in the stored outbox, not to its
+  // text: a retry repeats it, while the same words sent later are a new SMS.
+  assert.match(session, /@Published var text = "" \{\s*didSet \{\s*revision \+= 1[\s\S]*?if text != oldValue \{ sendAttempt = ModemDeckOutgoingMessage\.newAttempt\(\) \}/)
   assert.match(communication, /let attempt = draft\.sendAttempt[\s\S]*store\.send\(value, attempt: attempt\)/)
-  assert.equal(
-    communication.match(/\.onChange\(of: content\) \{ _ in sendAttempt = UUID\(\)\.uuidString \}/g)?.length,
-    2
-  )
-  assert.equal(communication.match(/sendMessage\([^)]*attempt: attempt\)/g)?.length, 2)
+  // Every screen sends through the outbox; nothing calls the request directly.
+  assert.equal(communication.match(/api\.sendMessage\(/g), null)
+  assert.equal(communication.match(/[pP]endingSends\.deliver\(/g)?.length, 2)
+  assert.equal(session.match(/api\.sendMessage\(/g)?.length, 1)
+  assert.match(api, /offlineCache\.writeNow\(outbox, key: "message-outbox"\)/)
+  assert.doesNotMatch(api, /ModemDeckOperationJournal/)
 })
 
 test('native contacts support full editing and destructive selection actions', async () => {
@@ -996,7 +996,8 @@ test('native interaction feedback follows platform conventions', async () => {
 
   // A sent SMS becomes a bubble at once; a failure stays on it with retry, not a banner.
   assert.match(session, /struct ModemDeckOutgoingMessage: Identifiable, Equatable/)
-  assert.match(session, /outbox\[index\]\.state = \.failed\(reason: error\.localizedDescription\)/)
+  assert.match(session, /outgoing\.state = \.failed\(reason: error\.localizedDescription\)/)
+  assert.match(communication, /"未确认送达 · 轻点重试", "Not Confirmed · Tap to Retry"/)
   assert.match(session, /func retry\(_ outgoing: ModemDeckOutgoingMessage\) async -> Bool \{\s*await send\(outgoing\.content, attempt: outgoing\.id\)/)
   assert.match(communication, /private struct ModemDeckOutgoingBubble: View/)
   assert.match(communication, /"未送达 · 轻点重试", "Not Delivered · Tap to Retry"/)

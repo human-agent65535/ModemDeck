@@ -116,7 +116,7 @@ test('native conversation refresh removes deleted cache entries and send complet
   await verify('conversation-stubs.swift', [
     declaration(api, 'func modemDeckFollowPages('),
     declaration(source, 'struct ModemDeckOutgoingMessage:'),
-    ...['final class ModemDeckConversationStore:', 'final class ModemDeckMessageDraft:']
+    ...['final class ModemDeckMessageOutbox:', 'final class ModemDeckConversationStore:', 'final class ModemDeckMessageDraft:']
       .map(marker => '@MainActor\n' + declaration(source, marker))
   ])
 })
@@ -433,9 +433,12 @@ test('session and direct-message view wire the resync and draft handoff', async 
   assert.match(native, /if accepted \{\s*onOpen\?\(\)/)
 
   const direct = declaration(communication, 'struct ModemDeckDirectMessageView')
-  const send = declaration(direct, 'private func send()')
-  assert.match(send, /let original = content/)
-  assert.match(send, /if content == original \{ content = "" \}/)
+  // The sent text leaves the editor when it becomes a bubble, before the request starts, so
+  // nothing typed during the send is ever cleared by its completion.
+  const tap = declaration(direct, 'private func send()')
+  assert.ok(tap.indexOf('content = ""') < tap.indexOf('deliver(message'))
+  const send = declaration(direct, 'private func deliver(')
+  assert.equal(send.match(/content = ""/g)?.length, 1, 'only the hand-off empties the editor')
   assert.ok(
     send.indexOf('modemDeckHandOffDirectDraft(typed: content') < send.indexOf('thread = target'),
     'typed text moves to the conversation draft before the editor is replaced'
