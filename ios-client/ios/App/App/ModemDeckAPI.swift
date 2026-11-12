@@ -579,7 +579,7 @@ struct ModemDeckAccountSessionDevice: Decodable, Equatable {
         let name = deviceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !name.isEmpty { return name }
         let model = deviceModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return model.isEmpty ? "Apple device" : model
+        return model.isEmpty ? ModemDeckErrorLanguage.text("Apple 设备", "Apple device") : model
     }
 }
 

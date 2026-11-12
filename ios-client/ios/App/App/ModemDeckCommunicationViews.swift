@@ -60,7 +60,7 @@ struct ModemDeckContactsView: View {
         .background(Color.mdBackground)
         .overlay(alignment: .bottom) {
             ModemDeckInlineError(message: store.errorMessage)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ModemDeckSpacing.md)
         }
         .task { await store.load() }
         .onChange(of: filteredContacts.map(\.id)) { visibleIDs in
@@ -87,7 +87,7 @@ struct ModemDeckContactsView: View {
         } message: {
             Text(controller.text(
                 "将删除 \(selectedContacts.count) 个联系人。此操作无法撤销。",
-                "This permanently deletes \(selectedContacts.count) contacts."
+                "This permanently deletes \(selectedContacts.count) \(selectedContacts.count == 1 ? "contact" : "contacts")."
             ))
         }
     }
@@ -96,7 +96,7 @@ struct ModemDeckContactsView: View {
         VStack(spacing: 0) {
             ModemDeckCollectionHeader(
                 controller: controller, title: controller.text("联系人", "Contacts"), query: $query, selecting: selecting,
-                primary: .init(icon: "person.badge.plus", title: controller.text("新建联系人", "New contact"),
+                primary: .init(icon: "person.badge.plus", title: controller.text("新建联系人", "New Contact"),
                                disabled: !controller.isOnline) {
                     editingContact = nil
                     editorOpen = true
@@ -168,7 +168,7 @@ struct ModemDeckContactsView: View {
                     selectedContactID = contact.id
                 } else { navigate(.contact(contact.id)) }
             },
-            beginSelection: { withAnimation(.easeInOut(duration: 0.25)) { selecting = true; selectedIDs = [contact.id] } },
+            beginSelection: { withAnimation(ModemDeckMotion.selection) { selecting = true; selectedIDs = [contact.id] } },
             toggleFavorite: {
                 let saved = try await controller.api.updateContact(
                     id: contact.id,
@@ -281,7 +281,7 @@ struct ModemDeckContactsView: View {
     }
 
     private func endContactSelection() {
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(ModemDeckMotion.selection) {
             selecting = false
             selectedIDs.removeAll()
         }
@@ -500,7 +500,7 @@ struct ModemDeckAvatar: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().stroke(Color.mdText.opacity(0.08), lineWidth: 1))
+        .overlay(Circle().stroke(Color.mdAvatarOutline, lineWidth: ModemDeckStroke.regular))
         .accessibilityHidden(true)
     }
 
@@ -602,7 +602,7 @@ struct ModemDeckCommunicationAvatar: View {
                     .fill(Color.mdAccent)
                     .frame(width: ModemDeckLayout.listUnreadIndicatorSize, height: ModemDeckLayout.listUnreadIndicatorSize)
                     .overlay(Circle().strokeBorder(Color.mdSurface, lineWidth: 2))
-                    .overlay(Circle().stroke(Color.mdAccentStrong.opacity(0.52), lineWidth: 1))
+                    .overlay(Circle().stroke(Color.mdUnreadDotOutline, lineWidth: ModemDeckStroke.regular))
                     .shadow(color: Color.black.opacity(0.18), radius: 1, y: 1)
                     .offset(x: -2, y: -2)
                     .accessibilityHidden(true)
@@ -778,12 +778,12 @@ struct ModemDeckIdentityHeader: View {
                         .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(item.disabled || item.busy)
-        .opacity(item.disabled && !item.busy ? 0.45 : 1)
+        .opacity(item.disabled && !item.busy ? ModemDeckOpacity.disabled : 1)
         .accessibilityLabel(item.title)
     }
 }
@@ -850,7 +850,7 @@ struct ModemDeckContactDetailView: View {
                 VStack(spacing: 0) {
                     if !mutationError.isEmpty {
                         ModemDeckInlineError(message: mutationError)
-                            .padding(16)
+                            .padding(ModemDeckSpacing.md)
                         ModemDeckListDivider(leading: 16)
                     }
 
@@ -859,7 +859,7 @@ struct ModemDeckContactDetailView: View {
                             .font(.system(size: 14))
                             .foregroundColor(.mdMuted)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(16)
+                            .padding(ModemDeckSpacing.md)
                         ModemDeckListDivider(leading: 16)
                     }
 
@@ -890,7 +890,7 @@ struct ModemDeckContactDetailView: View {
                                         }
                                         Label(controller.text("呼叫", "Call"), systemImage: "phone.fill")
                                     }
-                                    .frame(maxWidth: .infinity, minHeight: 42)
+                                    .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.detailActionHeight)
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(.mdAccent)
@@ -907,14 +907,14 @@ struct ModemDeckContactDetailView: View {
                                     )
                                 } label: {
                                     Label(controller.text("消息", "Message"), systemImage: "message.fill")
-                                        .frame(maxWidth: .infinity, minHeight: 42)
+                                        .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.detailActionHeight)
                                 }
                                 .buttonStyle(.bordered)
                                 .tint(.mdAccent)
                                 .disabled(!controller.isOnline)
                             }
                         }
-                        .padding(16)
+                        .padding(ModemDeckSpacing.md)
                         ModemDeckListDivider(leading: 16)
                     }
                 }
@@ -953,7 +953,7 @@ struct ModemDeckContactDetailView: View {
             ModemDeckHeaderAction(
                 id: "edit",
                 icon: "pencil",
-                title: controller.text("编辑联系人", "Edit contact"),
+                title: controller.text("编辑联系人", "Edit Contact"),
                 color: .mdAccent,
                 disabled: deleting || !controller.isOnline,
                 inline: true
@@ -1220,7 +1220,7 @@ struct ModemDeckContactEditor: View {
                     Image(systemName: "chevron.up.chevron.down").font(.caption2)
                 }
                 .foregroundColor(.mdAccent)
-                .frame(minWidth: 64, alignment: .leading)
+                .frame(minWidth: ModemDeckLayout.linePickerMinWidth, alignment: .leading)
             }
             .accessibilityLabel(controller.text("号码类型", "Number label"))
             .accessibilityValue(controller.phoneLabelText(phone.wrappedValue.label))
@@ -1422,11 +1422,11 @@ struct ModemDeckDirectMessageView: View {
                         )
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
+                .padding(.horizontal, ModemDeckSpacing.md)
+                .padding(.vertical, ModemDeckSpacing.md)
             }
             ModemDeckInlineError(message: errorMessage)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ModemDeckSpacing.md)
             if let line = defaultLine {
                 HStack(spacing: 6) {
                     Text(controller.text("发送线路", "Sending from"))
@@ -1435,7 +1435,7 @@ struct ModemDeckDirectMessageView: View {
                     ModemDeckLineTag(line: line)
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ModemDeckSpacing.md)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity)
                 .background(Color.mdSurface)
@@ -1471,8 +1471,8 @@ struct ModemDeckDirectMessageView: View {
                 axis: .vertical
             )
                 .lineLimit(1...5)
-                .padding(.horizontal, 12)
-                .frame(minHeight: 42)
+                .padding(.horizontal, ModemDeckSpacing.sm)
+                .frame(minHeight: ModemDeckLayout.detailActionHeight)
                 .background(Color.mdSurfaceHover)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             Button { send() } label: {
@@ -1485,7 +1485,7 @@ struct ModemDeckDirectMessageView: View {
                     sending || defaultLine == nil || !controller.isOnline
             )
         }
-        .padding(12)
+        .padding(ModemDeckSpacing.sm)
         .background(Color.mdSurface)
         .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
     }
@@ -1600,12 +1600,12 @@ struct ModemDeckNewMessageView: View {
                             .font(.system(size: 16))
                             .foregroundColor(.mdText)
                             .frame(minHeight: 150)
-                            .padding(8)
+                            .padding(ModemDeckSpacing.xs)
                             .background(Color.mdSurface)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.mdBorder, lineWidth: 1)
+                                    .stroke(Color.mdBorder, lineWidth: ModemDeckStroke.regular)
                             )
                     }
 
@@ -1629,7 +1629,7 @@ struct ModemDeckNewMessageView: View {
                         Label(controller.text("发送短信", "Send Message"), systemImage: "paperplane.fill")
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 42)
+                .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.detailActionHeight)
             }
             .buttonStyle(.borderedProminent)
             .tint(.mdAccent)
@@ -1658,13 +1658,13 @@ struct ModemDeckNewMessageView: View {
             content()
                 .font(.system(size: 15))
                 .foregroundColor(.mdText)
-                .padding(.horizontal, 12)
-                .frame(minHeight: 46)
+                .padding(.horizontal, ModemDeckSpacing.sm)
+                .frame(minHeight: ModemDeckLayout.composeFieldMinHeight)
                 .background(Color.mdSurface)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.mdBorder, lineWidth: 1)
+                        .stroke(Color.mdBorder, lineWidth: ModemDeckStroke.regular)
                 )
         }
     }
@@ -1775,7 +1775,7 @@ struct ModemDeckMessagesView: View {
         .background(Color.mdBackground)
         .overlay(alignment: .bottom) {
             ModemDeckInlineError(message: store.errorMessage)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ModemDeckSpacing.md)
         }
         .task {
             await store.load()
@@ -1807,7 +1807,7 @@ struct ModemDeckMessagesView: View {
         } message: {
             Text(controller.text(
                 "将永久删除 \(selectedThreads.count) 个短信会话。",
-                "This permanently deletes \(selectedThreads.count) conversations."
+                "This permanently deletes \(selectedThreads.count) \(selectedThreads.count == 1 ? "conversation" : "conversations")."
             ))
         }
     }
@@ -1830,7 +1830,7 @@ struct ModemDeckMessagesView: View {
         VStack(spacing: 0) {
             ModemDeckCollectionHeader(
                 controller: controller, title: controller.text("消息", "Messages"), query: $query, selecting: selecting,
-                primary: .init(icon: "square.and.pencil", title: controller.text("新建短信", "New message"),
+                primary: .init(icon: "square.and.pencil", title: controller.text("新建短信", "New Message"),
                                disabled: !controller.isOnline) { composeOpen = true }
             ) {
                 // Short scenes cannot spare a filter row, so the filters join the bar.
@@ -1962,7 +1962,7 @@ struct ModemDeckMessagesView: View {
                     selectedThreadID = thread.id
                 } else { navigate(.message(thread.id)) }
             },
-            beginSelection: { withAnimation(.easeInOut(duration: 0.25)) { selecting = true; selectedIDs = [thread.id] } },
+            beginSelection: { withAnimation(ModemDeckMotion.selection) { selecting = true; selectedIDs = [thread.id] } },
             toggleRead: { try await store.mutate(unread ? .read : .unread, threads: [thread]) },
             toggleFavorite: { try await store.mutate(thread.favorite ? .unfavorite : .favorite, threads: [thread]) },
             delete: { try await store.mutate(.delete, threads: [thread]) }
@@ -2030,7 +2030,7 @@ struct ModemDeckMessagesView: View {
     }
 
     private func endMessageSelection() {
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(ModemDeckMotion.selection) {
             selecting = false
             selectedIDs.removeAll()
         }
@@ -2122,8 +2122,8 @@ struct ModemDeckLineFilterMenu: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .stroke(
-                                selection.isEmpty ? Color.mdBorder : Color.mdAccent.opacity(0.45),
-                                lineWidth: 1
+                                selection.isEmpty ? Color.mdBorder : Color.mdBorderSelected,
+                                lineWidth: ModemDeckStroke.regular
                             )
                     )
                 Image(systemName: selection.isEmpty
@@ -2421,8 +2421,8 @@ struct ModemDeckConversationView: View {
 
             if !mutationError.isEmpty {
                 ModemDeckInlineError(message: mutationError)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    .padding(.horizontal, ModemDeckSpacing.md)
+                    .padding(.top, ModemDeckSpacing.xs)
             }
 
             if !canPresentMessages {
@@ -2444,9 +2444,9 @@ struct ModemDeckConversationView: View {
                                 }
                                 .font(.footnote.weight(.medium))
                                 .foregroundColor(.mdAccent)
-                                .frame(minHeight: 38)
+                                .frame(minHeight: ModemDeckLayout.loadEarlierMinHeight)
                                 .disabled(store.loadingOlder)
-                                .padding(.bottom, 8)
+                                .padding(.bottom, ModemDeckSpacing.xs)
                             }
                             if store.messages.isEmpty {
                                 ModemDeckStateView(
@@ -2550,7 +2550,7 @@ struct ModemDeckConversationView: View {
                                 )
                                 .font(.footnote.weight(.semibold))
                                 .foregroundColor(.mdOnAccent)
-                                .padding(.horizontal, 12)
+                                .padding(.horizontal, ModemDeckSpacing.sm)
                                 .frame(minHeight: 36)
                                 .background(Color.mdAccent)
                                 .clipShape(Capsule())
@@ -2564,7 +2564,7 @@ struct ModemDeckConversationView: View {
             }
 
             ModemDeckInlineError(message: store.errorMessage)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ModemDeckSpacing.md)
 
             if oneWaySender {
                 Label(
@@ -2573,7 +2573,7 @@ struct ModemDeckConversationView: View {
                 )
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.mdMuted)
-                .frame(maxWidth: .infinity, minHeight: 52)
+                .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.compactRowHeight)
                 .background(Color.mdSurface)
                 .overlay(alignment: .top) { Rectangle().fill(Color.mdBorder).frame(height: 1) }
             } else {
@@ -2605,7 +2605,7 @@ struct ModemDeckConversationView: View {
                     } label: {
                         Group {
                             if store.sending {
-                                ProgressView().frame(width: 30, height: 30)
+                                ProgressView().frame(width: ModemDeckLayout.smallIconTileSize, height: ModemDeckLayout.smallIconTileSize)
                             } else {
                                 Image(systemName: "arrow.up.circle.fill")
                                     .font(.system(size: 30))
@@ -2623,10 +2623,10 @@ struct ModemDeckConversationView: View {
                 .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
                 .overlay(
                     RoundedRectangle.modemDeck(ModemDeckRadius.large)
-                        .stroke(Color.mdBorder, lineWidth: 1)
+                        .stroke(Color.mdBorder, lineWidth: ModemDeckStroke.regular)
                 )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, ModemDeckSpacing.sm)
+                .padding(.vertical, ModemDeckSpacing.xs)
                 .frame(maxWidth: ModemDeckLayout.readableContentWidth)
                 .frame(maxWidth: .infinity)
                 .background(.bar)
@@ -2735,20 +2735,20 @@ struct ModemDeckConversationView: View {
             .font(.caption.weight(.semibold))
             .foregroundColor(.mdMuted)
             .padding(.horizontal, 10)
-            .frame(minHeight: 26)
-            .background(Color.mdSurfaceHover.opacity(0.86))
+            .frame(minHeight: ModemDeckLayout.dateChipMinHeight)
+            .background(Color.mdDateChip)
             .clipShape(Capsule())
             .padding(.vertical, 7)
     }
 
     private var unreadDivider: some View {
         HStack(spacing: 10) {
-            Rectangle().fill(Color.mdAccent.opacity(0.28)).frame(height: 1)
+            Rectangle().fill(Color.mdUnreadDivider).frame(height: 1)
             Text(controller.text("未读消息", "Unread Messages"))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.mdAccentStrong)
                 .fixedSize()
-            Rectangle().fill(Color.mdAccent.opacity(0.28)).frame(height: 1)
+            Rectangle().fill(Color.mdUnreadDivider).frame(height: 1)
         }
         .padding(.vertical, 2)
     }
@@ -2935,7 +2935,7 @@ private struct ModemDeckOutgoingBubble: View {
                     .foregroundColor(.mdOnAccent)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 9)
-                    .background(Color.mdAccent.opacity(failed ? 0.55 : 0.7))
+                    .background(failed ? Color.mdOutgoingBubbleFailed : Color.mdOutgoingBubble)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .contextMenu {
@@ -2981,7 +2981,7 @@ private struct ModemDeckOutgoingBubble: View {
         .accessibilityLabel([
             controller.text("发出", "Sent"),
             outgoing.content,
-            failed ? controller.text("未送达", "Not delivered") : controller.text("发送中", "Sending")
+            failed ? controller.text("未送达", "Not Delivered") : controller.text("发送中", "Sending")
         ].joined(separator: ", "))
         .accessibilityHint(failed ? failureReason : "")
         .accessibilityAction(named: Text(controller.text("重新发送", "Try Again"))) { if failed { retry() } }
@@ -3041,7 +3041,7 @@ private struct ModemDeckMessageBubble: View {
             Text(controller.messageTimeText(message.timestamp))
                 .font(.caption2.monospacedDigit())
                 .foregroundColor(.mdFaint)
-                .frame(width: 66, alignment: .trailing)
+                .frame(width: ModemDeckLayout.messageTimestampWidth, alignment: .trailing)
                 .opacity(min(timestampReveal / 24, 1))
                 .accessibilityHidden(true)
 

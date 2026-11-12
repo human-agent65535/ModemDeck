@@ -156,8 +156,8 @@ struct ModemDeckHomeView: View {
                      filter: "missed", attention: calls.calls.contains { $0.missed && !$0.read })
             shortcut(controller.text("通话录音", "Recordings"), icon: "waveform", count: Set(calls.recordings.map { $0.call.id }).count, filter: "recorded")
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 4)
+        .padding(.horizontal, ModemDeckSpacing.lg)
+        .padding(.bottom, ModemDeckSpacing.xxs)
     }
 
     /// Counter card: the number leads; it only turns red while unread missed calls are waiting.
@@ -195,7 +195,7 @@ struct ModemDeckHomeView: View {
                     }
                 }
             }
-            .padding(12)
+            .padding(ModemDeckSpacing.sm)
             .frame(maxWidth: .infinity, minHeight: shortcutsStacked ? 56 : 92, alignment: .leading)
             .background(attention ? Color.mdDangerSoft : Color.mdSurface)
             .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
@@ -215,7 +215,7 @@ struct ModemDeckHomeView: View {
                     .accessibilityAddTraits(.isHeader)
                 ModemDeckHomeLineGrid(controller: controller, lines: controller.bootstrap?.lines ?? [])
             }
-            .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 16)
+            .padding(.horizontal, ModemDeckSpacing.lg).padding(.top, 6).padding(.bottom, ModemDeckSpacing.md)
             .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.mdBackground)
             shortcuts.listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.mdBackground)
             if activity.days.isEmpty && (preparingActivity || messages.loading || calls.loading) {
@@ -241,7 +241,7 @@ struct ModemDeckHomeView: View {
                     // Day labels scroll with their rows; a pinned header would keep a second
                     // band under the bar, which short scenes such as an unfolded Duo cannot spare.
                     Text(dayTitle(day.id)).font(.caption.weight(.semibold)).foregroundColor(.mdMuted)
-                        .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 4)
+                        .padding(.horizontal, ModemDeckSpacing.lg).padding(.top, ModemDeckSpacing.sm).padding(.bottom, ModemDeckSpacing.xxs)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityAddTraits(.isHeader)
                         .listRowInsets(EdgeInsets())

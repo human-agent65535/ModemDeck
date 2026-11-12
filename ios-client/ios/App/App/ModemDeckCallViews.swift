@@ -104,7 +104,7 @@ private struct ModemDeckDialKeyStyle: ButtonStyle {
             .contentShape(Circle())
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
             .animation(
-                reduceMotion ? nil : .easeOut(duration: 0.08),
+                reduceMotion ? nil : ModemDeckMotion.pressFeedback,
                 value: configuration.isPressed
             )
             .hoverEffect(.highlight)
@@ -275,14 +275,14 @@ struct ModemDeckDialerPanel: View {
                 Button(action: close) {
                     Image(systemName: "chevron.down")
                         .foregroundColor(.mdMuted)
-                        .frame(width: 44, height: 44)
+                        .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(controller.text("收起拨号盘", "Collapse dialer"))
                 .accessibilityIdentifier("dialer-collapse")
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, ModemDeckSpacing.xl)
             .padding(.top, 14)
             ModemDeckDialerView(controller: controller)
         }
@@ -407,7 +407,7 @@ struct ModemDeckDialerView: View {
             let metrics = ModemDeckDialerMetrics(size: geometry.size)
             VStack(spacing: 0) {
                 numberSection
-                optionsRow.padding(.top, 8)
+                optionsRow.padding(.top, ModemDeckSpacing.xs)
                 Spacer(minLength: ModemDeckDialerMetrics.minimumGap)
                 LazyVGrid(
                     columns: Array(repeating: GridItem(.fixed(metrics.key), spacing: metrics.columnSpacing), count: 3),
@@ -425,7 +425,7 @@ struct ModemDeckDialerView: View {
                 actionRow(callSize: metrics.callKey)
             }
             .frame(maxWidth: 340)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ModemDeckSpacing.lg)
             .padding(.bottom, ModemDeckDialerMetrics.bottomPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -581,14 +581,14 @@ struct ModemDeckDialerView: View {
             if canMessage {
                 Button { messagingNumber = true } label: {
                     Image(systemName: "message")
-                        .font(.title2).frame(width: 44, height: 56)
+                        .font(.title2).frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.dialerSideButtonHeight)
                 }
-                .accessibilityLabel(controller.text("发短信", "Send message"))
+                .accessibilityLabel(controller.text("发短信", "Send Message"))
                 .accessibilityIdentifier("dial-message")
             } else {
                 Button { showingContacts = true } label: {
                     Image(systemName: "person.crop.circle")
-                        .font(.title2).frame(width: 44, height: 56)
+                        .font(.title2).frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.dialerSideButtonHeight)
                 }
                 .accessibilityLabel(controller.text("选择联系人", "Choose contact"))
             }
@@ -596,10 +596,10 @@ struct ModemDeckDialerView: View {
             // Round green call key, as in the system Phone keypad.
             Button(action: startCall) {
                 Group {
-                    if callController.busy { ProgressView().tint(.white) }
+                    if callController.busy { ProgressView().tint(.mdOnSolid) }
                     else { Image(systemName: "phone.fill").font(.system(size: callSize * 0.39, weight: .semibold)) }
                 }
-                .foregroundColor(canDial ? .white : .mdFaint)
+                .foregroundColor(canDial ? .mdOnSolid : .mdFaint)
                 .frame(width: callSize, height: callSize)
                 .background(Circle().fill(canDial ? Color.mdCallAnswer : Color.mdSurfaceHover))
             }
@@ -609,7 +609,7 @@ struct ModemDeckDialerView: View {
             Spacer(minLength: 0)
             Button(action: removeDigit) {
                 Image(systemName: "delete.left")
-                    .font(.title3).frame(width: 44, height: 56)
+                    .font(.title3).frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.dialerSideButtonHeight)
             }
             // Present only once there is something to delete, as in Phone.
             .opacity(draft.number.isEmpty ? 0 : 1)
@@ -779,7 +779,7 @@ struct ModemDeckCallsView: View {
         .background(Color.mdBackground)
         .overlay(alignment: .bottom) {
             ModemDeckInlineError(message: store.errorMessage)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ModemDeckSpacing.md)
         }
         .task { await store.load() }
         .onChange(of: filteredCalls.map(\.id)) { visibleIDs in
@@ -945,7 +945,7 @@ struct ModemDeckCallsView: View {
                     selectedCallID = call.id
                 } else { navigate(.call(call.id)) }
             },
-            beginSelection: { withAnimation(.easeInOut(duration: 0.25)) { selecting = true; selectedIDs = [call.id] } },
+            beginSelection: { withAnimation(ModemDeckMotion.selection) { selecting = true; selectedIDs = [call.id] } },
             toggleRead: call.missed ? { try await store.mutate(call.read ? .unread : .read, calls: [call]) } : nil,
             toggleFavorite: { try await store.mutate(call.favorite ? .unfavorite : .favorite, calls: [call]) },
             delete: { try await store.mutate(.delete, calls: [call]) }
@@ -1014,7 +1014,7 @@ struct ModemDeckCallsView: View {
     }
 
     private func endCallSelection() {
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(ModemDeckMotion.selection) {
             selecting = false
             selectedIDs.removeAll()
         }
@@ -1256,7 +1256,7 @@ struct ModemDeckRecordingsView: View {
         .modemDeckInteractiveBack(showsBackButton)
         .overlay(alignment: .bottom) {
             ModemDeckInlineError(message: store.errorMessage)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, ModemDeckSpacing.md)
         }
         .task { await store.load() }
         .onChange(of: filteredRecordings.map(\.id)) { visibleIDs in
@@ -1274,7 +1274,7 @@ struct ModemDeckRecordingsView: View {
         } message: {
             Text(controller.text(
                 "将永久删除 \(selectedRecordings.count) 条录音。",
-                "This permanently deletes \(selectedRecordings.count) recordings."
+                "This permanently deletes \(selectedRecordings.count) \(selectedRecordings.count == 1 ? "recording" : "recordings")."
             ))
         }
     }
@@ -1290,7 +1290,7 @@ struct ModemDeckRecordingsView: View {
             }
             if !shortScene {
                 HStack(spacing: ModemDeckLayout.toolbarGap) {
-                    Text(controller.text("\(filteredRecordings.count) 条录音", "\(filteredRecordings.count) recordings"))
+                    Text(controller.text("\(filteredRecordings.count) 条录音", "\(filteredRecordings.count) \(filteredRecordings.count == 1 ? "recording" : "recordings")"))
                         .font(.subheadline).foregroundColor(.mdMuted)
                     Spacer(minLength: 0)
                     recordingFilters(inToolbar: false)
@@ -1397,7 +1397,7 @@ struct ModemDeckRecordingsView: View {
                     selectedRecordingID = recording.id
                 } else { navigate(.recording(recording.id)) }
             },
-            beginSelection: { withAnimation(.easeInOut(duration: 0.25)) { selecting = true; selectedIDs = [recording.id] } },
+            beginSelection: { withAnimation(ModemDeckMotion.selection) { selecting = true; selectedIDs = [recording.id] } },
             toggleFavorite: { try await store.mutate(recording.favorite ? .unfavorite : .favorite, recordings: [recording]) },
             delete: { try await store.mutate(.delete, recordings: [recording]) }
         ) { actions in
@@ -1454,7 +1454,7 @@ struct ModemDeckRecordingsView: View {
     }
 
     private func endRecordingSelection() {
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(ModemDeckMotion.selection) {
             selecting = false
             selectedIDs.removeAll()
         }
@@ -1585,14 +1585,14 @@ private struct ModemDeckDetailCard<Content: View>: View {
                 .font(.system(size: 11, weight: .bold))
                 .tracking(0.6)
                 .foregroundColor(.mdFaint)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, ModemDeckSpacing.xxs)
                 .padding(.bottom, 7)
             VStack(spacing: 0) { content }
                 .background(Color.mdSurface)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.mdBorder, lineWidth: 1)
+                        .stroke(Color.mdBorder, lineWidth: ModemDeckStroke.regular)
                 )
         }
     }
@@ -1610,7 +1610,7 @@ private struct ModemDeckDetailValueRow: View {
                 Image(systemName: icon)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.mdMuted)
-                    .frame(width: 22)
+                    .frame(width: ModemDeckLayout.iconColumnWidth)
             }
             Text(title)
                 .font(.system(size: 15))
@@ -1623,7 +1623,7 @@ private struct ModemDeckDetailValueRow: View {
                 .lineLimit(3)
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: 52)
+        .frame(minHeight: ModemDeckLayout.compactRowHeight)
     }
 }
 
@@ -1665,7 +1665,7 @@ private struct ModemDeckDetailAction: View {
         .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
         .overlay(
             RoundedRectangle.modemDeck(ModemDeckRadius.medium)
-                .stroke(prominent ? Color.clear : Color.mdBorder, lineWidth: 0.5)
+                .stroke(prominent ? Color.clear : Color.mdBorder, lineWidth: ModemDeckStroke.thin)
         )
         .accessibilityElement(children: .combine)
     }
@@ -1758,8 +1758,8 @@ struct ModemDeckCallDetailView: View {
 
             if !mutationError.isEmpty {
                 ModemDeckInlineError(message: mutationError)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    .padding(.horizontal, ModemDeckSpacing.md)
+                    .padding(.top, ModemDeckSpacing.xs)
             }
 
             ScrollView {
@@ -1848,7 +1848,7 @@ struct ModemDeckCallDetailView: View {
                                         Image(systemName: recording.playable ? "waveform.circle.fill" : "waveform.circle")
                                             .font(.system(size: 22))
                                             .foregroundColor(recording.playable ? .mdBlue : .mdFaint)
-                                            .frame(width: 28)
+                                            .frame(width: ModemDeckLayout.recordingIconWidth)
                                         VStack(alignment: .leading, spacing: 3) {
                                             Text(controller.text(
                                                 "录音片段 \(recording.segment.segmentIndex)",
@@ -1871,8 +1871,8 @@ struct ModemDeckCallDetailView: View {
                         }
                     }
                 }
-                .frame(maxWidth: 720)
-                .padding(16)
+                .frame(maxWidth: ModemDeckLayout.readableContentWidth)
+                .padding(ModemDeckSpacing.md)
                 .frame(maxWidth: .infinity)
             }
             .background(Color.mdBackground)
@@ -1908,8 +1908,8 @@ struct ModemDeckCallDetailView: View {
                 id: "read",
                 icon: isRead ? "envelope.badge" : "envelope.open",
                 title: isRead
-                    ? controller.text("标为未读", "Mark unread")
-                    : controller.text("标为已读", "Mark read"),
+                    ? controller.text("标为未读", "Mark Unread")
+                    : controller.text("标为已读", "Mark Read"),
                 disabled: mutationBusy || !controller.isOnline
             ) { mutateCall(isRead ? .unread : .read) })
         }
@@ -2190,8 +2190,8 @@ struct ModemDeckRecordingDetailView: View {
 
             if !mutationError.isEmpty {
                 ModemDeckInlineError(message: mutationError)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    .padding(.horizontal, ModemDeckSpacing.md)
+                    .padding(.top, ModemDeckSpacing.xs)
             }
 
             ScrollView {
@@ -2278,8 +2278,8 @@ struct ModemDeckRecordingDetailView: View {
                         )
                     }
                 }
-                .frame(maxWidth: 720)
-                .padding(16)
+                .frame(maxWidth: ModemDeckLayout.readableContentWidth)
+                .padding(ModemDeckSpacing.md)
                 .frame(maxWidth: .infinity)
             }
             .background(Color.mdBackground)
@@ -2425,7 +2425,7 @@ struct ModemDeckMiniCallBar: View {
             bar(status: status(at: context.date))
         }
         .opacity(callController.endedCallClosing ? 0 : 1)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: callController.endedCallClosing)
+        .animation(reduceMotion ? nil : ModemDeckMotion.stateChange, value: callController.endedCallClosing)
         .allowsHitTesting(!callController.endedCallClosing)
     }
 
@@ -2437,7 +2437,7 @@ struct ModemDeckMiniCallBar: View {
                         .font(.body.weight(.semibold))
                         .foregroundColor(endedCall == nil ? .mdAccent : .mdMuted)
                         .modemDeckVariableColor(isLive && !reduceMotion)
-                        .frame(width: 24)
+                        .frame(width: ModemDeckLayout.callBarIconWidth)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(name)
                             .font(.subheadline.weight(.semibold))
@@ -2458,7 +2458,7 @@ struct ModemDeckMiniCallBar: View {
                 }
                 .padding(.leading, ModemDeckSpacing.md)
                 .padding(.trailing, ModemDeckSpacing.xxs)
-                .frame(minHeight: 56)
+                .frame(minHeight: ModemDeckLayout.callBarMinHeight)
                 .contentShape(Rectangle())
             }
             .accessibilityLabel(
@@ -2482,9 +2482,9 @@ struct ModemDeckMiniCallBar: View {
                     Image(systemName: "mic.slash.fill")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(call.muted ? .mdSurface : .mdText)
-                        .frame(width: 36, height: 36)
+                        .frame(width: ModemDeckLayout.controlVisualSize, height: ModemDeckLayout.controlVisualSize)
                         .background(Circle().fill(call.muted ? Color.mdText : Color.mdSurfaceHover))
-                        .frame(width: 44, height: 44)
+                        .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
                         .contentShape(Rectangle())
                 }
                 .disabled(callController.muteBusy)
@@ -2496,14 +2496,14 @@ struct ModemDeckMiniCallBar: View {
             }
             Button(action: endOrClose) {
                 Group {
-                    if callController.ending { ProgressView().tint(.white) }
+                    if callController.ending { ProgressView().tint(.mdOnSolid) }
                     else { Image(systemName: endedCall == nil ? "phone.down.fill" : "xmark") }
                 }
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: 36, height: 36)
+                .foregroundColor(.mdOnSolid)
+                .frame(width: ModemDeckLayout.controlVisualSize, height: ModemDeckLayout.controlVisualSize)
                 .background(Circle().fill(Color.mdCallEnd))
-                .frame(width: 44, height: 44)
+                .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
                 .contentShape(Rectangle())
             }
             .disabled(endedCall == nil && (!canEnd || callController.ending))
@@ -2516,11 +2516,11 @@ struct ModemDeckMiniCallBar: View {
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(endedCall == nil ? Color.mdAccent : Color.mdBorder)
-                .frame(width: 3)
+                .frame(width: ModemDeckLayout.callBarStripeWidth)
                 .accessibilityHidden(true)
         }
         .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
-        .overlay(RoundedRectangle.modemDeck(ModemDeckRadius.large).stroke(Color.mdBorder, lineWidth: 0.5))
+        .overlay(RoundedRectangle.modemDeck(ModemDeckRadius.large).stroke(Color.mdBorder, lineWidth: ModemDeckStroke.thin))
         .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
     }
 
@@ -2628,7 +2628,7 @@ struct ModemDeckActiveCallView: View {
                         .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.xLarge))
                         .overlay(
                             RoundedRectangle.modemDeck(ModemDeckRadius.xLarge)
-                                .stroke(Color.mdBorder, lineWidth: 0.5)
+                                .stroke(Color.mdBorder, lineWidth: ModemDeckStroke.thin)
                         )
                         .shadow(color: Color.black.opacity(0.34), radius: 28, y: 12)
                 } else {
@@ -2668,7 +2668,7 @@ struct ModemDeckActiveCallView: View {
 
     private var collapseHeader: some View {
         HStack {
-            Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+            Color.clear.frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize).accessibilityHidden(true)
             Spacer()
             if isEnded {
                 Text(controller.text("通话结果", "Call result")).font(.headline)
@@ -2678,7 +2678,7 @@ struct ModemDeckActiveCallView: View {
                 Image(systemName: "chevron.down")
                     .font(.body.weight(.semibold))
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                    .frame(width: 44, height: 44)
+                    .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -2689,7 +2689,7 @@ struct ModemDeckActiveCallView: View {
         .foregroundColor(.mdText)
         .padding(.top, 14)
         .overlay(alignment: .top) {
-            Capsule().fill(Color.mdBorder).frame(width: 36, height: 5).padding(.top, 5)
+            Capsule().fill(Color.mdBorder).frame(width: ModemDeckLayout.sheetGrabberWidth, height: ModemDeckLayout.sheetGrabberHeight).padding(.top, 5)
                 .accessibilityHidden(true)
         }
         // Without a title the row would otherwise merge into the collapse button.
@@ -2758,7 +2758,7 @@ struct ModemDeckActiveCallView: View {
         .frame(maxWidth: 640)
         .padding(.horizontal, ModemDeckSpacing.xl)
         .offset(y: collapseOffset)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: collapseOffset == 0)
+        .animation(reduceMotion ? nil : ModemDeckMotion.keypad, value: collapseOffset == 0)
         .accessibilityAction(.escape, collapse)
     }
 
@@ -2801,7 +2801,7 @@ struct ModemDeckActiveCallView: View {
                 .foregroundColor(.mdAccent)
                 .frame(width: size, height: size)
                 .background(Circle().fill(Color.mdSurface))
-                .overlay(Circle().stroke(Color.mdBorder, lineWidth: 1))
+                .overlay(Circle().stroke(Color.mdBorder, lineWidth: ModemDeckStroke.regular))
                 .accessibilityHidden(true)
         } else {
             let known = contact != nil || (!call.displayName.isEmpty && call.displayName != call.remoteNumber)
@@ -2864,7 +2864,7 @@ struct ModemDeckActiveCallView: View {
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .contentTransition(reduceMotion ? .identity : .opacity)
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: stateText)
+                        .animation(reduceMotion ? nil : ModemDeckMotion.stateChange, value: stateText)
                         .accessibilityIdentifier("call-status")
                 }
             }
@@ -2875,7 +2875,7 @@ struct ModemDeckActiveCallView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(reduceMotion ? .identity : .opacity)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: stateText)
+                .animation(reduceMotion ? nil : ModemDeckMotion.stateChange, value: stateText)
                 .accessibilityIdentifier("call-status")
         }
     }
@@ -2944,7 +2944,7 @@ struct ModemDeckActiveCallView: View {
                     : canSendDTMF ? nil : controller.text("此线路不支持拨号音", "This line can't send keypad tones")
             ) {
                 if reduceMotion { showingKeypad.toggle() }
-                else { withAnimation(.easeOut(duration: 0.18)) { showingKeypad.toggle() } }
+                else { withAnimation(ModemDeckMotion.keypad) { showingKeypad.toggle() } }
             }
             .accessibilityIdentifier("call-keypad")
         case .audio:
@@ -2999,7 +2999,7 @@ struct ModemDeckActiveCallView: View {
             if keypadVisible {
                 Button {
                     if reduceMotion { showingKeypad = false }
-                    else { withAnimation(.easeOut(duration: 0.18)) { showingKeypad = false } }
+                    else { withAnimation(ModemDeckMotion.keypad) { showingKeypad = false } }
                 } label: {
                     Text(controller.text("隐藏", "Hide"))
                         .font(.body.weight(.medium))
@@ -3193,7 +3193,7 @@ private struct ModemDeckCallTimerText: View {
                 .monospacedDigit()
                 .foregroundColor(.mdText)
                 .contentTransition(reduceMotion ? .identity : .numericText())
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: clock)
+                .animation(reduceMotion ? nil : ModemDeckMotion.stateChange, value: clock)
                 .accessibilityLabel(accessibilityLabel)
                 .accessibilityValue(clock)
                 .accessibilityIdentifier("call-timer")
@@ -3228,7 +3228,7 @@ private struct ModemDeckCallControlFace: View {
                 // appearance, so it keeps its contrast against that fill.
                 .environment(\.colorScheme, isOn && onGlyph != nil ? (colorScheme == .dark ? .light : .dark) : colorScheme)
                 .modemDeckPulse(pulse && !reduceMotion)
-                .frame(width: 72, height: 72)
+                .frame(width: ModemDeckLayout.callControlSize, height: ModemDeckLayout.callControlSize)
                 .background(Circle().fill(isOn ? Color.mdText : Color.mdSurfaceHover))
                 .overlay {
                     if unavailable {
@@ -3244,7 +3244,7 @@ private struct ModemDeckCallControlFace: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(minWidth: 72)
+        .frame(minWidth: ModemDeckLayout.callControlSize)
         .contentShape(Rectangle())
     }
 }
@@ -3287,7 +3287,7 @@ private struct ModemDeckCallFooterStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
             .opacity(configuration.isPressed ? 0.82 : 1)
             .animation(
-                reduceMotion ? nil : .easeOut(duration: 0.08),
+                reduceMotion ? nil : ModemDeckMotion.pressFeedback,
                 value: configuration.isPressed
             )
     }
@@ -3309,12 +3309,12 @@ private struct ModemDeckCallPrimaryAction: View {
         } label: {
             VStack(spacing: ModemDeckSpacing.xs) {
                 Group {
-                    if busy { ProgressView().tint(.white) }
+                    if busy { ProgressView().tint(.mdOnSolid) }
                     else { Image(systemName: icon) }
                 }
                     .font(.system(size: 28, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 72, height: 72)
+                    .foregroundColor(.mdOnSolid)
+                    .frame(width: ModemDeckLayout.callControlSize, height: ModemDeckLayout.callControlSize)
                     .background(Circle().fill(color))
                     .contentShape(.hoverEffect, Circle())
                     .hoverEffect(.lift)
@@ -3324,7 +3324,7 @@ private struct ModemDeckCallPrimaryAction: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(width: 80)
+            .frame(width: ModemDeckLayout.callActionColumnWidth)
             .frame(minHeight: 104, alignment: .top)
             .contentShape(Rectangle())
         }
@@ -3480,7 +3480,7 @@ private struct ModemDeckRecordingPlaybackControls: View {
             Image(systemName: icon)
                 .font(.title3)
                 .foregroundColor(player.isLoaded ? .mdAccent : .mdFaint)
-                .frame(width: 44, height: 44)
+                .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
         }
         .buttonStyle(.plain)
         .disabled(!player.isLoaded)

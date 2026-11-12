@@ -1,4 +1,6 @@
 import Foundation
+// Product error text is chosen through the shared language switch; these tests read English.
+enum ModemDeckErrorLanguage { static func text(_ chinese: String, _ english: String) -> String { english } }
 struct AVAudioTime { static func seconds(forHostTime: UInt64) -> Double { Double(forHostTime) / 1_000_000_000 } }
 func mach_absolute_time() -> UInt64 { UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000) }
 final class Engine { var isRunning = true }

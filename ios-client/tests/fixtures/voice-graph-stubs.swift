@@ -1,4 +1,6 @@
 import Foundation
+// Product error text is chosen through the shared language switch; these tests read English.
+enum ModemDeckErrorLanguage { static func text(_ chinese: String, _ english: String) -> String { english } }
 final class Ringback { func mix(_ output: UnsafeMutablePointer<Float>, count: Int) {} }
 
 // These doubles model graph mutations and callbacks, not a physical audio device.

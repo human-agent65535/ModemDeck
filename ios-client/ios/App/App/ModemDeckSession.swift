@@ -2096,7 +2096,7 @@ final class ModemDeckContactImporter: ObservableObject {
             pendingContacts = try await readContacts(from: store)
             pendingCount = pendingContacts.count
             if pendingContacts.isEmpty {
-                resultMessage = "No contacts with phone numbers were found."
+                resultMessage = ModemDeckErrorLanguage.text("没有找到含电话号码的联系人。", "No contacts with phone numbers were found.")
             }
         } catch {
             pendingContacts = []
@@ -2134,7 +2134,10 @@ final class ModemDeckContactImporter: ObservableObject {
                 failed += 1
             }
         }
-        resultMessage = "Imported \(imported), skipped \(skipped), failed \(failed)."
+        resultMessage = ModemDeckErrorLanguage.text(
+            "已导入 \(imported) 位，跳过 \(skipped) 位，失败 \(failed) 位。",
+            "Imported \(imported), skipped \(skipped), failed \(failed)."
+        )
         if failed > 0 {
             errorMessage = resultMessage
         }

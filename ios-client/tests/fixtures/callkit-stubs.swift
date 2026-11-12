@@ -1,4 +1,6 @@
 import Foundation
+// Product error text is chosen through the shared language switch; these tests read English.
+enum ModemDeckErrorLanguage { static func text(_ chinese: String, _ english: String) -> String { english } }
 
 class CXAction { let uuid = UUID() }
 class CXCallAction: CXAction { let callUUID: UUID; init(_ id: UUID) { callUUID = id } }

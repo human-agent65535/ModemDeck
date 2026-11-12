@@ -10,10 +10,6 @@ struct ModemDeckPairingView: View {
     @State private var manualPayload = ""
     @State private var cameraError = ""
 
-    private var chinese: Bool {
-        Locale.preferredLanguages.first?.hasPrefix("zh") == true
-    }
-
     var body: some View {
         NavigationView {
             ScrollView {
@@ -23,19 +19,20 @@ struct ModemDeckPairingView: View {
                     ZStack {
                         RoundedRectangle.modemDeck(ModemDeckRadius.xLarge)
                             .fill(Color.modemDeckTint.opacity(0.12))
-                            .frame(width: 108, height: 108)
+                            .frame(width: ModemDeckLayout.pairingGlyphSize, height: ModemDeckLayout.pairingGlyphSize)
                         Image(systemName: "qrcode.viewfinder")
                             .font(.system(size: 45, weight: .medium))
                             .foregroundColor(.modemDeckTint)
                     }
 
                     VStack(spacing: 10) {
-                        Text(chinese ? "连接 ModemDeck" : "Connect to ModemDeck")
+                        Text(session.text("连接 ModemDeck", "Connect to ModemDeck"))
                             .font(.largeTitle.bold())
                             .multilineTextAlignment(.center)
-                        Text(chinese
-                            ? "在 Web 设置中打开“配对”，然后扫描二维码。"
-                            : "Open Pairing in Web settings, then scan the QR code.")
+                        Text(session.text(
+                            "在 Web 设置中打开“配对”，然后扫描二维码。",
+                            "Open Pairing in Web settings, then scan the QR code."
+                        ))
                             .font(.body)
                             .foregroundColor(.mdMuted)
                             .multilineTextAlignment(.center)
@@ -46,17 +43,17 @@ struct ModemDeckPairingView: View {
                             requestCameraAndOpenScanner()
                         } label: {
                             Label(
-                                chinese ? "扫描二维码" : "Scan QR Code",
+                                session.text("扫描二维码", "Scan QR Code"),
                                 systemImage: "qrcode.viewfinder"
                             )
                             .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.compactRowHeight)
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.modemDeckTint)
                         .disabled(session.pairingInProgress)
 
-                        Button(chinese ? "手动粘贴配对信息" : "Paste Pairing Data") {
+                        Button(session.text("手动粘贴配对信息", "Paste Pairing Data")) {
                             showingManualEntry.toggle()
                         }
                         .buttonStyle(.bordered)
@@ -64,21 +61,22 @@ struct ModemDeckPairingView: View {
 
                         if showingManualEntry {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text(chinese
-                                    ? "粘贴二维码中的完整 JSON 内容"
-                                    : "Paste the complete JSON payload from the QR code")
+                                Text(session.text(
+                                    "粘贴二维码中的完整 JSON 内容",
+                                    "Paste the complete JSON payload from the QR code"
+                                ))
                                     .font(.footnote)
                                     .foregroundColor(.mdMuted)
                                 TextEditor(text: $manualPayload)
                                     .font(.system(.footnote, design: .monospaced))
                                     .scrollContentBackground(.hidden)
                                     .frame(minHeight: 130)
-                                    .padding(8)
+                                    .padding(ModemDeckSpacing.xs)
                                     .background(Color.mdSurface)
                                     .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
-                                    .overlay(RoundedRectangle.modemDeck(ModemDeckRadius.medium).stroke(Color.mdBorder, lineWidth: 1))
+                                    .overlay(RoundedRectangle.modemDeck(ModemDeckRadius.medium).stroke(Color.mdBorder, lineWidth: ModemDeckStroke.regular))
 
-                                Button(chinese ? "连接" : "Connect") {
+                                Button(session.text("连接", "Connect")) {
                                     Task { await session.pair(using: manualPayload) }
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -93,7 +91,7 @@ struct ModemDeckPairingView: View {
                     }
 
                     if session.pairingInProgress {
-                        ProgressView(chinese ? "正在验证配对…" : "Verifying pairing…")
+                        ProgressView(session.text("正在验证配对…", "Verifying pairing…"))
                     }
 
                     if !session.errorMessage.isEmpty {
@@ -109,7 +107,7 @@ struct ModemDeckPairingView: View {
                     Spacer(minLength: 24)
                 }
                 .frame(maxWidth: 520)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, ModemDeckSpacing.xl)
                 .frame(maxWidth: .infinity)
             }
             .background(Color.mdBackground.ignoresSafeArea())
@@ -131,23 +129,27 @@ struct ModemDeckPairingView: View {
             .ignoresSafeArea()
         }
         .alert(
-            chinese ? "无法使用相机" : "Camera Unavailable",
+            session.text("无法使用相机", "Camera Unavailable"),
             isPresented: Binding(
                 get: { !cameraError.isEmpty },
                 set: { if !$0 { cameraError = "" } }
             )
         ) {
-            Button(chinese ? "打开设置" : "Open Settings") {
+            Button(session.text("打开设置", "Open Settings")) {
                 guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
                 UIApplication.shared.open(url)
             }
-            Button(chinese ? "取消" : "Cancel", role: .cancel) {}
+            Button(session.text("取消", "Cancel"), role: .cancel) {}
         } message: {
             Text(cameraError)
         }
     }
 
     private func requestCameraAndOpenScanner() {
+        let deniedMessage = session.text(
+            "请在系统设置中允许 ModemDeck 使用相机。",
+            "Allow ModemDeck to use the camera in Settings."
+        )
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             showingScanner = true
@@ -157,16 +159,12 @@ struct ModemDeckPairingView: View {
                     if granted {
                         showingScanner = true
                     } else {
-                        cameraError = chinese
-                            ? "请在系统设置中允许 ModemDeck 使用相机。"
-                            : "Allow ModemDeck to use the camera in Settings."
+                        cameraError = deniedMessage
                     }
                 }
             }
         default:
-            cameraError = chinese
-                ? "请在系统设置中允许 ModemDeck 使用相机。"
-                : "Allow ModemDeck to use the camera in Settings."
+            cameraError = deniedMessage
         }
     }
 }

@@ -62,7 +62,7 @@ struct ModemDeckSettingsView: View {
                 // Who is signed in leads the page, as in the system Settings app.
                 profileRow
                     .modemDeckSettingsGroup()
-                    .padding(.top, 8)
+                    .padding(.top, ModemDeckSpacing.xs)
 
                 settingsGroupLabel(controller.text("个人", "Personal"))
                 VStack(spacing: 0) {
@@ -169,7 +169,7 @@ struct ModemDeckSettingsView: View {
                 }
                 .modemDeckSettingsGroup()
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, ModemDeckSpacing.xl)
         }
         .background(Color.mdBackground)
     }
@@ -281,8 +281,8 @@ struct ModemDeckSettingsView: View {
             .font(.footnote.weight(.semibold))
             .foregroundColor(.mdMuted)
             .accessibilityAddTraits(.isHeader)
-            .padding(.horizontal, 16 + ModemDeckLayout.listHorizontalPadding)
-            .padding(.top, 20)
+            .padding(.horizontal, ModemDeckSpacing.md + ModemDeckLayout.listHorizontalPadding)
+            .padding(.top, ModemDeckSpacing.lg)
             .padding(.bottom, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -299,18 +299,18 @@ private struct ModemDeckSettingsDirectoryRow: View {
     /// Settings-app style tiles: one stable color per destination so rows can be found by color.
     static func tileColor(for icon: String) -> Color {
         switch icon {
-        case "slider.horizontal.3": return Color(.systemGray)
+        case "slider.horizontal.3": return .mdTileGray
         case "person.badge.key": return .mdBlue
-        case "bell.badge": return Color(.systemRed)
+        case "bell.badge": return .mdTileRed
         case "phone.connection": return .mdCallAnswer
-        case "waveform.path.ecg", "stethoscope": return Color(.systemPurple)
-        case "qrcode": return Color(.systemTeal)
-        case "person.crop.circle.badge.plus": return Color(.systemOrange)
-        case "person.3": return Color(.systemIndigo)
+        case "waveform.path.ecg", "stethoscope": return .mdTilePurple
+        case "qrcode": return .mdTileTeal
+        case "person.crop.circle.badge.plus": return .mdTileOrange
+        case "person.3": return .mdTileIndigo
         case "simcard.2": return .mdAccent
-        case "paperplane": return Color(.systemCyan)
-        case "network.badge.shield.half.filled": return Color(.systemBlue)
-        default: return Color(.systemGray)
+        case "paperplane": return .mdTileCyan
+        case "network.badge.shield.half.filled": return .mdTileBlue
+        default: return .mdTileGray
         }
     }
 
@@ -319,8 +319,8 @@ private struct ModemDeckSettingsDirectoryRow: View {
             Image(systemName: icon)
                 .symbolVariant(.fill)
                 .font(.subheadline.weight(.semibold))
-                .foregroundColor(.white)
-                .frame(width: 30, height: 30)
+                .foregroundColor(.mdOnSolid)
+                .frame(width: ModemDeckLayout.smallIconTileSize, height: ModemDeckLayout.smallIconTileSize)
                 .background(ModemDeckSettingsDirectoryRow.tileColor(for: icon))
                 .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.small))
                 .accessibilityHidden(true)
@@ -341,7 +341,7 @@ private struct ModemDeckSettingsDirectoryRow: View {
             }
         }
         .padding(.horizontal, ModemDeckLayout.listHorizontalPadding)
-        .padding(.vertical, 8)
+        .padding(.vertical, ModemDeckSpacing.xs)
         .frame(minHeight: ModemDeckLayout.settingsRowMinHeight)
         .background(selected ? Color.mdSelected : Color.clear)
         .contentShape(Rectangle())
@@ -353,7 +353,7 @@ private extension View {
     func modemDeckSettingsGroup() -> some View {
         background(Color.mdSurface)
             .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
-            .padding(.horizontal, 16)
+            .padding(.horizontal, ModemDeckSpacing.md)
     }
 }
 
@@ -387,7 +387,7 @@ private struct ModemDeckSettingsDetailScaffold<Content: View>: View {
                 content
                     .frame(maxWidth: ModemDeckLayout.readableContentWidth)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
+                    .padding(.vertical, ModemDeckSpacing.md)
             }
         }
         .background(Color.mdBackground)
@@ -422,9 +422,9 @@ private struct ModemDeckSettingsModule<Content: View>: View {
             .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
             .overlay(
                 RoundedRectangle.modemDeck(ModemDeckRadius.medium)
-                    .stroke(Color.mdBorder.opacity(0.7), lineWidth: 0.5)
+                    .stroke(Color.mdBorderFaint, lineWidth: ModemDeckStroke.thin)
             )
-            .padding(.horizontal, 16)
+            .padding(.horizontal, ModemDeckSpacing.md)
             if !footer.isEmpty {
                 Text(footer)
                     .font(.footnote)
@@ -434,7 +434,7 @@ private struct ModemDeckSettingsModule<Content: View>: View {
                     .padding(.top, 7)
             }
         }
-        .padding(.bottom, 20)
+        .padding(.bottom, ModemDeckSpacing.lg)
     }
 }
 
@@ -450,7 +450,7 @@ private struct ModemDeckSettingsValueRow: View {
                 Image(systemName: icon)
                     .font(.body.weight(.medium))
                     .foregroundColor(.mdMuted)
-                    .frame(width: 22)
+                    .frame(width: ModemDeckLayout.iconColumnWidth)
                     .accessibilityHidden(true)
             }
             Text(title)
@@ -464,7 +464,7 @@ private struct ModemDeckSettingsValueRow: View {
                 .lineLimit(3)
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: 52)
+        .frame(minHeight: ModemDeckLayout.compactRowHeight)
     }
 }
 
@@ -479,11 +479,11 @@ private struct ModemDeckSettingsActionRow: View {
         Button(action: action) {
             HStack(spacing: 11) {
                 if busy {
-                    ProgressView().frame(width: 22)
+                    ProgressView().frame(width: ModemDeckLayout.iconColumnWidth)
                 } else {
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: .medium))
-                        .frame(width: 22)
+                        .frame(width: ModemDeckLayout.iconColumnWidth)
                 }
                 Text(title)
                     .font(.system(size: 15, weight: .medium))
@@ -494,7 +494,7 @@ private struct ModemDeckSettingsActionRow: View {
             }
             .foregroundColor(destructive ? .mdDanger : .mdAccent)
             .padding(.horizontal, 14)
-            .frame(minHeight: 52)
+            .frame(minHeight: ModemDeckLayout.compactRowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -539,7 +539,7 @@ private struct ModemDeckSettingsMenuRow: View {
                 Image(systemName: icon)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.mdMuted)
-                    .frame(width: 22)
+                    .frame(width: ModemDeckLayout.iconColumnWidth)
                 Text(title)
                     .font(.system(size: 15))
                     .foregroundColor(.mdText)
@@ -553,7 +553,7 @@ private struct ModemDeckSettingsMenuRow: View {
                     .foregroundColor(.mdFaint)
             }
             .padding(.horizontal, 14)
-            .frame(minHeight: 52)
+            .frame(minHeight: ModemDeckLayout.compactRowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -572,7 +572,7 @@ private struct ModemDeckSettingsStatusRow: View {
             Image(systemName: icon)
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(active ? .mdAccent : .mdFaint)
-                .frame(width: 34, height: 34)
+                .frame(width: ModemDeckLayout.iconTileSize, height: ModemDeckLayout.iconTileSize)
                 .background(active ? Color.mdAccentSoft : Color.mdSurfaceHover)
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 3) {
@@ -587,10 +587,10 @@ private struct ModemDeckSettingsStatusRow: View {
             Spacer(minLength: 10)
             Circle()
                 .fill(active ? Color.mdAccent : Color.mdFaint)
-                .frame(width: 8, height: 8)
+                .frame(width: ModemDeckLayout.indicatorDotSize, height: ModemDeckLayout.indicatorDotSize)
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: 62)
+        .frame(minHeight: ModemDeckLayout.settingsStatusRowMinHeight)
     }
 }
 
@@ -608,13 +608,13 @@ private struct ModemDeckSettingsLoadState: View {
                 .font(.system(size: 13))
                 .foregroundColor(.mdDanger)
                 .padding(14)
-                .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.settingsLoadStateMinHeight, alignment: .leading)
         } else {
             Text(emptyText)
                 .font(.system(size: 13))
                 .foregroundColor(.mdMuted)
                 .padding(14)
-                .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.settingsLoadStateMinHeight, alignment: .leading)
         }
     }
 }
@@ -1011,7 +1011,7 @@ private struct ModemDeckAccountSessionSettingsRow: View {
             Image(systemName: "iphone")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(.mdAccent)
-                .frame(width: 34, height: 34)
+                .frame(width: ModemDeckLayout.iconTileSize, height: ModemDeckLayout.iconTileSize)
                 .background(Color.mdAccentSoft)
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 3) {
@@ -1029,8 +1029,8 @@ private struct ModemDeckAccountSessionSettingsRow: View {
                 Text(currentTitle)
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.mdAccentStrong)
-                    .padding(.horizontal, 8)
-                    .frame(minHeight: 24)
+                    .padding(.horizontal, ModemDeckSpacing.xs)
+                    .frame(minHeight: ModemDeckLayout.badgeMinHeight)
                     .background(Color.mdAccentSoft)
                     .clipShape(Capsule())
             } else {
@@ -1044,7 +1044,7 @@ private struct ModemDeckAccountSessionSettingsRow: View {
                     }
                     .font(.body.weight(.semibold))
                     .foregroundColor(.mdDanger)
-                    .frame(width: 44, height: 44)
+                    .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
                     .background(Color.mdDangerSoft)
                     .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
                 }
@@ -1054,7 +1054,7 @@ private struct ModemDeckAccountSessionSettingsRow: View {
             }
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: 68)
+        .frame(minHeight: ModemDeckLayout.accountSessionRowMinHeight)
     }
 }
 
@@ -1303,7 +1303,7 @@ private struct ModemDeckCallSettingsView: View {
                 .foregroundColor(.mdText)
                 .tint(.mdAccent)
                 .padding(.horizontal, 14)
-                .frame(minHeight: 52)
+                .frame(minHeight: ModemDeckLayout.compactRowHeight)
                 .disabled(callSettings == nil || callSettingsBusy)
                 ModemDeckSettingsDivider()
                 Toggle(
@@ -1317,7 +1317,7 @@ private struct ModemDeckCallSettingsView: View {
                 .foregroundColor(.mdText)
                 .tint(.mdAccent)
                 .padding(.horizontal, 14)
-                .frame(minHeight: 52)
+                .frame(minHeight: ModemDeckLayout.compactRowHeight)
                 .disabled(recordingSettings == nil || recordingBusy)
                 ModemDeckSettingsDivider()
                 ModemDeckSettingsValueRow(
@@ -1873,7 +1873,7 @@ private struct ModemDeckDeviceDiagnosticsSettingsView: View {
                 .foregroundColor(.mdText)
                 .tint(.mdAccent)
                 .padding(.horizontal, 14)
-                .frame(minHeight: 52)
+                .frame(minHeight: ModemDeckLayout.compactRowHeight)
                 ModemDeckSettingsDivider()
                 ModemDeckSettingsValueRow(title: controller.text("待上传", "Queued"),
                     value: String(status.pending), icon: "arrow.up.circle")
@@ -2072,7 +2072,7 @@ private struct ModemDeckContactImportSettingsView: View {
         } message: {
             Text(controller.text(
                 "将尝试导入 \(importer.pendingCount) 位含电话号码的联系人。",
-                "Import \(importer.pendingCount) contacts with phone numbers."
+                "Import \(importer.pendingCount) \(importer.pendingCount == 1 ? "contact" : "contacts") with phone numbers."
             ))
         }
     }

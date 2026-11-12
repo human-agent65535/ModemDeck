@@ -13,7 +13,6 @@ extension Color {
 
     static let mdBackground = adaptive(0xF5F7F6, 0x101512)
     static let mdSurface = adaptive(0xFFFFFF, 0x1C2420)
-    static let mdSurfaceSubtle = adaptive(0xF5F7F6, 0x171E1A)
     static let mdSurfaceHover = adaptive(0xE9EEEB, 0x29332D)
     static let mdSelected = adaptive(0xDFEEE7, 0x244238)
     static let mdText = adaptive(0x19241F, 0xEBF0ED)
@@ -28,7 +27,6 @@ extension Color {
     static let mdBlueSoft = adaptive(0xEAF2F9, 0x20384D)
     static let mdDanger = adaptive(0xB93643, 0xFF9B9E)
     static let mdDangerSoft = adaptive(0xFCEBEE, 0x3D2226)
-    static let mdSuccess = adaptive(0x18794E, 0x7BD6A2)
     static let mdWarning = adaptive(0x946200, 0xF0C35C)
     static let mdWarningSoft = adaptive(0xFFF5D8, 0x3A2F14)
     static let mdFavorite = adaptive(0xA86400, 0xF2B544)
@@ -36,7 +34,56 @@ extension Color {
     // appearances and >= 3:1 against mdBackground.
     static let mdCallEnd = adaptive(0xC72E3D, 0xD03A47)
     static let mdCallAnswer = adaptive(0x1B8449, 0x1C874B)
+    /// Glyphs on filled call controls and settings tiles stay white in both appearances.
+    static let mdOnSolid = Color.white
     static let modemDeckTint = mdAccent
+
+    // Settings-app style tiles keep the system colors, so rows can be found by color.
+    static let mdTileGray = Color(.systemGray)
+    static let mdTileRed = Color(.systemRed)
+    static let mdTilePurple = Color(.systemPurple)
+    static let mdTileTeal = Color(.systemTeal)
+    static let mdTileOrange = Color(.systemOrange)
+    static let mdTileIndigo = Color(.systemIndigo)
+    static let mdTileCyan = Color(.systemCyan)
+    static let mdTileBlue = Color(.systemBlue)
+
+    // Translucent variants of the palette, named by where they are used.
+    static let mdBorderSelected = mdAccent.opacity(0.45)
+    static let mdBorderFaint = mdBorder.opacity(0.7)
+    static let mdWarningBorder = mdWarning.opacity(0.25)
+    static let mdAvatarOutline = mdText.opacity(0.08)
+    static let mdUnreadDotOutline = mdAccentStrong.opacity(0.52)
+    static let mdUnreadDivider = mdAccent.opacity(0.28)
+    static let mdDateChip = mdSurfaceHover.opacity(0.86)
+    static let mdOutgoingBubble = mdAccent.opacity(0.7)
+    static let mdOutgoingBubbleFailed = mdAccent.opacity(0.55)
+}
+
+enum ModemDeckOpacity {
+    /// A control that cannot be used right now.
+    static let disabled: Double = 0.45
+}
+
+enum ModemDeckStroke {
+    static let regular: CGFloat = 1
+    static let thin: CGFloat = 0.5
+
+    /// One physical pixel at the given display scale.
+    static func hairline(_ displayScale: CGFloat) -> CGFloat {
+        1 / displayScale
+    }
+}
+
+enum ModemDeckMotion {
+    /// Entering and leaving multi-select in lists.
+    static let selection = Animation.easeInOut(duration: 0.25)
+    /// Call state text, the call clock and the ended-call bar.
+    static let stateChange = Animation.easeOut(duration: 0.2)
+    /// Showing and hiding the in-call keypad and collapsing the call screen.
+    static let keypad = Animation.easeOut(duration: 0.18)
+    /// Press feedback on keypad keys and call controls.
+    static let pressFeedback = Animation.easeOut(duration: 0.08)
 }
 
 /// Line identity colors. Matches the Web `--line-<id>-*` palette and stays
@@ -481,6 +528,42 @@ enum ModemDeckLayout {
     static let listSelectionMarkWidth: CGFloat = 24
     /// Header glyphs keep growing with text up to here, then stay inside their 44 pt targets.
     static let headerGlyphMaximumSize = DynamicTypeSize.xxxLarge
+
+    // Fixed element sizes, named so a repeated value changes in one place.
+    /// One-line settings and detail rows, and full-width primary buttons.
+    static let compactRowHeight: CGFloat = 52
+    /// Paired action buttons on contact and message pages.
+    static let detailActionHeight: CGFloat = 42
+    /// Icon tiles beside line, status and device rows.
+    static let iconTileSize: CGFloat = 34
+    /// Settings directory tiles and the composer's sending indicator.
+    static let smallIconTileSize: CGFloat = 30
+    /// The leading icon column in settings and detail rows.
+    static let iconColumnWidth: CGFloat = 22
+    /// Filled in-call control and call action circles.
+    static let callControlSize: CGFloat = 72
+    static let pairingGlyphSize: CGFloat = 108
+    static let segmentIndicatorHeight: CGFloat = 2
+    static let callBarStripeWidth: CGFloat = 3
+    static let callBarIconWidth: CGFloat = 24
+    static let callBarMinHeight: CGFloat = 56
+    static let sheetGrabberWidth: CGFloat = 36
+    static let sheetGrabberHeight: CGFloat = 5
+    static let onlineDotSize: CGFloat = 6
+    static let indicatorDotSize: CGFloat = 8
+    static let badgeMinHeight: CGFloat = 24
+    static let dateChipMinHeight: CGFloat = 26
+    static let recordingIconWidth: CGFloat = 28
+    static let loadEarlierMinHeight: CGFloat = 38
+    static let composeFieldMinHeight: CGFloat = 46
+    static let dialerSideButtonHeight: CGFloat = 56
+    static let settingsStatusRowMinHeight: CGFloat = 62
+    static let linePickerMinWidth: CGFloat = 64
+    static let messageTimestampWidth: CGFloat = 66
+    static let accountSessionRowMinHeight: CGFloat = 68
+    static let settingsLoadStateMinHeight: CGFloat = 70
+    static let homeLineCardMinHeight: CGFloat = 76
+    static let callActionColumnWidth: CGFloat = 80
 }
 
 /// Rows grouped under a day heading show only the time, so the date is not said twice.
@@ -584,7 +667,7 @@ struct ModemDeckRootView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityAddTraits(callExpanded ? .isModal : [])
                 .opacity(callExpanded && !callController.endedCallClosing ? 1 : 0)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: callController.endedCallClosing)
+                .animation(reduceMotion ? nil : ModemDeckMotion.stateChange, value: callController.endedCallClosing)
                 .allowsHitTesting(callExpanded && !callController.endedCallClosing)
                 .accessibilityHidden(!callExpanded)
                 .transition(reduceMotion ? .identity : .opacity)
@@ -717,13 +800,13 @@ private struct ModemDeckOfflineBanner: View {
             .disabled(controller.reconnecting)
         }
         .foregroundColor(.mdText)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, ModemDeckSpacing.sm)
         .frame(minHeight: 34)
         .background(Color.mdWarningSoft)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("connection-offline")
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.mdWarning.opacity(0.25)).frame(height: 1)
+            Rectangle().fill(Color.mdWarningBorder).frame(height: 1)
         }
     }
 }
@@ -767,7 +850,7 @@ private struct ModemDeckUnavailableView: View {
                 Task { await controller.disconnect() }
             }
         }
-        .padding(32)
+        .padding(ModemDeckSpacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.mdBackground.ignoresSafeArea())
     }
@@ -1117,7 +1200,7 @@ private struct ModemDeckWorkspaceShell: View {
             if let call = miniCall {
                 ModemDeckMiniCallBar(call: call, controller: controller, callController: callController,
                                      restore: { callExpanded = true })
-                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .padding(.horizontal, ModemDeckSpacing.sm).padding(.vertical, ModemDeckSpacing.xs)
             }
         }
     }
@@ -1291,7 +1374,7 @@ struct ModemDeckHairline: View {
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
-        Rectangle().fill(Color.mdBorder).frame(height: 1 / displayScale)
+        Rectangle().fill(Color.mdBorder).frame(height: ModemDeckStroke.hairline(displayScale))
     }
 }
 
@@ -1335,13 +1418,13 @@ struct ModemDeckHomeLineGrid: View {
                         .font(.footnote)
                         .foregroundColor(.mdMuted)
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, ModemDeckSpacing.sm)
                 .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
                 .background(Color.mdSurface)
                 .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
                 .overlay(
                     RoundedRectangle.modemDeck(ModemDeckRadius.medium)
-                        .stroke(Color.mdBorder, lineWidth: 1)
+                        .stroke(Color.mdBorder, lineWidth: ModemDeckStroke.regular)
                 )
             } else {
                 VStack(spacing: 0) {
@@ -1350,7 +1433,7 @@ struct ModemDeckHomeLineGrid: View {
                         ModemDeckHomeLineCard(controller: controller, line: line)
                     }
                 }
-                .padding(4)
+                .padding(ModemDeckSpacing.xxs)
                 .background(Color.mdSurface)
                 .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.large))
             }
@@ -1370,7 +1453,7 @@ private struct ModemDeckHomeLineCard: View {
             Image(systemName: "simcard.fill")
                 .font(.subheadline.weight(.semibold))
                 .foregroundColor(line.tint)
-                .frame(width: 34, height: 34)
+                .frame(width: ModemDeckLayout.iconTileSize, height: ModemDeckLayout.iconTileSize)
                 .background(line.palette.soft)
                 .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.small))
 
@@ -1383,7 +1466,7 @@ private struct ModemDeckHomeLineCard: View {
                     Spacer(minLength: 2)
                     Circle()
                         .fill(controller.isOnline && isOnline ? Color.mdAccent : Color.mdFaint)
-                        .frame(width: 6, height: 6)
+                        .frame(width: ModemDeckLayout.onlineDotSize, height: ModemDeckLayout.onlineDotSize)
                     Text(statusText)
                         .font(.caption2)
                         .foregroundColor(controller.isOnline && isOnline ? .mdAccentStrong : .mdMuted)
@@ -1399,7 +1482,7 @@ private struct ModemDeckHomeLineCard: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: ModemDeckLayout.homeLineCardMinHeight, alignment: .leading)
         .background(Color.mdSurface)
         .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
         .accessibilityElement(children: .combine)
@@ -1714,7 +1797,7 @@ struct ModemDeckCollectionFilters<Extra: View>: View {
         }
         .accessibilityIdentifier("collection-filters")
         .accessibilityLabel(controller.text("筛选", "Filters"))
-        .accessibilityValue(count > 0 ? controller.text("\(count) 项筛选", "\(count) filters") : controller.text("未筛选", "No filters"))
+        .accessibilityValue(count > 0 ? controller.text("\(count) 项筛选", "\(count) \(count == 1 ? "filter" : "filters")") : controller.text("未筛选", "No filters"))
         .accessibilityAddTraits(count > 0 ? .isSelected : [])
     }
 
@@ -1725,7 +1808,7 @@ struct ModemDeckCollectionFilters<Extra: View>: View {
             }
             .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
             .foregroundColor(count > 0 ? .mdAccent : .mdMuted)
-            .frame(width: 44, height: 44)
+            .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
             .background(count > 0 ? Color.mdAccentSoft : .clear)
             .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.medium))
             .contentShape(Rectangle())
@@ -1745,7 +1828,7 @@ struct ModemDeckToolbarButton: View {
                     .fill(active ? Color.mdAccentSoft : Color.mdSurface)
                     .overlay(
                         RoundedRectangle.modemDeck(ModemDeckRadius.small)
-                            .stroke(active ? Color.mdAccent.opacity(0.45) : Color.mdBorder, lineWidth: 1)
+                            .stroke(active ? Color.mdBorderSelected : Color.mdBorder, lineWidth: ModemDeckStroke.regular)
                     )
                 Image(systemName: icon)
                     .font(.system(size: 17, weight: .medium))
@@ -1801,7 +1884,7 @@ struct ModemDeckSegmentPicker: View {
             }
             .foregroundColor(.mdAccent)
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.vertical, ModemDeckSpacing.xs)
             .background(Capsule().fill(Color.mdAccentSoft))
             .frame(minHeight: ModemDeckLayout.controlHitSize)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1819,7 +1902,7 @@ struct ModemDeckSegmentPicker: View {
                         if selection == option.id && !compact {
                             RoundedRectangle.modemDeck(ModemDeckRadius.small)
                                 .fill(Color.mdSurface)
-                                .padding(.vertical, 4)
+                                .padding(.vertical, ModemDeckSpacing.xxs)
                         }
                         Text(option.title)
                             .font((compact ? Font.subheadline : .caption).weight(selection == option.id ? .semibold : .medium))
@@ -1831,7 +1914,7 @@ struct ModemDeckSegmentPicker: View {
                     .contentShape(Rectangle())
                     .overlay(alignment: .bottom) {
                         if compact && selection == option.id {
-                            Capsule().fill(Color.mdAccent).frame(height: 2).padding(.horizontal, 12)
+                            Capsule().fill(Color.mdAccent).frame(height: ModemDeckLayout.segmentIndicatorHeight).padding(.horizontal, ModemDeckSpacing.sm)
                         }
                     }
                 }
@@ -1869,7 +1952,7 @@ struct ModemDeckLineTag: View {
             HStack(spacing: 6) {
                 Circle()
                     .fill(line.palette.foreground)
-                    .frame(width: 8, height: 8)
+                    .frame(width: ModemDeckLayout.indicatorDotSize, height: ModemDeckLayout.indicatorDotSize)
                     .accessibilityHidden(true)
                 Text(line.displayName)
                     .lineLimit(1)
@@ -1884,7 +1967,7 @@ struct ModemDeckLineTag: View {
             .font(.caption.weight(.semibold))
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .foregroundColor(line.palette.foreground)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, ModemDeckSpacing.xs)
             .padding(.vertical, 3)
             .frame(minHeight: 22)
             .background(Capsule().fill(line.palette.soft))
@@ -2046,7 +2129,7 @@ struct ModemDeckStateView: View {
     var body: some View {
         VStack(spacing: 8) {
             ModemDeckStateIcon(icon: icon)
-                .padding(.bottom, 4)
+                .padding(.bottom, ModemDeckSpacing.xxs)
             Text(title)
                 .font(.headline)
                 .foregroundColor(.mdText)
@@ -2087,7 +2170,7 @@ struct ModemDeckWorkspaceEmptyView: View {
     var body: some View {
         VStack(spacing: 8) {
             ModemDeckStateIcon(icon: icon)
-                .padding(.bottom, 4)
+                .padding(.bottom, ModemDeckSpacing.xxs)
             Text(title)
                 .font(.headline)
                 .foregroundColor(.mdText)
@@ -2112,8 +2195,8 @@ struct ModemDeckInlineError: View {
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
                 .foregroundColor(.mdDanger)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, ModemDeckSpacing.sm)
+                .padding(.vertical, ModemDeckSpacing.xs)
                 .background(Color.mdSurface)
                 .clipShape(RoundedRectangle.modemDeck(ModemDeckRadius.small))
         }

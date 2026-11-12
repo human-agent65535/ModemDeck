@@ -30,6 +30,7 @@
 		96A0000C310000000000000C /* ModemDeckDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A0001C310000000000001C /* ModemDeckDiagnostics.swift */; };
 		96A0000D310000000000000D /* ModemDeckMediaRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A0001D310000000000001D /* ModemDeckMediaRequest.swift */; };
 		96A0000E310000000000000E /* ModemDeckAudioRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A0001E310000000000001E /* ModemDeckAudioRoute.swift */; };
+		96E000013500000000000001 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 96E000023500000000000002 /* InfoPlist.strings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -62,6 +63,7 @@
 		96A0001C310000000000001C /* ModemDeckDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModemDeckDiagnostics.swift; sourceTree = "<group>"; };
 		96A0001D310000000000001D /* ModemDeckMediaRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModemDeckMediaRequest.swift; sourceTree = "<group>"; };
 		96A0001E310000000000001E /* ModemDeckAudioRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModemDeckAudioRoute.swift; sourceTree = "<group>"; };
+		96E000033500000000000003 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,6 +124,7 @@
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
+				96E000023500000000000002 /* InfoPlist.strings */,
 				958DCC732DB07C7200EA8C5F /* App.entitlements */,
 				96A000183100000000000018 /* ThirdPartyNotices.txt */,
 				96D100043400000000000004 /* AudioCoreNotices.txt */,
@@ -184,6 +187,7 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
 			);
 			mainGroup = 504EC2FB1FED79650016851F;
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
@@ -205,6 +209,7 @@
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
 				96A000083100000000000008 /* ThirdPartyNotices.txt in Resources */,
 				96D100033400000000000003 /* AudioCoreNotices.txt in Resources */,
+				96E000013500000000000001 /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -253,6 +258,14 @@
 				504EC3111FED79650016851F /* Base */,
 			);
 			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		96E000023500000000000002 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				96E000033500000000000003 /* zh-Hans */,
+			);
+			name = InfoPlist.strings;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */

@@ -12,21 +12,22 @@ enum ModemDeckCallAudioError: LocalizedError {
     case audioFormatUnavailable
 
     var errorDescription: String? {
+        let text = ModemDeckErrorLanguage.text
         switch self {
         case .callEnded:
-            return "The call has already ended."
+            return text("通话已经结束。", "The call has already ended.")
         case .callNotActive:
-            return "The call did not become active."
+            return text("通话未能接通。", "The call did not become active.")
         case .mediaUnavailable:
-            return "Call audio is unavailable for this line."
+            return text("此线路的通话音频不可用。", "Call audio is unavailable for this line.")
         case .invalidResponse:
-            return "ModemDeck returned invalid call audio data."
+            return text("ModemDeck 返回了无效的通话音频数据。", "ModemDeck returned invalid call audio data.")
         case .negotiationFailed:
-            return "The iOS device could not establish call audio."
+            return text("此 iOS 设备无法建立通话音频。", "The iOS device could not establish call audio.")
         case .timedOut:
-            return "Call audio took too long to connect."
+            return text("通话音频连接超时。", "Call audio took too long to connect.")
         case .audioFormatUnavailable:
-            return "The device could not configure microphone and playback audio."
+            return text("此设备无法配置麦克风和播放音频。", "The device could not configure microphone and playback audio.")
         }
     }
 }
@@ -78,7 +79,7 @@ private struct ModemDeckHTTPError: LocalizedError {
     let status: Int
 
     var errorDescription: String? {
-        "ModemDeck returned HTTP \(status)."
+        ModemDeckErrorLanguage.text("ModemDeck 返回了 HTTP \(status)。", "ModemDeck returned HTTP \(status).")
     }
 }
 

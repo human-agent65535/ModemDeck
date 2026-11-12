@@ -191,17 +191,17 @@ private enum ModemDeckNativeError: LocalizedError {
         case .invalidToken:
             return ModemDeckErrorLanguage.text("配对码无效，请在网页设置中重新生成二维码。", "The pairing code is invalid. Generate a new QR code in Web settings.")
         case .invalidPath:
-            return "The requested ModemDeck API path is invalid."
+            return ModemDeckErrorLanguage.text("请求的 ModemDeck API 路径无效。", "The requested ModemDeck API path is invalid.")
         case .invalidMethod:
-            return "The requested HTTP method is invalid."
+            return ModemDeckErrorLanguage.text("请求的 HTTP 方法无效。", "The requested HTTP method is invalid.")
         case .invalidResponse:
             return ModemDeckErrorLanguage.text("ModemDeck 返回了无法识别的响应，请稍后重试。", "ModemDeck returned an invalid response. Try again shortly.")
         case .noActiveCall:
-            return "There is no active iOS call."
+            return ModemDeckErrorLanguage.text("当前没有进行中的 iOS 通话。", "There is no active iOS call.")
         case .microphoneDenied:
             return ModemDeckErrorLanguage.text("通话需要麦克风权限，请在“设置”中允许。", "Microphone access is required for calls. Allow it in Settings.")
         case .keychain(let status):
-            return "Keychain operation failed (\(status))."
+            return ModemDeckErrorLanguage.text("钥匙串操作失败（\(status)）。", "Keychain operation failed (\(status)).")
         }
     }
 }
@@ -1014,8 +1014,8 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         guard callIDsByUUID.isEmpty, pendingOutgoingCalls.isEmpty, pendingCallEnds.isEmpty else {
             throw NSError(domain: "ModemDeckCallKit", code: 409, userInfo: [
                 NSLocalizedDescriptionKey: pendingCallEnds.isEmpty
-                    ? "Another iOS call is already active."
-                    : "The previous call is still ending."
+                    ? ModemDeckErrorLanguage.text("已有另一个 iOS 通话正在进行。", "Another iOS call is already active.")
+                    : ModemDeckErrorLanguage.text("上一个通话仍在结束中。", "The previous call is still ending.")
             ])
         }
     }
@@ -1379,7 +1379,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
 
         let number = stringValue(call["remote_number"]) ??
             stringValue(call["number"]) ??
-            "Unknown caller"
+            ModemDeckErrorLanguage.text("未知号码", "Unknown number")
         let lineID = stringValue(call["line_id"]) ?? ""
         let displayName = stringValue(call["display_name"]) ?? number
         let isTestCall = booleanValue(call["test_call"])
@@ -1588,7 +1588,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     private func callUpdate(from call: [AnyHashable: Any]) -> CXCallUpdate {
         let number = stringValue(call["remote_number"]) ??
             stringValue(call["number"]) ??
-            "Unknown caller"
+            ModemDeckErrorLanguage.text("未知号码", "Unknown number")
         let displayName = stringValue(call["display_name"]) ?? number
         let isTestCall = booleanValue(call["test_call"])
         let update = CXCallUpdate()
@@ -1738,7 +1738,10 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                         domain: "ModemDeckCallKit",
                         code: status,
                         userInfo: [
-                            NSLocalizedDescriptionKey: "ModemDeck call action returned HTTP \(status)."
+                            NSLocalizedDescriptionKey: ModemDeckErrorLanguage.text(
+                                "ModemDeck 通话操作返回了 HTTP \(status)。",
+                                "ModemDeck call action returned HTTP \(status)."
+                            )
                         ]
                     )))
                     return
@@ -2218,7 +2221,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let timeoutError = NSError(
             domain: "ModemDeckCallKit",
             code: NSURLErrorTimedOut,
-            userInfo: [NSLocalizedDescriptionKey: "CallKit action timed out."]
+            userInfo: [NSLocalizedDescriptionKey: ModemDeckErrorLanguage.text("CallKit 操作超时。", "CallKit action timed out.")]
         )
         providerCallActions.removeValue(forKey: action.uuid)
         finishRequestedCallAction(action, result: .failure(timeoutError))
@@ -2756,11 +2759,11 @@ private enum ModemDeckQRScannerSetupError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .cameraUnavailable:
-            return "No camera is available on this device."
+            return ModemDeckErrorLanguage.text("此设备上没有可用的相机。", "No camera is available on this device.")
         case .inputUnavailable:
-            return "The camera could not be opened."
+            return ModemDeckErrorLanguage.text("无法打开相机。", "The camera could not be opened.")
         case .outputUnavailable:
-            return "The QR code scanner could not be started."
+            return ModemDeckErrorLanguage.text("无法启动二维码扫描。", "The QR code scanner could not be started.")
         }
     }
 }
@@ -2814,13 +2817,13 @@ final class ModemDeckQRScannerViewController: UIViewController,
         closeButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         closeButton.layer.cornerRadius = 22
         closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        closeButton.accessibilityLabel = "关闭扫码"
+        closeButton.accessibilityLabel = ModemDeckErrorLanguage.text("关闭扫码", "Close scanner")
         closeButton.addTarget(self, action: #selector(cancelScan), for: .touchUpInside)
         view.addSubview(closeButton)
 
         let titleLabel = UILabel()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.text = "扫描配对二维码"
+        titleLabel.text = ModemDeckErrorLanguage.text("扫描配对二维码", "Scan Pairing QR Code")
         titleLabel.textColor = .white
         titleLabel.textAlignment = .center
         titleLabel.font = .systemFont(ofSize: 24, weight: .bold)
@@ -2828,7 +2831,7 @@ final class ModemDeckQRScannerViewController: UIViewController,
 
         let instructionLabel = UILabel()
         instructionLabel.translatesAutoresizingMaskIntoConstraints = false
-        instructionLabel.text = "将 Web 设置中的二维码放入框内"
+        instructionLabel.text = ModemDeckErrorLanguage.text("将 Web 设置中的二维码放入框内", "Place the QR code from Web settings inside the frame")
         instructionLabel.textColor = UIColor.white.withAlphaComponent(0.82)
         instructionLabel.textAlignment = .center
         instructionLabel.font = .systemFont(ofSize: 15, weight: .regular)
@@ -2837,7 +2840,7 @@ final class ModemDeckQRScannerViewController: UIViewController,
 
         let privacyLabel = UILabel()
         privacyLabel.translatesAutoresizingMaskIntoConstraints = false
-        privacyLabel.text = "二维码仅在此设备上读取"
+        privacyLabel.text = ModemDeckErrorLanguage.text("二维码仅在此设备上读取", "The QR code is read only on this device")
         privacyLabel.textColor = UIColor.white.withAlphaComponent(0.72)
         privacyLabel.textAlignment = .center
         privacyLabel.font = .systemFont(ofSize: 13, weight: .medium)
