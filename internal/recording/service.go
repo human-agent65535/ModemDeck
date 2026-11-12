@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
+	"github.com/human-agent65535/modemdeck/internal/callphase"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -199,9 +200,9 @@ func (s *Service) SetEnabled(
 	if call.EndedAt != "" {
 		return store.CallRecordingState{}, ErrCallNotActive
 	}
-	switch call.Phase {
-	case "dialing", "ringing-out", "ringing", "connecting", "active":
-	default:
+	// The choice can be made for any live call; recording itself starts only
+	// once the call is active.
+	if !callphase.Live(call.Phase) {
 		return store.CallRecordingState{}, ErrCallNotActive
 	}
 	s.mu.Lock()
@@ -212,7 +213,7 @@ func (s *Service) SetEnabled(
 		return store.CallRecordingState{}, translateStoreError(err)
 	}
 	s.notifyChanged()
-	if call.Phase != "active" {
+	if call.Phase != callphase.Active {
 		stopErr := s.stopWorker(normalizeContext(ctx), callID)
 		authoritative, stateErr := s.repository.CallRecordingState(
 			normalizeContext(ctx),
@@ -433,7 +434,7 @@ func (s *Service) ReconcileAuthoritativeCalls(
 			MediaAvailable: call.MediaAvailable,
 			State:          state,
 		}
-		if call.Phase == "active" && state.Enabled && call.MediaAvailable {
+		if call.Phase == callphase.Active && state.Enabled && call.MediaAvailable {
 			if state.Status == store.RecordingStatePending {
 				if startErr := s.startTarget(target); startErr != nil {
 					result = errors.Join(result, startErr)

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/callphase"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -1051,12 +1052,7 @@ func (m *Manager) leaseableCall(ctx context.Context, callID string) (store.Call,
 }
 
 func leaseablePhase(phase string) bool {
-	switch strings.ToLower(strings.TrimSpace(phase)) {
-	case "dialing", "ringing", "ringing-out", "connecting", "active":
-		return true
-	default:
-		return false
-	}
+	return callphase.Live(phase)
 }
 
 func trackedPhase(phase string) bool {
