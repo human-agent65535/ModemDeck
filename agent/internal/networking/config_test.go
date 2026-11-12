@@ -285,3 +285,23 @@ func assertInvalidArgument(t *testing.T, err error, message string) {
 		t.Fatalf("error message = %q, want %q", operationError.Message, message)
 	}
 }
+
+// The same cases are asserted for the API in
+// internal/agentclient/network_test.go; keep the two lists identical.
+func TestProxyIdentifierRuleMatchesTheAPI(t *testing.T) {
+	for value, want := range map[string]bool{
+		"proxy_0123456789abcdef": true,
+		"Proxy-1.a_b":            true,
+		"":                       false,
+		"proxy 1":                false,
+		"proxy/1":                false,
+		"代理":                     false,
+		"prоxy":                  false, // Cyrillic о
+		"proxy١":                 false, // Arabic-Indic digit
+		"proxy\n":                false,
+	} {
+		if got := validIdentifier(value, maxProxyIDLength); got != want {
+			t.Fatalf("validIdentifier(%q) = %t, want %t", value, got, want)
+		}
+	}
+}

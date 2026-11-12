@@ -465,12 +465,17 @@ func validDNSServers(connection domain.DataConnection) []string {
 	return result
 }
 
+// validIdentifier is the proxy identifier rule: ASCII letters, digits, '.',
+// '_' and '-'. The API applies the same rule to every identifier it reads back
+// (validProxyIdentifier in internal/agentclient/network.go), so an identifier
+// accepted here that the API would refuse makes the whole snapshot unreadable.
+// The two modules cannot share code; the same cases are tested on both sides.
 func validIdentifier(value string, maxLength int) bool {
 	if value == "" || len(value) > maxLength {
 		return false
 	}
 	for _, r := range value {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) ||
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
 			r == '.' || r == '_' || r == '-' {
 			continue
 		}

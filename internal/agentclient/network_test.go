@@ -316,3 +316,24 @@ func TestNetworkAllowsConnectedLineWithBearerErrorAndNoUsableInterface(t *testin
 		t.Fatalf("snapshot = %+v", snapshot)
 	}
 }
+
+// The same cases are asserted for the Agent in
+// agent/internal/networking/config_test.go; keep the two lists identical.
+func TestProxyIdentifierRuleMatchesTheAgent(t *testing.T) {
+	for value, want := range map[string]bool{
+		"proxy_0123456789abcdef": true,
+		"Proxy-1.a_b":            true,
+		"":                       false,
+		"proxy 1":                false,
+		"proxy/1":                false,
+		"代理":                     false,
+		"prоxy":                  false, // Cyrillic о
+		"proxy١":                 false, // Arabic-Indic digit
+		"proxy\n":                false,
+	} {
+		// An empty identifier is refused by the caller before the rule runs.
+		if got := value != "" && validProxyIdentifier(value); got != want {
+			t.Fatalf("proxy identifier %q accepted = %t, want %t", value, got, want)
+		}
+	}
+}

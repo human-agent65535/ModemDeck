@@ -318,6 +318,10 @@ func validProxyState(state ProxyRuntimeState) bool {
 	}
 }
 
+// validProxyIdentifier is the proxy identifier rule: ASCII letters, digits,
+// '.', '_' and '-'. The Agent applies the same rule when a proxy is configured
+// (validIdentifier in agent/internal/networking/config.go). The two modules
+// cannot share code; the same cases are tested on both sides.
 func validProxyIdentifier(value string) bool {
 	for _, character := range value {
 		if (character >= 'a' && character <= 'z') ||
