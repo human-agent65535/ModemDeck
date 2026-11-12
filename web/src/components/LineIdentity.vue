@@ -73,14 +73,14 @@ const toneStyle = computed<Record<string, string> | undefined>(() => {
   display: grid;
   min-width: 0;
   align-items: center;
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: var(--icon-tile-size) minmax(0, 1fr);
   gap: 10px;
 }
 
 .line-identity__icon {
   display: inline-flex;
-  width: 38px;
-  height: 38px;
+  width: var(--icon-tile-size);
+  height: var(--icon-tile-size);
   align-items: center;
   justify-content: center;
   color: var(--accent-strong);

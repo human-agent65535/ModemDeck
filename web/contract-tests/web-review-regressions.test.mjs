@@ -69,8 +69,8 @@ test('dialing and messages resolve context, contact, and global default lines', 
   assert.match(lineSelector, /role="listbox"/)
   assert.match(lineSelector, /v-for="\(option, index\) in options"/)
   assert.match(lineSelector, /aria-haspopup="listbox"/)
-  assert.match(lineSelector, /case 'ArrowDown'/)
-  assert.match(lineSelector, /case 'Escape'/)
+  // Keyboard behaviour is the shared listbox's; see listbox.test.mjs.
+  assert.match(lineSelector, /useListbox<SelectorOption>\(/)
 })
 
 test('line switching uses one custom selector instead of native dropdowns', async () => {

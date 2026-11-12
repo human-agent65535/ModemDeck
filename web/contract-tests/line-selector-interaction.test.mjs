@@ -33,32 +33,16 @@ test('line selector commits model updates and exposes a change hook', () => {
   assert.match(component, /@click="selectOption\(option\)"/)
 })
 
-test('line selector closes after focus moves outside instead of racing option clicks', () => {
-  assert.match(component, /document\.addEventListener\('focusin', onDocumentFocusIn\)/)
-  assert.match(component, /document\.removeEventListener\('focusin', onDocumentFocusIn\)/)
-  assert.match(
-    component,
-    /open\.value && !root\.value\?\.contains\(event\.target as Node\)/
-  )
+test('line selector takes its open, close and keyboard behaviour from the shared listbox', () => {
+  // Closing on outside focus or press, arrow keys, Home, End, Enter, Space,
+  // Escape and Tab are tested on the shared behaviour in listbox.test.mjs.
+  assert.match(component, /useListbox<SelectorOption>\(/)
+  assert.match(component, /optionSelector: index => `\[data-option-index="\$\{index\}"\]`/)
+  assert.match(component, /@keydown="onTriggerKeydown"/)
+  assert.match(component, /@keydown="onOptionKeydown\(\$event, index\)"/)
   assert.doesNotMatch(component, /@focusout=/)
   assert.doesNotMatch(component, /document\.activeElement/)
-})
-
-test('line selector supports complete keyboard navigation', () => {
-  for (const key of [
-    "'ArrowDown'",
-    "'ArrowUp'",
-    "'Home'",
-    "'End'",
-    "'Enter'",
-    "' '",
-    "'Escape'",
-    "'Tab'"
-  ]) {
-    assert.match(component, new RegExp(`case ${key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}:`))
-  }
-  assert.match(component, /focusOption\(\)/)
-  assert.match(component, /closeMenu\(true\)/)
+  assert.doesNotMatch(component, /addEventListener/)
 })
 
 test('default status stays beside a bounded line name', () => {
@@ -70,7 +54,11 @@ test('default status stays beside a bounded line name', () => {
   assert.match(nameRow, /<strong>\{\{ name \}\}<\/strong>/)
   assert.match(nameRow, /v-if="isDefault" class="line-identity__default"/)
   assert.match(component, /:is-default="selectedIsDefault"/)
-  assert.match(identity, /grid-template-columns: 38px minmax\(0, 1fr\)/)
+  assert.match(identity, /grid-template-columns: var\(--icon-tile-size\) minmax\(0, 1fr\)/)
+  assert.match(
+    readFileSync(new URL('../src/style.css', import.meta.url), 'utf8'),
+    /--icon-tile-size: 38px;/
+  )
   assert.match(identity, /-webkit-line-clamp: 2/)
   assert.doesNotMatch(
     identity,

@@ -66,8 +66,8 @@ const messageID = `confirmation-message-${useId()}`
 
 .confirmation-dialog__icon {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: var(--icon-tile-size);
+  height: var(--icon-tile-size);
   place-items: center;
   color: var(--warning);
   background: var(--warning-soft);

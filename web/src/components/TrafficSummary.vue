@@ -71,9 +71,9 @@ defineProps<{
 
 .traffic-summary__icon {
   display: inline-grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: var(--icon-tile-size);
+  height: var(--icon-tile-size);
+  flex: 0 0 var(--icon-tile-size);
   place-items: center;
   color: var(--warning-strong);
   background: var(--warning-soft);

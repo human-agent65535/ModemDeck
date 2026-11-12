@@ -157,6 +157,8 @@
   --radius-dialog: var(--radius-md);
   --touch-target: 44px;
   --icon-badge-size: 36px;
+  /* Square or round tile holding one icon: settings rows, summaries, dialogs. */
+  --icon-tile-size: 38px;
   /* Field focus: the accent border carries the 3:1 indicator; the halo only softens it. */
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
   /* Non-modal dialer drawer on tablet widths; below popovers. */
@@ -2639,9 +2641,9 @@ dd {
 
 .settings-icon {
   display: grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: var(--icon-tile-size);
+  height: var(--icon-tile-size);
+  flex: 0 0 var(--icon-tile-size);
   place-items: center;
   color: var(--blue);
   background: var(--blue-soft);
@@ -2659,9 +2661,9 @@ dd {
 
 .settings-account__icon {
   display: grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: var(--icon-tile-size);
+  height: var(--icon-tile-size);
+  flex: 0 0 var(--icon-tile-size);
   place-items: center;
   color: var(--muted);
   background: var(--surface-hover);
@@ -2856,9 +2858,9 @@ dd {
 
 .tls-summary__icon {
   display: grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: var(--icon-tile-size);
+  height: var(--icon-tile-size);
+  flex: 0 0 var(--icon-tile-size);
   place-items: center;
   color: var(--accent-strong);
   background: var(--accent-soft);

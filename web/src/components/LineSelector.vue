@@ -1,13 +1,6 @@
 <script setup lang="ts">
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  useId,
-  watch
-} from 'vue'
+import { computed, ref, useId } from 'vue'
+import { useListbox } from '../composables/useListbox'
 import { useI18n } from 'vue-i18n'
 import { CardSim, ChevronDown, Star } from '@lucide/vue'
 import type { CommunicationCapabilityName, LineSummary } from '../api/types'
@@ -77,8 +70,6 @@ const emit = defineEmits<{
 
 const root = ref<HTMLElement>()
 const trigger = ref<HTMLButtonElement>()
-const open = ref(false)
-const activeIndex = ref(0)
 const componentID = useId()
 const labelID = `${componentID}-label`
 const listboxID = `${componentID}-listbox`
@@ -185,40 +176,16 @@ const displayDetails = computed(
 )
 const displayStatus = computed(() => selectedOption.value?.status || '')
 
-function selectedIndex(): number {
-  const index = options.value.findIndex(option => option.value === props.modelValue)
-  return index >= 0 ? index : 0
-}
-
-function focusOption(): void {
-  void nextTick(() => {
-    root.value
-      ?.querySelector<HTMLElement>(`[data-option-index="${activeIndex.value}"]`)
-      ?.focus()
+const { open, activeIndex, closeMenu, toggleMenu, onTriggerKeydown, onOptionKeydown } =
+  useListbox<SelectorOption>({
+    root,
+    trigger,
+    options: () => options.value,
+    disabled: () => props.disabled,
+    selectedIndex: () => options.value.findIndex(option => option.value === props.modelValue),
+    optionSelector: index => `[data-option-index="${index}"]`,
+    select: selectOption
   })
-}
-
-function openMenu(edge?: 'first' | 'last'): void {
-  if (props.disabled || options.value.length === 0) return
-  open.value = true
-  activeIndex.value =
-    edge === 'first'
-      ? 0
-      : edge === 'last'
-        ? options.value.length - 1
-        : selectedIndex()
-  focusOption()
-}
-
-function closeMenu(returnFocus = false): void {
-  open.value = false
-  if (returnFocus) void nextTick(() => trigger.value?.focus())
-}
-
-function toggleMenu(): void {
-  if (open.value) closeMenu(true)
-  else openMenu()
-}
 
 function selectOption(option: SelectorOption): void {
   if (option.disabled) return
@@ -228,102 +195,6 @@ function selectOption(option: SelectorOption): void {
   }
   closeMenu(true)
 }
-
-function moveActive(offset: number): void {
-  const count = options.value.length
-  if (count === 0) return
-  activeIndex.value = (activeIndex.value + offset + count) % count
-  focusOption()
-}
-
-function onTriggerKeydown(event: KeyboardEvent): void {
-  switch (event.key) {
-    case 'ArrowDown':
-      event.preventDefault()
-      if (open.value) moveActive(1)
-      else openMenu('first')
-      break
-    case 'ArrowUp':
-      event.preventDefault()
-      if (open.value) moveActive(-1)
-      else openMenu('last')
-      break
-    case 'Enter':
-    case ' ':
-      event.preventDefault()
-      toggleMenu()
-      break
-    case 'Escape':
-      if (open.value) {
-        event.preventDefault()
-        event.stopPropagation()
-        closeMenu(true)
-      }
-      break
-  }
-}
-
-function onOptionKeydown(event: KeyboardEvent, index: number): void {
-  activeIndex.value = index
-  const option = options.value[index]
-  switch (event.key) {
-    case 'ArrowDown':
-      event.preventDefault()
-      moveActive(1)
-      break
-    case 'ArrowUp':
-      event.preventDefault()
-      moveActive(-1)
-      break
-    case 'Home':
-      event.preventDefault()
-      activeIndex.value = 0
-      focusOption()
-      break
-    case 'End':
-      event.preventDefault()
-      activeIndex.value = options.value.length - 1
-      focusOption()
-      break
-    case 'Enter':
-    case ' ':
-      event.preventDefault()
-      if (option) selectOption(option)
-      break
-    case 'Escape':
-      event.preventDefault()
-      event.stopPropagation()
-      closeMenu(true)
-      break
-    case 'Tab':
-      closeMenu()
-      break
-  }
-}
-
-function onDocumentPointerDown(event: PointerEvent): void {
-  if (open.value && !root.value?.contains(event.target as Node)) closeMenu()
-}
-
-function onDocumentFocusIn(event: FocusEvent): void {
-  if (open.value && !root.value?.contains(event.target as Node)) closeMenu()
-}
-
-watch(
-  () => props.disabled,
-  disabled => {
-    if (disabled) closeMenu()
-  }
-)
-
-onMounted(() => {
-  document.addEventListener('pointerdown', onDocumentPointerDown)
-  document.addEventListener('focusin', onDocumentFocusIn)
-})
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onDocumentPointerDown)
-  document.removeEventListener('focusin', onDocumentFocusIn)
-})
 </script>
 
 <template>

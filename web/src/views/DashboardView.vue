@@ -1467,12 +1467,6 @@ onMounted(() => {
   gap: var(--space-1);
 }
 
-.dashboard-contact-actions .icon-button {
-  width: 38px;
-  height: 38px;
-  flex-basis: 38px;
-}
-
 .dashboard-section-state {
   min-height: 92px;
   padding: 18px;

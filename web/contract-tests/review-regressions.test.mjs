@@ -110,21 +110,25 @@ test('reselecting the current user or bot leaves unsaved fields intact', () => {
   }
 })
 
-test('Escape is consumed by the inner selector and an already handled key never closes the dialog', () => {
+test('Escape is consumed by the inner selector and an already handled key never closes the dialog', async () => {
+  const { useListbox } = await import('../src/composables/useListbox.ts')
+  const event = { key: 'Escape', defaultPrevented: false, stopped: false,
+    preventDefault() { this.defaultPrevented = true }, stopPropagation() { this.stopped = true } }
+  const listbox = useListbox({
+    root: ref(undefined), trigger: ref(undefined), options: () => [{}], disabled: () => false,
+    selectedIndex: () => 0, optionSelector: index => `[data-index="${index}"]`, select() {}
+  })
+  listbox.openMenu()
+  listbox.onOptionKeydown(event, 0)
+  assert.equal(listbox.open.value, false)
+  assert.equal(event.stopped, true)
+  const parent = evaluate(functions('components/OverlayDialog.vue', ['onKeydown']), {
+    overlayID: 'dialog', overlayIsTopmost: () => true, props: { closeOnEscape: true },
+    emit() { assert.fail('outer editor must remain open') }
+  })
+  parent.onKeydown(event)
+  // Both select-style controls use this one behaviour.
   for (const file of ['LineSelector.vue', 'SelectControl.vue']) {
-    let closed = false
-    const event = { key: 'Escape', defaultPrevented: false, stopped: false,
-      preventDefault() { this.defaultPrevented = true }, stopPropagation() { this.stopped = true } }
-    const child = evaluate(functions('components/' + file, ['onOptionKeydown']), {
-      activeIndex: ref(0), options: ref([{}]), props: { options: [{}] }, closeMenu() { closed = true }
-    })
-    child.onOptionKeydown(event, 0)
-    assert.equal(closed, true)
-    assert.equal(event.stopped, true)
-    const parent = evaluate(functions('components/OverlayDialog.vue', ['onKeydown']), {
-      overlayID: 'dialog', overlayIsTopmost: () => true, props: { closeOnEscape: true },
-      emit() { assert.fail('outer editor must remain open') }
-    })
-    parent.onKeydown(event)
+    assert.match(readFileSync(new URL('../src/components/' + file, import.meta.url), 'utf8'), /useListbox</)
   }
 })

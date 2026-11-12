@@ -46,6 +46,9 @@ test('communication pages use one master-detail and header system', async () => 
     dashboard,
     /\.dashboard-activity-action \{[\s\S]*width: 38px;/
   )
+  // Contact actions are shared icon buttons too: no page-local size, so they
+  // keep the touch target the shared button gets on phones.
+  assert.doesNotMatch(dashboard, /\.dashboard-contact-actions \.icon-button \{/)
   assert.doesNotMatch(
     dashboard,
     /\.dashboard-activity-pane > \.pane-header/
