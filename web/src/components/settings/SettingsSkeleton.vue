@@ -305,7 +305,7 @@ defineProps<{
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .settings-skeleton__copy,
@@ -386,7 +386,7 @@ defineProps<{
 .settings-skeleton__preferences,
 .settings-skeleton__form {
   display: grid;
-  max-width: 680px;
+  max-width: var(--settings-preference-content-max);
 }
 
 .settings-skeleton__preference-rows {
@@ -406,7 +406,7 @@ defineProps<{
 }
 
 .settings-skeleton__preference-row .settings-skeleton__control {
-  width: min(280px, 42%);
+  width: var(--settings-control-column);
 }
 
 .settings-skeleton__form {
@@ -429,7 +429,7 @@ defineProps<{
 
 .settings-skeleton__form-fields > span {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .settings-skeleton__field-label {
@@ -455,8 +455,8 @@ defineProps<{
 
 .settings-skeleton__section-header {
   min-height: 58px;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 
@@ -490,13 +490,13 @@ defineProps<{
 
 .settings-skeleton__certificate-fields {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .settings-skeleton__certificate-fields > span {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .settings-skeleton__connectivity-modules {
@@ -515,7 +515,7 @@ defineProps<{
 
 .settings-skeleton__card-body {
   display: grid;
-  margin-top: 16px;
+  margin-top: var(--space-4);
   gap: 18px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -597,7 +597,7 @@ defineProps<{
 }
 
 .settings-skeleton__editor-row {
-  max-width: 760px;
+  max-width: var(--settings-resource-editor-max);
 }
 
 .settings-skeleton__workbench {
@@ -630,7 +630,7 @@ defineProps<{
 .settings-skeleton__module-grid {
   display: grid;
   padding: 14px 1px 16px;
-  gap: 12px;
+  gap: var(--space-3);
   grid-template-columns: repeat(auto-fill, minmax(320px, 420px));
 }
 
@@ -638,8 +638,8 @@ defineProps<{
   display: flex;
   min-height: 104px;
   align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--space-3);
+  padding: var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
@@ -670,7 +670,7 @@ defineProps<{
   min-height: 40px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding-bottom: 11px;
   border-bottom: 1px solid var(--border);
 }
@@ -700,7 +700,7 @@ defineProps<{
 .settings-skeleton__file-grid {
   display: grid;
   margin: 20px 0;
-  gap: 12px;
+  gap: var(--space-3);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -727,7 +727,7 @@ defineProps<{
 
 .settings-skeleton__log-lines {
   display: grid;
-  padding-top: 16px;
+  padding-top: var(--space-4);
   gap: 9px;
 }
 

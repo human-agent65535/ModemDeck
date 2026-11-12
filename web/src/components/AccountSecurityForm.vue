@@ -95,7 +95,7 @@ async function submit(): Promise<void> {
 <template>
   <section class="account-security" aria-labelledby="account-password-title">
     <header>
-      <span class="account-security__icon"><KeyRound :size="20" /></span>
+      <span class="account-security__icon settings-icon-badge"><KeyRound :size="20" /></span>
       <div>
         <h3 id="account-password-title">{{ t('account.changePassword') }}</h3>
         <p>{{ t('account.changePasswordDescription') }}</p>
@@ -180,19 +180,8 @@ async function submit(): Promise<void> {
   min-height: 58px;
   align-items: center;
   gap: 11px;
-  padding-bottom: 12px;
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border);
-}
-
-.account-security__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
 }
 
 .account-security h3 {

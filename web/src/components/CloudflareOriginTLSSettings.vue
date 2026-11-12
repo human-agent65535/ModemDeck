@@ -299,7 +299,7 @@ async function deleteCertificate(): Promise<void> {
 }
 
 .origin-tls-card :deep(.settings-module-card__header) {
-  padding-bottom: 16px;
+  padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 

@@ -1043,12 +1043,12 @@ onBeforeUnmount(() => {
 
 .call-surface__dtmf {
   display: grid;
-  width: 238px;
+  width: var(--keypad-grid-width);
   justify-content: space-between;
   gap: 9px;
   margin-top: 18px;
-  grid-template-columns: repeat(3, 62px);
-  grid-template-rows: 38px repeat(4, 62px);
+  grid-template-columns: repeat(3, var(--keypad-track-size));
+  grid-template-rows: 38px repeat(4, var(--keypad-track-size));
 }
 
 .call-surface__dtmf-display {
@@ -1061,7 +1061,7 @@ onBeforeUnmount(() => {
   font-size: var(--text-xl);
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-strong);
-  line-height: 38px;
+  line-height: var(--leading-2xl);
   text-align: center;
   white-space: nowrap;
   scrollbar-width: none;
@@ -1217,7 +1217,7 @@ onBeforeUnmount(() => {
   }
 
   .call-surface__controls {
-    padding-top: 12px;
+    padding-top: var(--space-3);
   }
 
   .call-surface__content.is-dtmf-open {
@@ -1229,7 +1229,7 @@ onBeforeUnmount(() => {
   }
 
   .call-surface__dtmf {
-    grid-template-rows: 34px repeat(4, 62px);
+    grid-template-rows: 34px repeat(4, var(--keypad-track-size));
   }
 
   .call-surface__dtmf .keypad__key {

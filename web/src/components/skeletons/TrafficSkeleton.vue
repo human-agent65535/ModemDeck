@@ -34,7 +34,7 @@ defineProps<{ label: string }>()
 .traffic-skeleton__summary,
 .traffic-skeleton__grid {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 

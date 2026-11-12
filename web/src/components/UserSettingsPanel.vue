@@ -849,7 +849,7 @@ onMounted(() => {
   display: flex;
   min-height: 64px;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 
@@ -904,18 +904,18 @@ onMounted(() => {
 }
 
 .user-management-card__body {
-  padding-bottom: 4px;
+  padding-bottom: var(--space-1);
 }
 
 .user-fields {
   display: grid;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 18px 0;
   grid-template-columns: minmax(0, var(--settings-field-max));
 }
 
 .user-fields .field small {
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .user-account-access {
@@ -993,7 +993,7 @@ onMounted(() => {
   width: 100%;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   color: var(--text);
   font-size: var(--text-xs);
   font-weight: var(--weight-strong);
@@ -1022,7 +1022,7 @@ onMounted(() => {
 
 .user-default-line {
   display: block;
-  max-width: 420px;
+  max-width: var(--card-max);
   padding: 16px 0;
   border-top: 1px solid var(--border);
 }
@@ -1064,14 +1064,14 @@ onMounted(() => {
 
 .user-password-dialog footer {
   justify-content: flex-end;
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 
 .user-admin-summary {
   display: flex;
   max-width: 620px;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 28px 0;
 }
 

@@ -48,7 +48,7 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .workspace-detail-header :deep(.workspace-detail-identity h2) {

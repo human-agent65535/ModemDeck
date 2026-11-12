@@ -61,7 +61,7 @@ defineProps<{
   min-width: 0;
   min-height: 82px;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 14px 18px;
 }
 

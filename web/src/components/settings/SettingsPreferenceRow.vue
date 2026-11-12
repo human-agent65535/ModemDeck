@@ -20,7 +20,7 @@ withDefaults(
     <div class="settings-preference-row__main">
       <span
         v-if="$slots.icon"
-        class="settings-preference-row__icon"
+        class="settings-preference-row__icon settings-icon-badge"
         :class="`settings-preference-row__icon--${iconTone}`"
         aria-hidden="true"
       >
@@ -56,17 +56,6 @@ withDefaults(
   min-height: 64px;
   align-items: center;
   gap: 11px;
-}
-
-.settings-preference-row__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
 }
 
 .settings-preference-row__icon--danger {

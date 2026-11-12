@@ -175,7 +175,7 @@ function applyStateLabel(): string {
   min-width: 0;
   min-height: 270px;
   flex-direction: column;
-  padding: 16px;
+  padding: var(--space-4);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -186,14 +186,14 @@ function applyStateLabel(): string {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .proxy-card > header > div {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .proxy-card > header strong {
@@ -265,7 +265,7 @@ function applyStateLabel(): string {
   min-width: 0;
   align-items: center;
   grid-template-columns: 84px minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .proxy-card dt {

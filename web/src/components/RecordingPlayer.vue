@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
 
 .recording-audio-player--compact {
   grid-template-columns: 32px minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .recording-audio-player--compact .recording-audio-player__toggle {

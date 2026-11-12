@@ -825,7 +825,7 @@ onBeforeUnmount(() => {
 }
 
 .drawer-backdrop--call {
-  z-index: 105;
+  z-index: var(--layer-call-drawer);
   align-items: center;
   justify-content: center;
 }
@@ -870,7 +870,7 @@ onBeforeUnmount(() => {
   height: 28px;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--space-1);
   padding: 0 7px;
   color: var(--accent-strong);
   font: inherit;
@@ -1031,7 +1031,7 @@ onBeforeUnmount(() => {
   width: fit-content;
   max-width: calc(100% - 16px);
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin: 9px auto 0;
   padding: 5px 11px 5px 6px;
   background: var(--accent-soft);
@@ -1159,16 +1159,16 @@ onBeforeUnmount(() => {
 
   .dialer-line-switcher {
     margin-top: 10px;
-    padding-bottom: 8px;
+    padding-bottom: var(--space-2);
   }
 
   .dialer-line-switcher :deep(.line-selector) {
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .dialer-line-switcher :deep(.line-selector__control) {
     min-height: 52px;
-    padding-block: 4px;
+    padding-block: var(--space-1);
   }
 
   .dialer-line-switcher :deep(.line-identity__icon) {
@@ -1207,7 +1207,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1100px) {
   .drawer-backdrop--call {
-    padding: 12px;
+    padding: var(--space-3);
   }
 
   .drawer-backdrop--call .dialer-panel--call {
@@ -1256,7 +1256,7 @@ onBeforeUnmount(() => {
 
 @media (min-width: 641px) and (max-width: 1479px) {
   .drawer-backdrop--nonmodal {
-    z-index: 65;
+    z-index: var(--layer-dialer-nonmodal);
     align-items: flex-end;
     justify-content: flex-end;
     pointer-events: none;

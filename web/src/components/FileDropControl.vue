@@ -145,7 +145,7 @@ function handleDrop(event: DragEvent): void {
   min-height: 84px;
   align-items: center;
   gap: 11px;
-  padding: 12px;
+  padding: var(--space-3);
   grid-template-columns: auto minmax(0, 1fr) auto;
   color: var(--accent-strong);
   text-align: left;
@@ -193,7 +193,7 @@ function handleDrop(event: DragEvent): void {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .file-drop-control__copy strong,

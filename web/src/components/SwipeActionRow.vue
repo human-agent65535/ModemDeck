@@ -287,7 +287,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--on-accent);
   font-size: var(--text-2xs);
   font-weight: var(--weight-strong);

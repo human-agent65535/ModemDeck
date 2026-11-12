@@ -178,7 +178,7 @@ onMounted(() => {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
   font-size: var(--text-xs);
 }

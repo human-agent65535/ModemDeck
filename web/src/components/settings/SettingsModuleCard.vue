@@ -134,7 +134,7 @@ const headingTag = computed(() => `h${props.headingLevel}`)
 }
 
 .settings-module-card__body {
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 
 @media (max-width: 640px) {

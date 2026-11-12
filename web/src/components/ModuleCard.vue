@@ -358,7 +358,7 @@ const accessTechnology = computed(() => {
   min-width: 0;
   flex: 1 1 auto;
   align-content: start;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 15px;
   color: inherit;
   text-align: left;
@@ -532,7 +532,7 @@ const accessTechnology = computed(() => {
 .module-card dt {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-strong);
@@ -566,7 +566,7 @@ const accessTechnology = computed(() => {
   flex: 0 0 48px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 6px 10px;
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   border-top: 1px solid var(--border);
@@ -580,13 +580,13 @@ const accessTechnology = computed(() => {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .module-card__capabilities > span {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--muted);
   font-size: var(--text-xs);
   white-space: nowrap;
@@ -601,7 +601,7 @@ const accessTechnology = computed(() => {
   min-width: 0;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .module-card__default-action,
@@ -671,12 +671,12 @@ const accessTechnology = computed(() => {
 
 @container (max-width: 350px) {
   .module-card__main {
-    padding-inline: 12px;
+    padding-inline: var(--space-3);
   }
 
   .module-card__footer {
     gap: 5px;
-    padding-inline: 8px;
+    padding-inline: var(--space-2);
   }
 
   .module-card__capabilities {
@@ -690,7 +690,7 @@ const accessTechnology = computed(() => {
 
 @media (max-width: 640px) {
   .module-card__capabilities {
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .module-card__capabilities > span {

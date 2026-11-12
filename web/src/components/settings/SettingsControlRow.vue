@@ -74,7 +74,7 @@ withDefaults(
   min-width: 0;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 @media (max-width: 640px) {

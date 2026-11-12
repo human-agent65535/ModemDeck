@@ -308,7 +308,7 @@ async function addToContact(): Promise<void> {
 .contact-number-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .contact-number-actions.is-compact {
@@ -332,7 +332,7 @@ async function addToContact(): Promise<void> {
   display: flex;
   max-height: calc(100dvh - 94px);
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 18px;
   overflow-y: auto;
 }
@@ -342,7 +342,7 @@ async function addToContact(): Promise<void> {
   min-height: 48px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 0 12px;
   background: var(--surface-subtle);
   border-radius: var(--radius-sm);

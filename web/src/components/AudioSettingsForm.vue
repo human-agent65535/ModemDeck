@@ -472,7 +472,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .audio-level-control {
@@ -481,7 +481,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) 48px;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .audio-level-control input {
@@ -500,7 +500,7 @@ onBeforeUnmount(() => {
 }
 
 .audio-preferences__error {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   color: var(--danger);
   font-size: var(--text-2xs);
 }

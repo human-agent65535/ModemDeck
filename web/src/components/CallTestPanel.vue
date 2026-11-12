@@ -67,12 +67,12 @@ const { t } = useI18n()
 <style scoped>
 .call-test {
   display: grid;
-  gap: 16px;
+  gap: var(--space-4);
 }
 .call-test__notification {
   display: grid;
   justify-items: start;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .call-test p {
   margin: 0;
@@ -86,7 +86,7 @@ const { t } = useI18n()
 .call-test__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 @media (max-width: 560px) {
   .call-test__actions > button {

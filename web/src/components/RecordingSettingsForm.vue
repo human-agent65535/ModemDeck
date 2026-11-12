@@ -115,7 +115,7 @@ onMounted(() => {
 .recording-settings__state {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
   font-size: var(--text-xs);
 }

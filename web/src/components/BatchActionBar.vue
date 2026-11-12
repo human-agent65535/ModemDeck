@@ -67,7 +67,7 @@ const emit = defineEmits<{
   max-height: var(--batch-action-bar-height);
   flex: 0 0 var(--batch-action-bar-height);
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   padding: 7px 10px;
   overflow: hidden;
   background: color-mix(in srgb, var(--surface) 97%, transparent);
@@ -115,7 +115,7 @@ const emit = defineEmits<{
   flex: 1;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .batch-action-bar__actions :deep(button) {

@@ -285,7 +285,7 @@ watch(
 .proxy-modal form {
   display: grid;
   gap: 18px;
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 .proxy-field {
@@ -320,7 +320,7 @@ watch(
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) 120px;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .proxy-fields-row.is-even {
@@ -349,7 +349,7 @@ watch(
 .proxy-segmented button.is-selected {
   color: var(--accent-strong);
   background: var(--surface);
-  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 12%);
+  box-shadow: var(--elev-1);
 }
 
 .proxy-modal__error {
@@ -360,8 +360,8 @@ watch(
 .proxy-modal form > footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding-top: 4px;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
 }
 
 @media (max-width: 560px) {

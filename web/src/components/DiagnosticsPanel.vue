@@ -1460,7 +1460,7 @@ onBeforeUnmount(() => {
   min-height: 40px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding-bottom: 11px;
   border-bottom: 1px solid var(--border);
 }
@@ -1622,7 +1622,7 @@ onBeforeUnmount(() => {
 .runtime-errors {
   display: grid;
   gap: 7px;
-  margin-top: 12px;
+  margin-top: var(--space-3);
   padding: 10px 12px;
   background: var(--danger-soft);
   border-left: 3px solid var(--danger);
@@ -1664,7 +1664,7 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 10px;
   margin: 12px 0;
-  padding: 12px;
+  padding: var(--space-3);
   color: var(--danger);
   background: var(--danger-soft);
   border-left: 3px solid var(--danger);
@@ -1720,7 +1720,7 @@ onBeforeUnmount(() => {
 
 .line-health-alert__lines {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .line-health-alert__lines article {
@@ -1937,7 +1937,7 @@ onBeforeUnmount(() => {
   display: grid;
   min-width: 0;
   align-content: start;
-  gap: 4px;
+  gap: var(--space-1);
   padding: 10px 12px 11px 0;
   border-bottom: 1px solid var(--border);
 }
@@ -2095,7 +2095,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .diagnostic-action {
@@ -2127,7 +2127,7 @@ onBeforeUnmount(() => {
 .log-filters {
   display: grid;
   grid-template-columns: minmax(104px, 0.5fr) minmax(0, 0.8fr) minmax(0, 1.2fr);
-  gap: 8px;
+  gap: var(--space-2);
   padding: 11px 0;
 }
 
@@ -2161,7 +2161,7 @@ onBeforeUnmount(() => {
 }
 
 .log-notice {
-  padding-bottom: 8px;
+  padding-bottom: var(--space-2);
   color: var(--warning);
   font-size: var(--text-xs);
 }
@@ -2170,10 +2170,10 @@ onBeforeUnmount(() => {
   height: clamp(280px, 42vh, 520px);
   min-width: 0;
   overflow: auto;
-  background: #151a21;
-  border: 1px solid #252d38;
+  background: var(--terminal-background);
+  border: 1px solid var(--terminal-border);
   border-radius: var(--radius-sm);
-  scrollbar-color: #4d5968 #151a21;
+  scrollbar-color: var(--terminal-scrollbar) var(--terminal-background);
 }
 
 .log-empty {
@@ -2182,7 +2182,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  color: #8d99a8;
+  color: var(--terminal-muted);
   font-size: var(--text-xs);
 }
 
@@ -2192,11 +2192,11 @@ onBeforeUnmount(() => {
   grid-template-columns: 72px 48px minmax(90px, 140px) minmax(180px, 1fr);
   gap: 7px;
   padding: 7px 10px;
-  color: #d8dee7;
+  color: var(--terminal-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--text-xs);
   line-height: 1.45;
-  border-bottom: 1px solid #252d38;
+  border-bottom: 1px solid var(--terminal-border);
 }
 
 .log-entry:last-child {
@@ -2205,30 +2205,30 @@ onBeforeUnmount(() => {
 
 .log-entry time,
 .log-entry small {
-  color: #8491a1;
+  color: var(--terminal-faint);
 }
 
 .log-level {
-  color: #87b9ff;
+  color: var(--terminal-info);
   font-weight: var(--weight-strong);
   text-transform: uppercase;
 }
 
 .log-entry.is-warn .log-level {
-  color: #e8bd66;
+  color: var(--terminal-warn);
 }
 
 .log-entry.is-error .log-level {
-  color: #ff8896;
+  color: var(--terminal-error);
 }
 
 .log-entry.is-debug .log-level {
-  color: #8d99a8;
+  color: var(--terminal-muted);
 }
 
 .log-component {
   overflow: hidden;
-  color: #84d4c2;
+  color: var(--terminal-component);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2246,7 +2246,7 @@ onBeforeUnmount(() => {
 }
 
 .log-entry code {
-  color: #9eabb9;
+  color: var(--terminal-code);
   white-space: pre-wrap;
 }
 

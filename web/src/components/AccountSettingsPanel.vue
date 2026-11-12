@@ -58,7 +58,7 @@ onMounted(() => {
         class="account-identity"
         aria-labelledby="account-identity-title"
       >
-        <span class="account-identity__icon"><ShieldCheck :size="20" /></span>
+        <span class="account-identity__icon settings-icon-badge"><ShieldCheck :size="20" /></span>
         <div>
           <h3 id="account-identity-title">{{ sessionState.username }}</h3>
           <p>
@@ -101,17 +101,6 @@ onMounted(() => {
   gap: 11px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
-}
-
-.account-identity__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
 }
 
 .account-identity > div {

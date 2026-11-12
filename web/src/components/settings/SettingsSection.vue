@@ -24,7 +24,7 @@ withDefaults(
     <header class="settings-section__header">
       <span
         v-if="$slots.icon"
-        class="settings-section__icon"
+        class="settings-section__icon settings-icon-badge"
         :class="`settings-section__icon--${iconTone}`"
         aria-hidden="true"
       >
@@ -58,20 +58,9 @@ withDefaults(
   min-height: 58px;
   align-items: center;
   gap: 11px;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border);
-}
-
-.settings-section__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
 }
 
 .settings-section__icon--blue {

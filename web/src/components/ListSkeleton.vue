@@ -56,14 +56,14 @@ withDefaults(
 
 .list-skeleton--content {
   width: 100%;
-  max-width: 860px;
+  max-width: var(--settings-device-content-max);
   margin-inline: auto;
   padding-block: 10px;
 }
 
 .list-skeleton--content .list-skeleton__row {
   min-height: 76px;
-  padding-inline: 16px;
+  padding-inline: var(--space-4);
   grid-template-columns: 44px minmax(0, 1fr);
 }
 
@@ -100,7 +100,7 @@ withDefaults(
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .list-skeleton__copy > span {

@@ -866,7 +866,7 @@ onMounted(() => {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .telegram-unit-row__topline {
@@ -874,7 +874,7 @@ onMounted(() => {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .telegram-unit-row__topline > strong {
@@ -897,7 +897,7 @@ onMounted(() => {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--muted);
   font-size: var(--text-2xs);
   font-weight: var(--weight-strong);
@@ -930,7 +930,7 @@ onMounted(() => {
 
 .telegram-unit-editor .settings-form {
   width: 100%;
-  max-width: 920px;
+  max-width: var(--settings-resource-editor-wide-max);
 }
 
 .telegram-form-heading {
@@ -1002,7 +1002,7 @@ onMounted(() => {
 }
 
 .telegram-bot-identity .settings-form-grid {
-  gap: 16px;
+  gap: var(--space-4);
   padding: 0;
 }
 
@@ -1081,9 +1081,9 @@ onMounted(() => {
 
 .telegram-user-select {
   display: grid;
-  max-width: 520px;
+  max-width: var(--settings-field-max);
   gap: 6px;
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 .telegram-user-select > small,
@@ -1103,7 +1103,7 @@ onMounted(() => {
 }
 
 .telegram-options .telegram-editor-section__heading {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .telegram-event-options {
@@ -1169,7 +1169,7 @@ onMounted(() => {
 
 .telegram-scope-empty {
   margin: 0;
-  padding: 12px;
+  padding: var(--space-3);
   background: var(--surface-subtle);
   border: 1px dashed var(--border);
   border-radius: var(--radius-sm);
@@ -1209,7 +1209,7 @@ onMounted(() => {
 @media (max-width: 420px) {
   .telegram-form-heading {
     grid-template-columns: 34px minmax(0, 1fr) auto;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .telegram-form-heading__icon {

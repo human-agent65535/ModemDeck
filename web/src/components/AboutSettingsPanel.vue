@@ -646,14 +646,14 @@ onBeforeUnmount(() => {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .about-update__section-title {
   display: flex;
   min-width: 0;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .about-update__section-heading strong,
@@ -687,7 +687,7 @@ onBeforeUnmount(() => {
 
 .about-release__summary li + li,
 .about-release__content li + li {
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .about-release__summary li::marker,
@@ -700,7 +700,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding-top: 14px;
   border-top: 1px solid color-mix(in srgb, var(--about-status-color) 18%, transparent);
 }
@@ -767,7 +767,7 @@ onBeforeUnmount(() => {
   align-content: start;
   gap: 0;
   height: 144px;
-  max-width: 520px;
+  max-width: var(--settings-field-max);
 }
 
 .about-update__component-row {
@@ -847,7 +847,7 @@ onBeforeUnmount(() => {
 }
 
 .about-release__content section + section {
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 .about-release__content h4 {
@@ -860,7 +860,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--about-status-color);
   font-size: var(--text-2xs);
   font-weight: var(--weight-strong);
@@ -878,7 +878,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   align-items: center;
   gap: 10px;
-  padding: 12px;
+  padding: var(--space-3);
   color: var(--text);
   background: var(--surface-subtle);
   border: 1px solid var(--border);
@@ -925,7 +925,7 @@ onBeforeUnmount(() => {
 
 @container (max-width: 460px) {
   .about-status {
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .about-status__icon {

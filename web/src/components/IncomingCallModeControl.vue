@@ -397,7 +397,7 @@ onBeforeUnmount(() => {
   .incoming-call-mode__menu > button {
     min-height: 54px;
     grid-template-columns: 30px minmax(0, 1fr) 16px;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 7px 11px;
   }
 

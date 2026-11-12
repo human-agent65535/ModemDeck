@@ -55,7 +55,7 @@ const toneStyle = computed(() =>
   overflow: hidden;
   font-size: var(--text-xs);
   font-weight: var(--weight-strong);
-  line-height: 20px;
+  line-height: var(--leading-base);
   text-overflow: ellipsis;
   white-space: nowrap;
   border: 1px solid transparent;

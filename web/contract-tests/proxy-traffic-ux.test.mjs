@@ -6,6 +6,7 @@ import { trafficLineState } from '../src/components/trafficLineState.ts'
 const appShell = readFileSync(new URL('../src/components/AppShell.vue', import.meta.url), 'utf8')
 const router = readFileSync(new URL('../src/router/index.ts', import.meta.url), 'utf8')
 const trafficView = readFileSync(new URL('../src/views/TrafficView.vue', import.meta.url), 'utf8')
+const styles = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
 const trafficLineCard = readFileSync(
   new URL('../src/components/TrafficLineCard.vue', import.meta.url),
   'utf8'
@@ -111,8 +112,9 @@ test('traffic line cards use a balanced responsive information grid', () => {
   )
   assert.match(
     trafficView,
-    /\.traffic-line-grid\s*>\s*:deep\(\.traffic-line-card\)\s*\{[\s\S]*width:\s*100%[\s\S]*max-width:\s*420px/
+    /\.traffic-line-grid\s*>\s*:deep\(\.traffic-line-card\)\s*\{[\s\S]*width:\s*100%[\s\S]*max-width:\s*var\(--card-max\)/
   )
+  assert.match(styles, /--card-max: 420px;/)
   assert.match(
     trafficView,
     /@media \(max-width:\s*560px\)[\s\S]*\.traffic-line-grid\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/

@@ -123,7 +123,7 @@ const message = computed(() =>
     bottom: auto;
     left: 50%;
     width: calc(100vw - 24px);
-    padding-left: 12px;
+    padding-left: var(--space-3);
   }
 
   .application-update-bar button {

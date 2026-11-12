@@ -110,7 +110,7 @@ onMounted(() => {
   >
     <div class="security-settings-panel">
       <section class="security-identity" aria-labelledby="security-identity-title">
-        <span class="security-identity__icon" aria-hidden="true">
+        <span class="security-identity__icon settings-icon-badge" aria-hidden="true">
           <ShieldCheck :size="20" />
         </span>
         <span class="security-identity__copy">
@@ -161,17 +161,6 @@ onMounted(() => {
   gap: 11px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
-}
-
-.security-identity__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
 }
 
 .security-identity__copy {

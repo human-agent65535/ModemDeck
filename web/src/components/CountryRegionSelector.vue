@@ -267,8 +267,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   min-height: 42px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
   padding: 0 10px;
   color: var(--muted);
   background: var(--surface-subtle);
@@ -295,7 +295,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 8px 10px;
   color: var(--ink);
   background: transparent;

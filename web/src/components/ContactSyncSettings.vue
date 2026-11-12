@@ -505,13 +505,13 @@ onMounted(() => {
 }
 
 .contact-sync-client {
-  max-width: 680px;
+  max-width: var(--settings-preference-content-max);
 }
 
 .contact-sync-client__control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .contact-sync-client__control input {
@@ -542,7 +542,7 @@ onMounted(() => {
 
 .contact-sync-direction {
   display: grid;
-  max-width: 680px;
+  max-width: var(--settings-preference-content-max);
   grid-template-columns: minmax(112px, max-content) minmax(0, 1fr);
   gap: 4px 16px;
   padding: 12px 14px;
@@ -564,7 +564,7 @@ onMounted(() => {
 .contact-sync-notice {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .contact-sync-actions {

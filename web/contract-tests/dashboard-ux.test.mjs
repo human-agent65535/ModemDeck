@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+const styles = await readFile(
+  new URL('../src/style.css', import.meta.url),
+  'utf8'
+)
 const dashboard = await readFile(
   new URL('../src/views/DashboardView.vue', import.meta.url),
   'utf8'
@@ -224,7 +228,8 @@ test('dashboard entity grids retain stable desktop columns and card widths', () 
   )
   assert.match(entityGridBlock, /justify-content: start/)
   assert.match(entityCardBlock, /width: 100%/)
-  assert.match(entityCardBlock, /max-width: 420px/)
+  assert.match(entityCardBlock, /max-width: var\(--card-max\)/)
+  assert.match(styles, /--card-max: 420px;/)
 })
 
 test('dashboard summary cards may fill their grid while entity cards fill only narrow screens', () => {

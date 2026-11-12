@@ -65,7 +65,7 @@ withDefaults(
   flex: 1;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 20px;
+  padding: var(--space-5);
   overflow: hidden;
   background: var(--surface-subtle);
 }
@@ -79,7 +79,7 @@ withDefaults(
   min-height: 60px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 8px 20px;
   border-bottom: 1px solid var(--border);
 }
@@ -146,7 +146,7 @@ withDefaults(
 .conversation-skeleton__messages {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .conversation-skeleton__row {
@@ -185,7 +185,7 @@ withDefaults(
   }
 
   .conversation-skeleton__viewport {
-    padding: 16px;
+    padding: var(--space-4);
   }
 
   .conversation-skeleton__composer {

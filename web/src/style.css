@@ -44,6 +44,27 @@
   --call-recording-on: #ff9b9e;
   --control-muted: #e7ebee;
   --skeleton: #e9edf1;
+  /* Diagnostics log viewer: a dark terminal surface in both themes. */
+  --terminal-background: #151a21;
+  --terminal-border: #252d38;
+  --terminal-scrollbar: #4d5968;
+  --terminal-text: #d8dee7;
+  --terminal-muted: #8d99a8;
+  --terminal-faint: #8491a1;
+  --terminal-code: #9eabb9;
+  --terminal-info: #87b9ff;
+  --terminal-warn: #e8bd66;
+  --terminal-error: #ff8896;
+  --terminal-component: #84d4c2;
+  /* Avatar fallback backgrounds; the dark theme redefines all eight. */
+  --avatar-palette-0: #e6eefc;
+  --avatar-palette-1: #e5f4ec;
+  --avatar-palette-2: #f8eadf;
+  --avatar-palette-3: #f1e8f7;
+  --avatar-palette-4: #e3f2f4;
+  --avatar-palette-5: #f7e8eb;
+  --avatar-palette-6: #edf0df;
+  --avatar-palette-7: #eee9df;
   /*
    * Surfaces and elevation are semantic so a future dark theme only needs to
    * redefine these values. --shadow-color is an RGB triplet for rgb() alpha.
@@ -58,6 +79,8 @@
   --elev-3: 0 18px 48px rgb(var(--shadow-color) / 18%);
   --shadow: var(--elev-2);
   --shadow-lg: var(--elev-3);
+  --scrim: rgb(var(--shadow-color) / 46%);
+  --scrim-strong: rgb(var(--shadow-color) / 64%);
   /* Line identity palette. Kept apart from accent/success/danger semantics. */
   --line-teal-fg: #075e54;
   --line-teal-bg: #d7f1ed;
@@ -133,10 +156,15 @@
   --radius-surface: var(--radius-md);
   --radius-dialog: var(--radius-md);
   --touch-target: 44px;
+  --icon-badge-size: 36px;
   /* Field focus: the accent border carries the 3:1 indicator; the halo only softens it. */
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+  /* Non-modal dialer drawer on tablet widths; below popovers. */
+  --layer-dialer-nonmodal: 65;
   --layer-popover: 80;
   --layer-drawer: 100;
+  /* Call drawer: above an ordinary drawer, below dialogs. */
+  --layer-call-drawer: 105;
   --layer-dialog: 120;
   --layer-critical: 180;
   --layer-feedback: 220;
@@ -153,6 +181,11 @@
   --settings-resource-editor-max: 760px;
   --settings-resource-editor-wide-max: 920px;
   --settings-field-max: 520px;
+  --settings-device-content-max: 860px;
+  /* Reading width of a detail section or a message thread. */
+  --content-editor-max: 760px;
+  /* Widest track of a card grid (module, traffic, proxy cards). */
+  --card-max: 420px;
   --settings-control-column: min(280px, 45%);
   --settings-page-end-gutter: 32px;
   --rail-width: 92px;
@@ -415,7 +448,7 @@ strong {
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .login-form .field input {
@@ -487,7 +520,7 @@ strong {
   flex: 0 0 var(--header-height);
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 
@@ -512,7 +545,7 @@ strong {
 .rail__secondary {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   padding: 12px 8px;
 }
 
@@ -623,7 +656,7 @@ strong {
   min-width: 0;
   flex-shrink: 0;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   margin-left: auto;
 }
 
@@ -677,8 +710,8 @@ strong {
   display: flex;
   max-height: calc(100dvh - var(--header-height) - 74px);
   flex-direction: column;
-  gap: 16px;
-  padding: 16px;
+  gap: var(--space-4);
+  padding: var(--space-4);
   overflow-y: auto;
 }
 
@@ -687,7 +720,7 @@ strong {
   min-height: 42px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 8px 20px;
   color: var(--danger-strong);
   font-size: var(--text-sm);
@@ -783,7 +816,7 @@ strong {
 
 .dashboard-activity-row {
   min-height: 62px;
-  padding-block: 8px;
+  padding-block: var(--space-2);
 }
 
 .dashboard-activity-icon {
@@ -882,7 +915,7 @@ strong {
 }
 
 .dashboard-detail-section {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   background: var(--surface);
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
@@ -1058,7 +1091,7 @@ strong {
   flex: 0 0 60px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 0 20px;
 }
 
@@ -1092,7 +1125,7 @@ strong {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .pane-search-row .search-field {
@@ -1100,7 +1133,7 @@ strong {
 }
 
 .pane-search--calls {
-  padding-bottom: 12px;
+  padding-bottom: var(--space-3);
 }
 
 .search-field {
@@ -1192,7 +1225,7 @@ textarea::placeholder {
   min-height: 46px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 8px 10px;
   text-align: left;
   background: transparent;
@@ -1242,7 +1275,7 @@ textarea::placeholder {
   min-height: 2px;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 0 14px;
   color: var(--muted);
   font-size: var(--text-xs);
@@ -1266,7 +1299,7 @@ textarea::placeholder {
   min-width: 0;
   min-height: 72px;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 10px 14px;
   overflow: hidden;
   text-align: left;
@@ -1328,7 +1361,7 @@ textarea::placeholder {
   min-width: 0;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   overflow: hidden;
 }
 
@@ -1355,7 +1388,7 @@ textarea::placeholder {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .list-item__title time {
@@ -1395,14 +1428,14 @@ textarea::placeholder {
   object-fit: cover;
 }
 
-.avatar--palette-0 { background: #e6eefc; }
-.avatar--palette-1 { background: #e5f4ec; }
-.avatar--palette-2 { background: #f8eadf; }
-.avatar--palette-3 { background: #f1e8f7; }
-.avatar--palette-4 { background: #e3f2f4; }
-.avatar--palette-5 { background: #f7e8eb; }
-.avatar--palette-6 { background: #edf0df; }
-.avatar--palette-7 { background: #eee9df; }
+.avatar--palette-0 { background: var(--avatar-palette-0); }
+.avatar--palette-1 { background: var(--avatar-palette-1); }
+.avatar--palette-2 { background: var(--avatar-palette-2); }
+.avatar--palette-3 { background: var(--avatar-palette-3); }
+.avatar--palette-4 { background: var(--avatar-palette-4); }
+.avatar--palette-5 { background: var(--avatar-palette-5); }
+.avatar--palette-6 { background: var(--avatar-palette-6); }
+.avatar--palette-7 { background: var(--avatar-palette-7); }
 
 /*
  * Dark theme follows the system setting unless the viewer picks Light or Dark in
@@ -1485,16 +1518,28 @@ textarea::placeholder {
   --line-red-bg: #3a1d19;
   --line-red-border: #7a362d;
   --line-red-dot: #e06f5f;
+  --avatar-palette-0: #22324a;
+  --avatar-palette-1: #1f3a2c;
+  --avatar-palette-2: #45301f;
+  --avatar-palette-3: #36263f;
+  --avatar-palette-4: #1d3a3d;
+  --avatar-palette-5: #43262c;
+  --avatar-palette-6: #353a20;
+  --avatar-palette-7: #3a3224;
 }
 
-:root[data-theme="dark"] .avatar--palette-0 { background: #22324a; }
-:root[data-theme="dark"] .avatar--palette-1 { background: #1f3a2c; }
-:root[data-theme="dark"] .avatar--palette-2 { background: #45301f; }
-:root[data-theme="dark"] .avatar--palette-3 { background: #36263f; }
-:root[data-theme="dark"] .avatar--palette-4 { background: #1d3a3d; }
-:root[data-theme="dark"] .avatar--palette-5 { background: #43262c; }
-:root[data-theme="dark"] .avatar--palette-6 { background: #353a20; }
-:root[data-theme="dark"] .avatar--palette-7 { background: #3a3224; }
+/*
+ * Dark palette classes keep their higher specificity: in dark mode they still
+ * win over component fallbacks such as .avatar--fallback-unknown.
+ */
+:root[data-theme="dark"] .avatar--palette-0 { background: var(--avatar-palette-0); }
+:root[data-theme="dark"] .avatar--palette-1 { background: var(--avatar-palette-1); }
+:root[data-theme="dark"] .avatar--palette-2 { background: var(--avatar-palette-2); }
+:root[data-theme="dark"] .avatar--palette-3 { background: var(--avatar-palette-3); }
+:root[data-theme="dark"] .avatar--palette-4 { background: var(--avatar-palette-4); }
+:root[data-theme="dark"] .avatar--palette-5 { background: var(--avatar-palette-5); }
+:root[data-theme="dark"] .avatar--palette-6 { background: var(--avatar-palette-6); }
+:root[data-theme="dark"] .avatar--palette-7 { background: var(--avatar-palette-7); }
 
 .avatar--small {
   width: 34px;
@@ -1744,7 +1789,7 @@ textarea::placeholder {
   min-height: 60px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 8px 20px;
   border-bottom: 1px solid var(--border);
 }
@@ -1759,7 +1804,7 @@ textarea::placeholder {
 .row-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .mobile-back {
@@ -1779,7 +1824,7 @@ textarea::placeholder {
 }
 
 .detail-section {
-  max-width: 760px;
+  max-width: var(--content-editor-max);
 }
 
 /* Detail pages read as stacked sections with one rhythm between them. */
@@ -1807,7 +1852,7 @@ textarea::placeholder {
   min-height: 64px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 0 var(--space-4);
   background: var(--surface-sunken);
 }
@@ -1870,7 +1915,7 @@ textarea::placeholder {
 
 .call-detail__actions {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   margin-bottom: 34px;
 }
 
@@ -1976,7 +2021,7 @@ dd {
 
 .conversation-recipient > small {
   display: block;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   color: var(--muted);
 }
 
@@ -1993,7 +2038,7 @@ dd {
 .message-stack {
   display: flex;
   width: 100%;
-  max-width: 760px;
+  max-width: var(--content-editor-max);
   margin-top: auto;
   margin-inline: auto;
   flex-direction: column;
@@ -2172,8 +2217,8 @@ dd {
 .compact-select {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
   color: var(--muted);
   font-size: var(--text-2xs);
 }
@@ -2190,7 +2235,7 @@ dd {
   display: flex;
   min-height: 28px;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin-bottom: 7px;
   color: var(--muted);
   font-size: var(--text-2xs);
@@ -2297,7 +2342,7 @@ dd {
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
-  padding: 20px;
+  padding: var(--space-5);
   background: rgb(var(--shadow-color) / 18%);
 }
 
@@ -2316,7 +2361,7 @@ dd {
   min-height: 60px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 11px 16px;
   border-bottom: 1px solid var(--border);
 }
@@ -2357,7 +2402,7 @@ dd {
 }
 
 .dialer-panel .field {
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 .dialer-line {
@@ -2532,7 +2577,7 @@ dd {
   display: grid;
   align-items: center;
   grid-template-columns: 86px minmax(220px, 1fr) auto 38px;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .phone-row > input {
@@ -2548,7 +2593,7 @@ dd {
   display: grid;
   min-width: 0;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .phone-row__number > input {
@@ -2564,7 +2609,7 @@ dd {
 .primary-radio {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--muted);
   font-size: var(--text-2xs);
 }
@@ -2572,8 +2617,8 @@ dd {
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding-top: 4px;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
 }
 
 .settings-list-pane {
@@ -2661,6 +2706,18 @@ dd {
   margin-top: 34px;
 }
 
+/* Round icon badge leading a settings section, preference row or identity. */
+.settings-icon-badge {
+  display: inline-grid;
+  width: var(--icon-badge-size);
+  height: var(--icon-badge-size);
+  flex: 0 0 var(--icon-badge-size);
+  place-items: center;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 50%;
+}
+
 .device-list {
   display: flex;
   flex-direction: column;
@@ -2676,7 +2733,7 @@ dd {
   display: flex;
   min-height: 70px;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
 }
@@ -2705,7 +2762,7 @@ dd {
   display: grid;
   padding: 4px 14px 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 24px;
+  column-gap: var(--space-6);
 }
 
 .device-facts > div {
@@ -2852,7 +2909,7 @@ dd {
   min-height: 38px;
   align-items: center;
   gap: 7px;
-  margin-top: 12px;
+  margin-top: var(--space-3);
   padding: 8px 10px;
   color: var(--danger);
   font-size: var(--text-2xs);
@@ -2865,7 +2922,7 @@ dd {
   display: grid;
   margin: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 24px;
+  column-gap: var(--space-6);
 }
 
 .tls-facts > div {
@@ -2902,7 +2959,7 @@ dd {
   display: flex;
   min-height: 58px;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
 }
@@ -2942,7 +2999,7 @@ dd {
 
 .tls-file-grid {
   display: grid;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 18px 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -2981,7 +3038,7 @@ dd {
   min-height: 54px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 
@@ -3456,7 +3513,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
   }
 
   .pane-search {
-    padding-top: 8px;
+    padding-top: var(--space-2);
   }
 
   .app-shell {
@@ -3921,7 +3978,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
 
   .shell-header {
     flex-wrap: nowrap;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .mobile-brand {
@@ -3960,7 +4017,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
   .dashboard-detail-section > header,
   .dashboard-line-row,
   .dashboard-contact-row {
-    padding-inline: 12px;
+    padding-inline: var(--space-3);
   }
 
   .pane-header {
@@ -4071,7 +4128,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
   .tls-ca-download {
     align-items: flex-start;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .tls-install > header .secondary-button {
@@ -4091,7 +4148,7 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .settings-form-feedback {

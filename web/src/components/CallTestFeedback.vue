@@ -41,7 +41,7 @@ const hint = computed(() => {
 .call-test-feedback {
   display: grid;
   width: 100%;
-  gap: 8px;
+  gap: var(--space-2);
   margin: 16px 0;
   text-align: center;
 }
@@ -63,14 +63,14 @@ const hint = computed(() => {
 }
 .call-test-feedback dl {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   margin: 4px 0 0;
   font-size: var(--text-2xs);
 }
 .call-test-feedback dl > div {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .call-test-feedback dt {
   color: var(--muted);

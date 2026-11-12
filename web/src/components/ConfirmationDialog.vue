@@ -102,7 +102,7 @@ const messageID = `confirmation-message-${useId()}`
   display: flex;
   grid-column: 1 / -1;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   padding-top: 6px;
 }
 
@@ -129,7 +129,7 @@ const messageID = `confirmation-message-${useId()}`
 
 @media (max-width: 560px) {
   .confirmation-dialog {
-    padding: 20px;
+    padding: var(--space-5);
   }
 }
 </style>

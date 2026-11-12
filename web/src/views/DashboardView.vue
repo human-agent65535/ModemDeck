@@ -1254,7 +1254,7 @@ onMounted(() => {
 
 .dashboard-overview-row {
   min-height: 70px;
-  padding-inline: 16px;
+  padding-inline: var(--space-4);
 }
 
 .dashboard-list-label {
@@ -1281,13 +1281,13 @@ onMounted(() => {
 }
 
 .dashboard-overview-back {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .dashboard-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .dashboard-summary-card {
@@ -1297,7 +1297,7 @@ onMounted(() => {
   align-items: center;
   grid-template-columns: 40px minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
-  column-gap: 12px;
+  column-gap: var(--space-3);
   padding: var(--space-4);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1375,7 +1375,7 @@ onMounted(() => {
 }
 
 .dashboard-detail-section {
-  margin-top: 24px;
+  margin-top: var(--space-6);
   background: transparent;
   border: 0;
 }
@@ -1401,7 +1401,7 @@ onMounted(() => {
 .dashboard-section-metrics {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-3);
   color: var(--muted);
   font-size: var(--text-xs);
 }
@@ -1422,13 +1422,13 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 420px));
   justify-content: start;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .dashboard-module-grid > :deep(.module-card),
 .dashboard-detail-list > .dashboard-contact-row {
   width: 100%;
-  max-width: 420px;
+  max-width: var(--card-max);
 }
 
 .dashboard-detail-list {
@@ -1464,7 +1464,7 @@ onMounted(() => {
 }
 
 .dashboard-contact-actions {
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .dashboard-contact-actions .icon-button {
@@ -1528,14 +1528,14 @@ onMounted(() => {
 
   .dashboard-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .dashboard-summary-card {
     min-height: 92px;
     grid-template-columns: 34px minmax(0, 1fr);
     column-gap: 9px;
-    padding: 12px;
+    padding: var(--space-3);
   }
 
   .dashboard-summary-icon {
@@ -1568,7 +1568,7 @@ onMounted(() => {
 
 @media (max-width: 420px) {
   .dashboard-detail-scroll {
-    padding-inline: 12px;
+    padding-inline: var(--space-3);
   }
 }
 </style>

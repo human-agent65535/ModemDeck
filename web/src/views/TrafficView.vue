@@ -515,7 +515,7 @@ onMounted(() => {
 .traffic-section {
   display: grid;
   min-width: 0;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .traffic-section__action {
@@ -535,7 +535,7 @@ onMounted(() => {
 .traffic-section > header > div {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .traffic-section h2 {
@@ -550,20 +550,20 @@ onMounted(() => {
 .traffic-line-grid {
   display: grid;
   min-width: 0;
-  gap: 12px;
+  gap: var(--space-3);
   grid-template-columns: repeat(auto-fit, minmax(320px, 420px));
   justify-content: start;
 }
 
 .traffic-line-grid > :deep(.traffic-line-card) {
   width: 100%;
-  max-width: 420px;
+  max-width: var(--card-max);
 }
 
 .proxy-grid {
   display: grid;
   min-width: 0;
-  gap: 12px;
+  gap: var(--space-3);
   grid-template-columns: repeat(auto-fit, minmax(min(310px, 100%), 420px));
   justify-content: start;
 }
@@ -571,7 +571,7 @@ onMounted(() => {
 .proxy-grid > :deep(.proxy-card),
 .proxy-add-card {
   width: 100%;
-  max-width: 420px;
+  max-width: var(--card-max);
 }
 
 .proxy-add-card {

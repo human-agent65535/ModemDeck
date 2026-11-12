@@ -27,7 +27,7 @@ defineProps<{
   flex-direction: column;
   align-items: flex-end;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 1px 0;
 }
 

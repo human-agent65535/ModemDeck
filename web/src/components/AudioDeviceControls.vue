@@ -216,11 +216,11 @@ onBeforeUnmount(() => {
 .audio-device-controls__fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .audio-device-controls.is-compact {
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .audio-device-controls.is-compact .audio-device-controls__fields {
@@ -258,7 +258,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .microphone-test strong {

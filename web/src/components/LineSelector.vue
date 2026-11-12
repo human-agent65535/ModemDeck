@@ -614,7 +614,7 @@ onBeforeUnmount(() => {
   min-height: 36px;
   grid-template-columns: 1fr;
   gap: 0;
-  padding: 4px;
+  padding: var(--space-1);
   background: var(--surface-subtle);
   border-color: transparent;
   border-radius: var(--radius-sm);

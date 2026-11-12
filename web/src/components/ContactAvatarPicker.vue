@@ -142,7 +142,7 @@ function removeAvatar(): void {
 .contact-avatar-picker {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   min-width: 0;
   padding: 2px 0 8px;
 }
@@ -199,7 +199,7 @@ function removeAvatar(): void {
   display: grid;
   place-items: center;
   color: var(--on-accent);
-  background: rgb(var(--shadow-color) / 46%);
+  background: var(--scrim);
   border-radius: 50%;
   opacity: 0;
   transition: opacity var(--motion-base) var(--ease-standard);
@@ -231,14 +231,14 @@ function removeAvatar(): void {
   color: var(--on-accent);
   font-size: var(--text-xs);
   font-weight: var(--weight-strong);
-  background: rgb(var(--shadow-color) / 64%);
+  background: var(--scrim-strong);
   border-radius: 50%;
 }
 
 .contact-avatar-picker__copy {
   display: grid;
   min-width: 0;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .contact-avatar-picker__copy > span {
@@ -250,7 +250,7 @@ function removeAvatar(): void {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   margin-top: 2px;
 }
 

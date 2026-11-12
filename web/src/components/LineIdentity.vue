@@ -151,7 +151,7 @@ const toneStyle = computed<Record<string, string> | undefined>(() => {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   padding: 4px 6px;
   color: var(--accent-strong);
   font-size: var(--text-xs);

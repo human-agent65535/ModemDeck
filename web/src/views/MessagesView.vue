@@ -1545,7 +1545,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .conversation-recipient :deep(.suggest-input) {
@@ -1565,7 +1565,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   margin: 0 0 14px;
   padding: 10px 12px;
   color: var(--danger);

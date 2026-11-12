@@ -840,7 +840,7 @@ onBeforeUnmount(() => {
 }
 
 .ios-pairing-note {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   color: var(--muted);
   font-size: var(--text-xs);
   line-height: 1.5;
@@ -889,7 +889,7 @@ onBeforeUnmount(() => {
 
 .ios-notice {
   margin: 0;
-  padding: 12px;
+  padding: var(--space-3);
   color: var(--muted);
   font-size: var(--text-xs);
   line-height: 1.5;
@@ -900,7 +900,7 @@ onBeforeUnmount(() => {
 
 .ios-diagnostics {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .ios-notice--danger {
@@ -949,13 +949,13 @@ onBeforeUnmount(() => {
 }
 
 .ios-server-select {
-  max-width: 520px;
+  max-width: var(--settings-field-max);
   margin-top: 14px;
 }
 
 .ios-pairing-actions {
   justify-content: flex-start;
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 
 .ios-card .field-error {
@@ -965,14 +965,14 @@ onBeforeUnmount(() => {
 .ios-qr-dialog {
   max-height: inherit;
   overflow-y: auto;
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 .ios-qr-dialog > header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .ios-qr-dialog h2 {
@@ -991,7 +991,7 @@ onBeforeUnmount(() => {
 .ios-pairing-code {
   display: grid;
   gap: 9px;
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 
 .ios-pairing-code > div {

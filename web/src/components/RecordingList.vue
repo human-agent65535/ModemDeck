@@ -180,7 +180,7 @@ watch(
 
 <style scoped>
 .recording-list {
-  max-width: 760px;
+  max-width: var(--settings-resource-editor-max);
   container-type: inline-size;
 }
 
@@ -189,7 +189,7 @@ watch(
   min-height: 46px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .recording-list h3 {
@@ -208,7 +208,7 @@ watch(
   display: flex;
   min-height: 58px;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
   font-size: var(--text-2xs);
 }
@@ -230,7 +230,7 @@ watch(
 .recording-list ol {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   margin: 0;
   padding: 0 0 4px;
   list-style: none;
@@ -241,7 +241,7 @@ watch(
   min-width: 0;
   align-items: center;
   grid-template-columns: minmax(240px, 0.9fr) minmax(220px, 1fr) 34px 34px;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 10px 12px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);

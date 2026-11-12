@@ -149,7 +149,7 @@ function secondaryIdentity(): string {
 <style scoped>
 .traffic-line-card {
   min-width: 0;
-  padding: 16px;
+  padding: var(--space-4);
   container-type: inline-size;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -161,7 +161,7 @@ function secondaryIdentity(): string {
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
 }

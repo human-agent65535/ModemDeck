@@ -284,7 +284,7 @@ function submit(): void {
   min-height: 48px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 

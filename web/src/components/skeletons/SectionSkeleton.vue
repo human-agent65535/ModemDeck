@@ -80,7 +80,7 @@ withDefaults(
 }
 
 .section-skeleton--cards {
-  gap: 12px;
+  gap: var(--space-3);
   grid-template-columns: repeat(auto-fill, minmax(280px, 420px));
 }
 
@@ -88,8 +88,8 @@ withDefaults(
   display: flex;
   min-height: 102px;
   align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--space-3);
+  padding: var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
@@ -134,7 +134,7 @@ withDefaults(
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .section-skeleton__fact > span:first-child {
@@ -161,7 +161,7 @@ withDefaults(
   min-width: 0;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .section-skeleton__row > span:first-child > span:first-child {

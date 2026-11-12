@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const [dashboard, devicePanel, moduleCard] = await Promise.all([
+const [dashboard, devicePanel, moduleCard, styles] = await Promise.all([
   readFile(new URL('../src/views/DashboardView.vue', import.meta.url), 'utf8'),
   readFile(
     new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url),
     'utf8'
   ),
-  readFile(new URL('../src/components/ModuleCard.vue', import.meta.url), 'utf8')
+  readFile(new URL('../src/components/ModuleCard.vue', import.meta.url), 'utf8'),
+  readFile(new URL('../src/style.css', import.meta.url), 'utf8')
 ])
 
 function cssBlock(source, selector) {
@@ -27,7 +28,8 @@ test('dashboard keeps stable module-card tracks', () => {
     /grid-template-columns: repeat\(auto-fill, minmax\(320px, 420px\)\)/
   )
   assert.match(dashboardGrid, /justify-content: start/)
-  assert.match(dashboardGrid, /gap: 12px/)
+  assert.match(dashboardGrid, /gap: var\(--space-3\)/)
+  assert.match(styles, /--space-3: 12px;/)
 })
 
 test('device settings retain card selection in their dedicated drilldown workbench', () => {
