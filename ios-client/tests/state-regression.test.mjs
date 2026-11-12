@@ -163,8 +163,10 @@ test('runtime reconciliation accepts ownership-only changes and rejects obsolete
 
 test('real and test call ownership heartbeats renew before capture exists', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
+  // callPath builds its segment with the shared path-segment function.
+  const api = await readFile(new URL('../ios/App/App/ModemDeckAPI.swift', import.meta.url), 'utf8')
   await verify('call-heartbeat-stubs.swift', ['func startControlHeartbeat()', 'private func startLeaseHeartbeat()', 'private func callPath(']
-    .map(marker => declaration(source, marker)))
+    .map(marker => declaration(source, marker)).concat(declaration(api, 'func modemDeckPathSegment(')))
 })
 
 test('persisted hangups recover only with the original credential and reconcile before sending', { skip: process.platform !== 'darwin' }, async () => {

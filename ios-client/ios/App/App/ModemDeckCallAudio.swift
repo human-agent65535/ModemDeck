@@ -407,7 +407,7 @@ final class ModemDeckCallAudioSession: NSObject {
     }
 
     private func preparationPath(_ id: String) -> String {
-        "/api/v1/calls/preparations/" + (id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")
+        "/api/v1/calls/preparations/" + (modemDeckPathSegment(id))
     }
 
     func setMuted(_ muted: Bool) {
@@ -1223,10 +1223,7 @@ final class ModemDeckCallAudioSession: NSObject {
     }
 
     private func callPath(_ suffix: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(
-            CharacterSet(charactersIn: "-._~")
-        )
-        let encoded = callID.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let encoded = modemDeckPathSegment(callID)
         let prefix = testCall ? "/api/v1/mobile/call-tests" : "/api/v1/calls"
         return "\(prefix)/\(encoded)/\(suffix)"
     }

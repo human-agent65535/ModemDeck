@@ -1689,11 +1689,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             return
         }
 
-        let encodedCallID = callID.addingPercentEncoding(
-            withAllowedCharacters: CharacterSet.alphanumerics.union(
-                CharacterSet(charactersIn: "-._~")
-            )
-        ) ?? ""
+        let encodedCallID = modemDeckPathSegment(callID)
         let requestID = operationID ?? [
             "ios-callkit",
             verb,

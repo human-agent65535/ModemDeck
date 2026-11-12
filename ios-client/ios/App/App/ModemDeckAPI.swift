@@ -97,6 +97,20 @@ enum ModemDeckAPIError: LocalizedError {
     }
 }
 
+/// One URL path segment built from an identifier. Only the unreserved characters
+/// (letters, digits, `-`, `.`, `_`, `~`) pass through, so a `/`, `?` or `#` in an
+/// identifier can never address another endpoint, and an identifier made only of
+/// dots cannot be collapsed as a relative path segment.
+func modemDeckPathSegment(_ identifier: String) -> String {
+    if !identifier.isEmpty, identifier.allSatisfy({ $0 == "." }) {
+        return String(repeating: "%2E", count: identifier.count)
+    }
+    let unreserved = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    )
+    return identifier.addingPercentEncoding(withAllowedCharacters: unreserved) ?? ""
+}
+
 private final class ModemDeckOfflineCache {
     private let credentialStore: ModemDeckCredentialStore
     private let fileManager: FileManager
@@ -1259,7 +1273,7 @@ final class ModemDeckAPIClient {
     }
 
     func deleteCall(id: String) async throws {
-        let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let encodedID = modemDeckPathSegment(id)
         _ = try await data(path: "/api/v1/calls/\(encodedID)", method: "DELETE")
     }
 
@@ -1286,8 +1300,8 @@ final class ModemDeckAPIClient {
     }
 
     func deleteRecording(callID: String, recordingID: String) async throws {
-        let encodedCallID = callID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? callID
-        let encodedRecordingID = recordingID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? recordingID
+        let encodedCallID = modemDeckPathSegment(callID)
+        let encodedRecordingID = modemDeckPathSegment(recordingID)
         _ = try await data(
             path: "/api/v1/calls/\(encodedCallID)/recordings/\(encodedRecordingID)",
             method: "DELETE"
@@ -1321,12 +1335,12 @@ final class ModemDeckAPIClient {
     }
 
     func cancelCallPreparation(_ id: String) async throws {
-        let escaped = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        let escaped = modemDeckPathSegment(id)
         _ = try await data(path: "/api/v1/calls/preparations/\(escaped)", method: "DELETE")
     }
 
     func callRecording(callID: String) async throws -> ModemDeckCallRecordingState {
-        let encodedID = callID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? callID
+        let encodedID = modemDeckPathSegment(callID)
         let response = try await decode(
             ModemDeckCallRecordingsResponse.self,
             path: "/api/v1/calls/\(encodedID)/recordings"
@@ -1336,7 +1350,7 @@ final class ModemDeckAPIClient {
 
     func callAction(callID: String, action: String) async throws {
         struct Payload: Encodable { let requestId: String }
-        let encodedID = callID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? callID
+        let encodedID = modemDeckPathSegment(callID)
         _ = try await data(
             path: "/api/v1/calls/\(encodedID)/\(action)",
             method: "POST",
@@ -1348,7 +1362,7 @@ final class ModemDeckAPIClient {
 
     func setCallRecording(callID: String, enabled: Bool) async throws -> ModemDeckCallRecordingState {
         struct Payload: Encodable { let enabled: Bool }
-        let encodedID = callID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? callID
+        let encodedID = modemDeckPathSegment(callID)
         let response = try await decode(
             ModemDeckCallRecordingResponse.self,
             path: "/api/v1/calls/\(encodedID)/recording",
@@ -1484,7 +1498,7 @@ final class ModemDeckAPIClient {
     }
 
     func revokeAccountSession(id: String) async throws {
-        let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let encodedID = modemDeckPathSegment(id)
         _ = try await data(
             path: "/api/v1/account/sessions/\(encodedID)",
             method: "DELETE"
@@ -1520,8 +1534,8 @@ final class ModemDeckAPIClient {
     }
 
     func recordingAudio(callID: String, segmentID: String) async throws -> Data {
-        let encodedCallID = callID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? callID
-        let encodedSegmentID = segmentID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? segmentID
+        let encodedCallID = modemDeckPathSegment(callID)
+        let encodedSegmentID = modemDeckPathSegment(segmentID)
         return try await data(
             path: "/api/v1/calls/\(encodedCallID)/recordings/\(encodedSegmentID)/download"
         )
@@ -1539,7 +1553,7 @@ final class ModemDeckAPIClient {
     func audioTestStatus(id: String) async throws -> ModemDeckAudioTestStatus {
         // API decoding converts snake_case automatically; the audio owner uses
         // a plain decoder, so decode this shared wire model explicitly.
-        let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-"))) ?? ""
+        let encoded = modemDeckPathSegment(id)
         let response = try await data(path: "/api/v1/mobile/call-tests/\(encoded)/status")
         return try JSONDecoder().decode(ModemDeckAudioTestStatus.self, from: response)
     }
@@ -1555,7 +1569,7 @@ final class ModemDeckAPIClient {
     }
 
     func updateContact(id: String, draft: ModemDeckContactDraft) async throws -> ModemDeckContact {
-        let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let encodedID = modemDeckPathSegment(id)
         let response = try await decode(
             ModemDeckContactResponse.self,
             path: "/api/v1/contacts/\(encodedID)",
@@ -1569,7 +1583,7 @@ final class ModemDeckAPIClient {
         guard let revision = contact.revision, revision > 0 else {
             throw ModemDeckAPIError.invalidResponse
         }
-        let encodedID = contact.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contact.id
+        let encodedID = modemDeckPathSegment(contact.id)
         _ = try await data(
             path: path(
                 "/api/v1/contacts/\(encodedID)",
