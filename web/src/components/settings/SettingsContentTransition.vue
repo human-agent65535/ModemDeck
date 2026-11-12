@@ -23,6 +23,11 @@ defineProps<{
   .settings-content-transition {
     animation: settings-content-in var(--motion-base) var(--ease-standard) both;
   }
+
+  /* A skeleton only shimmers. The section enters once its content has replaced it. */
+  .settings-content-transition:has(.settings-skeleton) {
+    animation: none;
+  }
 }
 
 @keyframes settings-content-in {
