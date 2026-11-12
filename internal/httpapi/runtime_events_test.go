@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -729,5 +730,59 @@ func TestEventHeartbeatHasNoReplayCursor(t *testing.T) {
 		!strings.Contains(body, `"at":"2026-08-02T07:30:00Z"`) ||
 		strings.Contains(body, "id:") {
 		t.Fatalf("heartbeat = %q", body)
+	}
+}
+
+func TestRuntimeStateDoesNotCacheASectionThatFailedToBuild(t *testing.T) {
+	communications := &fakeCommunications{activeError: errors.New("database is busy")}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		CallLeases:            &fakeCallLeases{},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	signal := runtimeevents.Signal{Epoch: "process-a", Revision: 3}
+
+	state := api.currentRuntimeState(signal, runtimeevents.AllSections)
+	if state.CallsReady {
+		t.Fatal("calls were reported ready although they could not be read")
+	}
+	cache := &api.runtimeState
+	if cache.sections&runtimeevents.SectionCalls != 0 || cache.failed != runtimeevents.SectionCalls {
+		t.Fatalf("cached sections = %b, failed = %b; the calls section must stay missing", cache.sections, cache.failed)
+	}
+	if cache.sections&runtimeevents.SectionCommunication == 0 {
+		t.Fatal("a section that was built must still be cached")
+	}
+
+	// Within the retry delay other viewers reuse the result instead of repeating
+	// the failed read.
+	communications.activeError = nil
+	communications.active = []store.Call{{ID: "call-1", Phase: "active"}}
+	if state = api.currentRuntimeState(signal, runtimeevents.AllSections); state.CallsReady {
+		t.Fatal("the failed section was rebuilt before its retry delay")
+	}
+
+	cache.mu.Lock()
+	cache.retryAt = time.Time{}
+	cache.mu.Unlock()
+	state = api.currentRuntimeState(signal, runtimeevents.AllSections)
+	if !state.CallsReady || len(state.Calls) != 1 {
+		t.Fatalf("calls after the retry = ready %t, %d calls; want the recovered section", state.CallsReady, len(state.Calls))
+	}
+	if cache.failed != 0 || cache.failures != 0 {
+		t.Fatalf("failed = %b, failures = %d after recovery; want none", cache.failed, cache.failures)
+	}
+}
+
+func TestRuntimeStateRetryDelayGrowsToItsLimit(t *testing.T) {
+	for failures, want := range map[int]time.Duration{
+		1: time.Second, 2: 2 * time.Second, 3: 4 * time.Second, 6: 30 * time.Second, 40: 30 * time.Second,
+	} {
+		if got := runtimeStateRetryDelay(failures); got != want {
+			t.Fatalf("runtimeStateRetryDelay(%d) = %s, want %s", failures, got, want)
+		}
 	}
 }

@@ -22,6 +22,8 @@ var errRuntimeCallForbidden = errors.New("runtime call access is forbidden")
 const (
 	runtimeHeartbeatInterval    = 5 * time.Second
 	runtimeStateBuildTimeout    = 5 * time.Second
+	runtimeStateRetryBase       = time.Second
+	runtimeStateRetryLimit      = 30 * time.Second
 	runtimeUpdatePollInterval   = 750 * time.Millisecond
 	runtimeUpdateStatusTimeout  = 3 * time.Second
 	runtimeUpdateOperationIDMax = 128
@@ -93,6 +95,14 @@ type runtimeStateCache struct {
 	revision    uint64
 	sections    runtimeevents.Section
 	state       runtimeGlobalState
+
+	// A section that could not be built is not cached. It is left out until
+	// retryAt, then built again; failures counts consecutive failed builds and
+	// sets the delay. retryPending is the one scheduled republish.
+	failed       runtimeevents.Section
+	failures     int
+	retryAt      time.Time
+	retryPending bool
 }
 
 func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.Request) {
@@ -566,9 +576,15 @@ func (api *API) currentRuntimeState(
 	}
 
 	missing := sections &^ cache.sections
+	if time.Now().Before(cache.retryAt) {
+		// Every viewer shares this cache; do not let each one repeat a build
+		// that just failed.
+		missing &^= cache.failed
+	}
 	if missing == 0 {
 		return cache.state
 	}
+	built := missing
 
 	ctx, cancel := context.WithTimeout(context.Background(), runtimeStateBuildTimeout)
 	defer cancel()
@@ -578,11 +594,13 @@ func (api *API) currentRuntimeState(
 		projection, err := api.loadCommunicationProjection(ctx, false)
 		if err != nil {
 			api.logRuntimeStateBuildError("communication", err)
+			built &^= runtimeevents.SectionCommunication
 		} else {
 			communication := &runtimeGlobalCommunicationState{Projection: projection}
 			devices, deviceErr := api.repository.Devices(ctx)
 			if deviceErr != nil {
 				api.logRuntimeStateBuildError("devices", deviceErr)
+				built &^= runtimeevents.SectionCommunication
 			} else {
 				if projection.Connected {
 					devices = mergeLiveDeviceNetwork(devices, projection.DeviceLines)
@@ -600,8 +618,10 @@ func (api *API) currentRuntimeState(
 		status, statusErr := api.network.Status(ctx)
 		if statusErr != nil {
 			api.logRuntimeStateBuildError("network", statusErr)
+			built &^= runtimeevents.SectionNetwork
 		} else if proxies, proxyErr := api.network.Proxies(ctx); proxyErr != nil {
 			api.logRuntimeStateBuildError("proxies", proxyErr)
+			built &^= runtimeevents.SectionNetwork
 		} else {
 			state.Network = &runtimeNetworkState{Status: status, Proxies: proxies}
 		}
@@ -613,6 +633,7 @@ func (api *API) currentRuntimeState(
 		calls, callsErr := api.communications.ActiveCalls(ctx)
 		if callsErr != nil {
 			api.logRuntimeStateBuildError("calls", callsErr)
+			built &^= runtimeevents.SectionCalls
 		} else {
 			state.Calls = append([]store.Call(nil), calls...)
 			state.CallsReady = true
@@ -633,9 +654,49 @@ func (api *API) currentRuntimeState(
 		}
 	}
 
-	cache.sections |= missing
+	// Only a section that was actually built is cached. A failed one stays
+	// missing and is built again after a growing delay, so one Agent or database
+	// hiccup cannot leave every viewer without it for the rest of the revision.
+	cache.sections |= built
 	cache.state = state
+	cache.failed = (cache.failed &^ built) | (missing &^ built)
+	if cache.failed == 0 {
+		cache.failures = 0
+		cache.retryAt = time.Time{}
+	} else if missing != built {
+		cache.failures++
+		delay := runtimeStateRetryDelay(cache.failures)
+		cache.retryAt = time.Now().Add(delay)
+		if !cache.retryPending {
+			cache.retryPending = true
+			time.AfterFunc(delay, api.republishFailedRuntimeSections)
+		}
+	}
 	return state
+}
+
+// runtimeStateRetryDelay doubles from one second and stops at thirty.
+func runtimeStateRetryDelay(failures int) time.Duration {
+	delay := runtimeStateRetryBase
+	for attempt := 1; attempt < failures && delay < runtimeStateRetryLimit; attempt++ {
+		delay *= 2
+	}
+	return min(delay, runtimeStateRetryLimit)
+}
+
+// republishFailedRuntimeSections announces the sections that are still missing
+// so every connected viewer asks for them again.
+func (api *API) republishFailedRuntimeSections() {
+	cache := &api.runtimeState
+	cache.mu.Lock()
+	cache.retryPending = false
+	failed := cache.failed
+	cache.mu.Unlock()
+	publisher, ok := api.runtimeEvents.(runtimeevents.Publisher)
+	if !ok || failed == 0 {
+		return
+	}
+	publisher.Publish(runtimeevents.Change{Sections: failed})
 }
 
 func (api *API) logRuntimeStateBuildError(section string, err error) {
