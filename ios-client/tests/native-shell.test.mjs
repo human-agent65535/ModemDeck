@@ -211,23 +211,61 @@ test('tracked iOS configuration contains no personal signing identity', async ()
       if (error.code === 'ENOENT') return Buffer.alloc(0) // A tracked deletion has no packaged content.
       throw error
     })
-    return data.includes(0) ? '' : `[${path}]\n${data.toString('utf8')}`
+    return { path, text: data.includes(0) ? '' : data.toString('utf8') }
   }))
-  const trackedConfiguration = trackedEntries.join('\n')
-  const personalSigningFiles = /(?:^|\/)(?:LocalSigning\.xcconfig|[^/]+\.(?:p8|p12|cer|mobileprovision))$|\.xcarchive\//i
-  const developmentTeamAssignment = new RegExp(`DEVELOPMENT${'_TEAM'}\\s*=`)
-  const privateKeyHeader = new RegExp(`BEGIN (?:EC |RSA )?${'PRIVATE'} KEY`)
+  // Reports only where something was found, never the value itself.
+  const filesMatching = (pattern, entries = trackedEntries) =>
+    entries.filter(entry => pattern.test(entry.text)).map(entry => entry.path)
+  const personalSigningFiles = /(?:^|\/)(?:LocalSigning\.xcconfig|[^/]+\.(?:p8|p12|cer|mobileprovision|provisionprofile))$|\.xcarchive\//i
+  // The names are split so that this file does not match its own rules.
+  // Build settings, project attributes, and the export options' team key.
+  const developmentTeam = new RegExp(`DEVELOPMENT${'_TEAM'}\\s*=|Development${'Team'}\\b|<key>team${'ID'}</key>`)
+  const privateKeyHeader = new RegExp(`BEGIN (?:EC |RSA |ENCRYPTED )?${'PRIVATE'} KEY`)
+  const provisioningProfile = new RegExp(`PROVISIONING${'_PROFILE'}(?:_SPECIFIER)?\\s*=\\s*"?[A-Za-z0-9]`)
+  const signingCertificateOwner = new RegExp(`(?:Apple Development|Apple Distribution|iPhone Developer|iPhone Distribution)${': '}`)
+  // The server's push configuration has a team ID field; only the placeholder may be tracked.
+  const realTeamID = new RegExp(`"?team_?id"?\\s*[:=]\\s*"(?!${'ABCDEFGHIJ'}")[A-Z0-9]{10}"`, 'i')
+  // Any reverse-DNS identifier for this app other than the public default, whatever its prefix.
+  const personalBundleIdentifier = /\b(?!com\.example\.)[a-z]{2,}\.[a-z0-9-]+(?:\.[a-z0-9-]+)*\.modemdeck\b/i
+  // Personal mailboxes. Upstream licence texts list their own authors and are not ours to edit.
+  const personalMailbox = /[A-Za-z0-9._%+-]+@(?:gmail|googlemail|icloud|me|mac|outlook|hotmail|live|yahoo|qq|163|126|foxmail|proton|protonmail|pm)\.[a-z.]{2,}/i
+  const upstreamNotices = /(?:^|\/)third_party\/|THIRD_PARTY_NOTICES|licenses?\.txt$/i
+  const ownEntries = trackedEntries.filter(entry => !upstreamNotices.test(entry.path))
 
-  assert.equal(trackedPaths.some(path => personalSigningFiles.test(path)), false)
-  assert.doesNotMatch(
-    trackedConfiguration,
-    /com\.(?!example\b)[a-z0-9.-]+\.modemdeck/i
-  )
-  assert.doesNotMatch(trackedConfiguration, developmentTeamAssignment)
-  assert.doesNotMatch(trackedConfiguration, privateKeyHeader)
+  assert.deepEqual(trackedPaths.filter(path => personalSigningFiles.test(path)), [])
+  assert.deepEqual(filesMatching(personalBundleIdentifier), [])
+  assert.deepEqual(filesMatching(developmentTeam), [])
+  assert.deepEqual(filesMatching(privateKeyHeader), [])
+  assert.deepEqual(filesMatching(provisioningProfile), [])
+  assert.deepEqual(filesMatching(signingCertificateOwner), [])
+  assert.deepEqual(filesMatching(realTeamID), [])
+  assert.deepEqual(filesMatching(personalMailbox, ownEntries), [])
+
+  // The patterns above cannot know a name. Where this checkout has the ignored local signing
+  // file, the actual team, bundle identifier and account name in it must appear in no tracked file.
+  const localSigning = await readFile(new URL('ios/LocalSigning.xcconfig', root), 'utf8').catch(() => '')
+  const localValues = [...localSigning.matchAll(/^\s*[A-Z_]+\s*=\s*(\S.*?)\s*$/gm)].map(match => match[1])
+  const accountNames = localValues.flatMap(value => value.split('.').slice(1, -1))
+  for (const value of new Set([...localValues, ...accountNames].filter(value => value.length >= 5 && value !== 'example'))) {
+    const needle = value.toLowerCase()
+    assert.deepEqual(
+      trackedEntries.filter(entry => entry.text.toLowerCase().includes(needle)).map(entry => entry.path),
+      [],
+      'a value from the local signing file appears in tracked files'
+    )
+  }
+
   assert.match(sharedConfig, /MODEMDECK_BUNDLE_IDENTIFIER = com\.example\.modemdeck/)
   assert.match(sharedConfig, /#include\? "\.\.\/LocalSigning\.xcconfig"/)
-  assert.match(project, /PRODUCT_BUNDLE_IDENTIFIER = "\$\(MODEMDECK_BUNDLE_IDENTIFIER\)"/)
+  // Every target takes its identifier from the shared setting, the UI tests included.
+  const identifiers = [...project.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/g)].map(match => match[1])
+  assert.equal(identifiers.length, 4)
+  assert.deepEqual(
+    [...new Set(identifiers)].sort(),
+    ['"$(MODEMDECK_BUNDLE_IDENTIFIER)"', '"$(MODEMDECK_BUNDLE_IDENTIFIER).UITests"']
+  )
+  // The UI tests must install wherever the app does.
+  assert.deepEqual([...new Set(project.match(/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+/g))], ['IPHONEOS_DEPLOYMENT_TARGET = 16.0'])
 })
 
 test('SwiftUI is the universal iPhone and iPad application root', async () => {
@@ -474,8 +512,9 @@ test('native app targets iOS 16 and supports expanding message composers', async
     source('ios/App/App/ModemDeckCommunicationViews.swift')
   ])
 
-  assert.equal((project.match(/IPHONEOS_DEPLOYMENT_TARGET = 16\.0;/g) || []).length, 4)
-  assert.doesNotMatch(project, /IPHONEOS_DEPLOYMENT_TARGET = 15\./)
+  // The project, the app and its UI tests, in both configurations.
+  assert.equal((project.match(/IPHONEOS_DEPLOYMENT_TARGET = 16\.0;/g) || []).length, 6)
+  assert.doesNotMatch(project, /IPHONEOS_DEPLOYMENT_TARGET = (?!16\.0;)/)
   assert.ok((communication.match(/axis: \.vertical/g) || []).length >= 2)
   assert.ok((communication.match(/\.lineLimit\(1\.\.\.5\)/g) || []).length >= 2)
 })
