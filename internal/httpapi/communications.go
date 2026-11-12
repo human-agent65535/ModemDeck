@@ -648,8 +648,16 @@ func (api *API) commitPreparedCall(response http.ResponseWriter, request *http.R
 	api.logger.Info("outgoing media call binding", "component", "calls", "preparation_id", preparation.id, "request_id", requestID, "call_id", call.ID, "elapsed_ms", time.Since(preparation.created).Milliseconds())
 	if err := api.bindOutgoingMedia(request.Context(), preparation); err != nil {
 		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(request.Context()), callControlRollbackTimeout)
-		_ = api.communications.EndCall(rollbackContext, call.ID)
+		releaseErr := api.communications.EndCall(rollbackContext, call.ID)
 		cancel()
+		if releaseErr != nil {
+			api.logger.Error(
+				"outgoing call media binding failed and the created call could not be released",
+				"component", "calls",
+				"call_id", call.ID,
+				"error", errors.Join(err, releaseErr),
+			)
+		}
 		preparation.state = preparationFailed
 		api.writeCallMediaError(response, request, err)
 		return
@@ -976,6 +984,8 @@ func (api *API) writeCommunicationError(
 		writeError(response, http.StatusNotImplemented, "not_supported", err.Error(), "")
 	case errors.Is(err, communication.ErrFailedPrecondition):
 		writeError(response, http.StatusPreconditionFailed, "failed_precondition", err.Error(), "")
+	case errors.Is(err, communication.ErrPermissionDenied):
+		writeError(response, http.StatusForbidden, "permission_denied", err.Error(), "")
 	case errors.Is(err, communication.ErrNetworkRejected):
 		writeError(response, http.StatusUnprocessableEntity, "network_rejected", err.Error(), "")
 	case errors.Is(err, communication.ErrUnavailable):
@@ -999,6 +1009,8 @@ func communicationErrorClass(err error) string {
 		return "not_supported"
 	case errors.Is(err, communication.ErrFailedPrecondition):
 		return "failed_precondition"
+	case errors.Is(err, communication.ErrPermissionDenied):
+		return "permission_denied"
 	case errors.Is(err, communication.ErrNetworkRejected):
 		return "network_rejected"
 	case errors.Is(err, communication.ErrUnavailable):

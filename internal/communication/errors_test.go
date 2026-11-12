@@ -17,6 +17,7 @@ func TestTranslateAgentErrorPreservesActionableModemManagerClasses(t *testing.T)
 	}{
 		{code: "failed_precondition", want: ErrFailedPrecondition},
 		{code: "network_rejected", want: ErrNetworkRejected},
+		{code: "permission_denied", want: ErrPermissionDenied},
 	}
 	for _, test := range tests {
 		test := test

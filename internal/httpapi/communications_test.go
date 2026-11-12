@@ -1044,6 +1044,12 @@ func TestCommunicationErrorsHaveStableHTTPMapping(t *testing.T) {
 			wantCode:   "network_rejected",
 		},
 		{
+			name:       "permission denied",
+			err:        &communication.Error{Code: communication.CodePermissionDenied, Message: "permission denied"},
+			wantStatus: http.StatusForbidden,
+			wantCode:   "permission_denied",
+		},
+		{
 			name:       "unknown internal",
 			err:        errors.New("secret dependency failure"),
 			wantStatus: http.StatusInternalServerError,

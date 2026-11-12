@@ -15,6 +15,7 @@ const (
 	CodeConflict           ErrorCode = "conflict"
 	CodeNotSupported       ErrorCode = "not_supported"
 	CodeFailedPrecondition ErrorCode = "failed_precondition"
+	CodePermissionDenied   ErrorCode = "permission_denied"
 	CodeNetworkRejected    ErrorCode = "network_rejected"
 	CodeUnavailable        ErrorCode = "unavailable"
 	CodeVerification       ErrorCode = "verification_failed"
@@ -56,6 +57,7 @@ var (
 	ErrConflict           = &Error{Code: CodeConflict}
 	ErrNotSupported       = &Error{Code: CodeNotSupported}
 	ErrFailedPrecondition = &Error{Code: CodeFailedPrecondition}
+	ErrPermissionDenied   = &Error{Code: CodePermissionDenied}
 	ErrNetworkRejected    = &Error{Code: CodeNetworkRejected}
 	ErrUnavailable        = &Error{Code: CodeUnavailable}
 	ErrVerification       = &Error{Code: CodeVerification}
@@ -87,6 +89,8 @@ func translateAgentError(operation string, err error) error {
 		code = CodeNotSupported
 	case "failed_precondition":
 		code = CodeFailedPrecondition
+	case "permission_denied":
+		code = CodePermissionDenied
 	case "network_rejected":
 		code = CodeNetworkRejected
 	case "unavailable":

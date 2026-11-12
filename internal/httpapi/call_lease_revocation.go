@@ -17,11 +17,11 @@ func (api *API) revokeCallHolder(ctx context.Context, holderID string) error {
 		return nil
 	}
 	callIDs, err := api.callLeases.RevokeHolder(holderID)
-	api.cancelRevokedPreparations(ctx, func(p *outgoingPreparation) bool { return p.owner.HolderID == holderID })
+	preparationErr := api.cancelRevokedPreparations(ctx, func(p *outgoingPreparation) bool { return p.owner.HolderID == holderID })
 	if err != nil {
-		return fmt.Errorf("revoke call holder: %w", err)
+		return errors.Join(fmt.Errorf("revoke call holder: %w", err), preparationErr)
 	}
-	return api.finishRevokedCalls(ctx, callIDs)
+	return errors.Join(api.finishRevokedCalls(ctx, callIDs), preparationErr)
 }
 
 func (api *API) revokeCallSubject(ctx context.Context, subjectID string) error {
@@ -29,11 +29,11 @@ func (api *API) revokeCallSubject(ctx context.Context, subjectID string) error {
 		return nil
 	}
 	callIDs, err := api.callLeases.RevokeSubject(subjectID)
-	api.cancelRevokedPreparations(ctx, func(p *outgoingPreparation) bool { return p.owner.SubjectID == subjectID })
+	preparationErr := api.cancelRevokedPreparations(ctx, func(p *outgoingPreparation) bool { return p.owner.SubjectID == subjectID })
 	if err != nil {
-		return fmt.Errorf("revoke call subject: %w", err)
+		return errors.Join(fmt.Errorf("revoke call subject: %w", err), preparationErr)
 	}
-	return api.finishRevokedCalls(ctx, callIDs)
+	return errors.Join(api.finishRevokedCalls(ctx, callIDs), preparationErr)
 }
 
 func (api *API) revokeCallSessionToken(
@@ -103,7 +103,11 @@ func normalizeRequestContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-func (api *API) cancelRevokedPreparations(ctx context.Context, matches func(*outgoingPreparation) bool) {
+// cancelRevokedPreparations stops every matching outgoing preparation. A
+// preparation is always marked cancelled locally so it can never dispatch, and
+// any lease or media session that could not be released is reported so the
+// caller does not treat the revocation as complete.
+func (api *API) cancelRevokedPreparations(ctx context.Context, matches func(*outgoingPreparation) bool) error {
 	api.preparationsMu.Lock()
 	selected := make([]*outgoingPreparation, 0)
 	for _, p := range api.preparations {
@@ -112,6 +116,7 @@ func (api *API) cancelRevokedPreparations(ctx context.Context, matches func(*out
 		}
 	}
 	api.preparationsMu.Unlock()
+	var result error
 	for _, p := range selected {
 		p.cancelRequested.Store(true)
 		p.dispatchMu.Lock()
@@ -122,13 +127,18 @@ func (api *API) cancelRevokedPreparations(ctx context.Context, matches func(*out
 		p.mu.Lock()
 		p.state = preparationCancelled
 		if leases, ok := api.preparationLease(); ok {
-			_, _ = leases.CancelOutgoing(p.id, p.owner.HolderID)
+			if _, err := leases.CancelOutgoing(p.id, p.owner.HolderID); err != nil {
+				result = errors.Join(result, fmt.Errorf("cancel revoked outgoing preparation %s: %w", p.id, err))
+			}
 		}
 		if p.session != nil {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), callRevocationTimeout)
-			_ = p.session.Close(cleanup)
+			if err := p.session.Close(cleanup); err != nil {
+				result = errors.Join(result, fmt.Errorf("close revoked preparation media %s: %w", p.id, err))
+			}
 			cancel()
 		}
 		p.mu.Unlock()
 	}
+	return result
 }

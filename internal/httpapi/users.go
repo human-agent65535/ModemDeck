@@ -146,16 +146,12 @@ func (api *API) userResource(
 			api.writeUserError(response, request, "set member password", err)
 			return
 		}
-		if err := api.revokeCallSubject(request.Context(), userID); err != nil {
-			api.logger.Error(
-				"end user calls after administrator password reset",
-				"user_id",
-				userID,
-				"error",
-				err,
-			)
-		}
+		revokeErr := api.revokeCallSubject(request.Context(), userID)
 		api.publishDurableChange()
+		if revokeErr != nil {
+			api.writeCallRevocationFailure(response, "end user calls after administrator password reset", userID, revokeErr)
+			return
+		}
 		response.Header().Set("Cache-Control", "no-store")
 		response.WriteHeader(http.StatusNoContent)
 		return
@@ -253,19 +249,16 @@ func (api *API) userResource(
 		api.writeUserError(response, request, "update member", err)
 		return
 	}
+	var revokeErr error
 	if revokeCalls {
-		if err := api.revokeCallSubject(request.Context(), userID); err != nil {
-			api.logger.Error(
-				"end calls after user access revocation",
-				"user_id",
-				userID,
-				"error",
-				err,
-			)
-		}
+		revokeErr = api.revokeCallSubject(request.Context(), userID)
 	}
 	api.notifyTelegramAccessChanged()
 	api.publishDurableChange()
+	if revokeErr != nil {
+		api.writeCallRevocationFailure(response, "end calls after user access revocation", userID, revokeErr)
+		return
+	}
 	writeJSON(response, http.StatusOK, userResponse{User: user})
 }
 
@@ -420,4 +413,24 @@ func adminOnlyAPIPath(path, method string) bool {
 		}
 	}
 	return false
+}
+
+// writeCallRevocationFailure reports that an access change was stored but the
+// user's active calls could not be ended. The administrator must not be told the
+// revocation is complete while a call the user no longer may control is live.
+func (api *API) writeCallRevocationFailure(
+	response http.ResponseWriter,
+	operation string,
+	userID string,
+	err error,
+) {
+	api.logger.Error(operation, "user_id", userID, "error", err)
+	response.Header().Set("Cache-Control", "no-store")
+	writeError(
+		response,
+		http.StatusInternalServerError,
+		"call_revocation_failed",
+		"The change was saved, but the user's active calls could not be ended",
+		"",
+	)
 }

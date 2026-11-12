@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"errors"
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
@@ -113,4 +114,56 @@ func TestPairingRevocationInvalidatesLiveLease(t *testing.T) {
 	if err := leases.Require(ctx, "call-review", holder); err == nil {
 		t.Fatalf("credential is revoked but real call lease still accepts the former owner; media.closed=%q endedCall=%q", media.closed, communications.endCallID)
 	}
+}
+
+func TestAccessChangeReportsCallsThatCouldNotBeEnded(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, body string
+	}{
+		{"password reset", "/api/v1/users/member-1/password", `{"password":"a replacement password"}`},
+		{"remove line", "/api/v1/users/member-1", `{"username":"alice","enabled":true,"ios_pairing_enabled":true,"line_ids":[],"revision":1}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repository := &fakeUserRepository{fakeRepository: &fakeRepository{}, users: []store.User{{ID: "member-1", Username: "alice", Role: auth.RoleMember, Enabled: true, IOSPairingEnabled: true, LineIDs: []string{"line-1"}, Revision: 1}}, updateUser: store.User{ID: "member-1", Username: "alice", Role: auth.RoleMember, Enabled: true, Revision: 2}}
+			leases := &fakeCallLeases{err: errors.New("lease store unavailable")}
+			api, err := New(repository, Options{disableAuthentication: true, CallLeases: leases, Communications: &fakeCommunications{}, CallMedia: &fakeCallMedia{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodPut, tc.path, bytes.NewBufferString(tc.body))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			api.ServeHTTP(response, request)
+			if leases.revokedSubjectID != "member-1" {
+				t.Fatalf("revoked subject = %q, want member-1", leases.revokedSubjectID)
+			}
+			assertAPIError(t, response, http.StatusInternalServerError, "call_revocation_failed")
+		})
+	}
+}
+
+func TestRevocationReportsPreparationThatCouldNotBeReleased(t *testing.T) {
+	leases := cancelFailingCallLeases{fakeCallLeases: &fakeCallLeases{}}
+	api, err := New(&fakeRepository{}, Options{disableAuthentication: true, CallLeases: leases, Communications: &fakeCommunications{}, CallMedia: &fakeCallMedia{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation := &outgoingPreparation{id: "prepare-1", owner: calllease.Owner{HolderID: "holder-1", SubjectID: "member-1"}}
+	api.preparationsMu.Lock()
+	api.preparations = map[string]*outgoingPreparation{preparation.id: preparation}
+	api.preparationsMu.Unlock()
+
+	err = api.revokeCallSubject(context.Background(), "member-1")
+	if !errors.Is(err, calllease.ErrNotOwner) {
+		t.Fatalf("revokeCallSubject() error = %v, want the lease cancellation failure", err)
+	}
+	if preparation.state != preparationCancelled || !preparation.cancelRequested.Load() {
+		t.Fatalf("preparation state = %v, cancel requested = %v; it must never dispatch", preparation.state, preparation.cancelRequested.Load())
+	}
+}
+
+type cancelFailingCallLeases struct{ *fakeCallLeases }
+
+func (cancelFailingCallLeases) CancelOutgoing(string, string) (string, error) {
+	return "", calllease.ErrNotOwner
 }
