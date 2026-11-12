@@ -471,6 +471,11 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 	if !found {
 		return domain.CommandReceipt{}, domain.NotFound(operation, "line was not found")
 	}
+	// The snapshot above was read under callMu for this command; nothing has
+	// been sent to the modem yet.
+	if err := domain.RequireExpectedSIM(operation, line, request.ExpectedSIMIdentifier); err != nil {
+		return domain.CommandReceipt{}, err
+	}
 	if !line.Capabilities.Dial {
 		return domain.CommandReceipt{}, domain.NotSupported(
 			operation,
@@ -769,6 +774,9 @@ func (p *Provider) SendMessage(ctx context.Context, request domain.SendMessageRe
 	line, found := findLine(parsed.Lines, request.LineID)
 	if !found {
 		return domain.CommandReceipt{}, domain.NotFound(operation, "line was not found")
+	}
+	if err := domain.RequireExpectedSIM(operation, line, request.ExpectedSIMIdentifier); err != nil {
+		return domain.CommandReceipt{}, err
 	}
 	if !line.Capabilities.MessagingInterface {
 		return domain.CommandReceipt{}, domain.NotSupported(operation, "line does not expose the ModemManager Messaging interface")

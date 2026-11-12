@@ -916,9 +916,10 @@ func TestStartCallUsesVoiceCreateThenCallStartAndOpaqueReceipt(t *testing.T) {
 	ctx := context.WithValue(context.Background(), contextKey{}, "dial")
 
 	receipt, err := provider.StartCall(ctx, domain.StartCallRequest{
-		RequestID: "request-dial-1",
-		LineID:    lineID,
-		Number:    " +818012345678 ",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "request-dial-1",
+		LineID:                lineID,
+		Number:                " +818012345678 ",
 	})
 	if err != nil {
 		t.Fatalf("StartCall: %v", err)
@@ -955,9 +956,10 @@ func TestStartCallRejectsSecondOngoingCallOnSameLine(t *testing.T) {
 	provider := newTestProvider(caller)
 
 	_, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "request-dial-2",
-		LineID:    parsedLineID(objects, provider.ids),
-		Number:    "+818012345678",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "request-dial-2",
+		LineID:                parsedLineID(objects, provider.ids),
+		Number:                "+818012345678",
 	})
 	assertOperationError(t, err, domain.ErrorConflict, "start_call")
 	assertMethods(t, caller.invocations(), objectManagerInterface+".GetManagedObjects")
@@ -970,9 +972,10 @@ func TestStartCallDoesNotTreatTerminatedCallAsLineConflict(t *testing.T) {
 	provider := newTestProvider(caller)
 
 	_, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "request-after-terminal",
-		LineID:    parsedLineID(objects, provider.ids),
-		Number:    "+818012345678",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "request-after-terminal",
+		LineID:                parsedLineID(objects, provider.ids),
+		Number:                "+818012345678",
 	})
 	if err != nil {
 		t.Fatalf("StartCall after terminal call: %v", err)
@@ -1013,9 +1016,11 @@ func TestStartCallConflictIsScopedToOneLine(t *testing.T) {
 	}
 
 	_, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "request-second-line",
-		LineID:    secondLineID,
-		Number:    "+818012345678",
+		// The second modem fixture carries no SIM.
+		ExpectedSIMIdentifier: "",
+		RequestID:             "request-second-line",
+		LineID:                secondLineID,
+		Number:                "+818012345678",
 	})
 	if err != nil {
 		t.Fatalf("StartCall on idle second line: %v", err)
@@ -1473,10 +1478,11 @@ func TestSendMessageUsesMessagingCreateThenSmsSend(t *testing.T) {
 	lineID := parsedLineID(caller.objects, provider.ids)
 
 	receipt, err := provider.SendMessage(context.Background(), domain.SendMessageRequest{
-		RequestID: "request-sms",
-		LineID:    lineID,
-		Number:    "+818012345678",
-		Text:      "hello",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "request-sms",
+		LineID:                lineID,
+		Number:                "+818012345678",
+		Text:                  "hello",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)
@@ -1509,6 +1515,7 @@ func TestSendMessageRequestsDeliveryReportWhenEnabled(t *testing.T) {
 	provider := newTestProvider(caller)
 
 	receipt, err := provider.SendMessage(context.Background(), domain.SendMessageRequest{
+		ExpectedSIMIdentifier:   testSIMIdentifier,
 		RequestID:               "request-sms-report",
 		LineID:                  parsedLineID(caller.objects, provider.ids),
 		Number:                  "+818012345678",
@@ -1540,6 +1547,7 @@ func TestSendMessageFallsBackOnlyAfterExplicitDeliveryReportRejection(t *testing
 	provider := newTestProvider(caller)
 
 	receipt, err := provider.SendMessage(context.Background(), domain.SendMessageRequest{
+		ExpectedSIMIdentifier:   testSIMIdentifier,
 		RequestID:               "request-sms-report-fallback",
 		LineID:                  parsedLineID(caller.objects, provider.ids),
 		Number:                  "+818012345678",
@@ -1580,6 +1588,7 @@ func TestSendMessageDoesNotRetryAmbiguousDeliveryReportFailure(t *testing.T) {
 	provider := newTestProvider(caller)
 
 	_, err := provider.SendMessage(context.Background(), domain.SendMessageRequest{
+		ExpectedSIMIdentifier:   testSIMIdentifier,
 		RequestID:               "request-sms-report-timeout",
 		LineID:                  parsedLineID(caller.objects, provider.ids),
 		Number:                  "+818012345678",
@@ -1603,10 +1612,11 @@ func TestSendMessageFailureDoesNotInvokeFallbackOrDelete(t *testing.T) {
 	provider := newTestProvider(caller)
 
 	_, err := provider.SendMessage(context.Background(), domain.SendMessageRequest{
-		RequestID: "request-sms-fail",
-		LineID:    parsedLineID(caller.objects, provider.ids),
-		Number:    "+818012345678",
-		Text:      "hello",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "request-sms-fail",
+		LineID:                parsedLineID(caller.objects, provider.ids),
+		Number:                "+818012345678",
+		Text:                  "hello",
 	})
 	assertOperationError(t, err, domain.ErrorFailedPrecondition, "send_message")
 	assertMethods(t, caller.invocations(),
@@ -1719,6 +1729,9 @@ func newFakeCaller(objects ManagedObjects) *fakeCaller {
 		errorSequences:   make(map[string][]error),
 	}
 }
+
+// testSIMIdentifier is the SIM the line fixtures carry.
+const testSIMIdentifier = "8986012345678901234"
 
 func emptyLineObjects(voice, messaging bool) ManagedObjects {
 	interfaces := Interfaces{
@@ -1887,5 +1900,40 @@ func TestRefusedExtendedSignalSetupIsRetriedAndUnsupportedIsNot(t *testing.T) {
 				t.Fatalf("Setup calls after the refusal retry delay = %d, want %d", got, want)
 			}
 		})
+	}
+}
+
+func TestDialAndMessageAreRefusedBeforeTheModemWhenTheSIMChanged(t *testing.T) {
+	for _, expected := range []string{"8986000000000000000", ""} {
+		caller := newFakeCaller(emptyLineObjects(true, true))
+		provider := newTestProvider(caller)
+		lineID := parsedLineID(caller.objects, provider.ids)
+
+		_, callErr := provider.StartCall(context.Background(), domain.StartCallRequest{
+			RequestID:             "request-dial-swapped",
+			LineID:                lineID,
+			Number:                "+818012345678",
+			ExpectedSIMIdentifier: expected,
+		})
+		_, messageErr := provider.SendMessage(context.Background(), domain.SendMessageRequest{
+			RequestID:             "request-sms-swapped",
+			LineID:                lineID,
+			Number:                "+818012345678",
+			Text:                  "hello",
+			ExpectedSIMIdentifier: expected,
+		})
+		for name, err := range map[string]error{"StartCall": callErr, "SendMessage": messageErr} {
+			operationError, ok := domain.AsOperationError(err)
+			if !ok || operationError.Code != domain.ErrorConflict {
+				t.Fatalf("expected SIM %q: %s error = %v, want a conflict", expected, name, err)
+			}
+		}
+		for _, invocation := range caller.invocations() {
+			switch invocation.Method {
+			case voiceInterface + ".CreateCall", callInterface + ".Start",
+				messagingInterface + ".Create", smsInterface + ".Send":
+				t.Fatalf("expected SIM %q: %s reached the modem", expected, invocation.Method)
+			}
+		}
 	}
 }

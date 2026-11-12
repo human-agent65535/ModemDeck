@@ -163,9 +163,10 @@ func TestStartCallRejectsHydratedExistingCall(t *testing.T) {
 	lineID := parsedLineID(objects, provider.ids)
 
 	_, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "request-1",
-		LineID:    lineID,
-		Number:    "+818012345678",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "request-1",
+		LineID:                lineID,
+		Number:                "+818012345678",
 	})
 	assertOperationError(t, err, domain.ErrorConflict, "start_call")
 	if countInvocations(

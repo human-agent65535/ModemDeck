@@ -264,6 +264,10 @@ type StartCallRequest struct {
 	RequestID string `json:"request_id"`
 	LineID    string `json:"line_id"`
 	Number    string `json:"number"`
+	// ExpectedSIMIdentifier is the SIM the line carried in the snapshot the
+	// command was decided on. The Agent refuses the command if the line now
+	// carries another one.
+	ExpectedSIMIdentifier string `json:"expected_sim_identifier"`
 }
 
 type CallActionRequest struct {
@@ -281,6 +285,8 @@ type SendMessageRequest struct {
 	Number                  string `json:"number"`
 	Text                    string `json:"text"`
 	DeliveryReportRequested bool   `json:"delivery_report_requested"`
+	// ExpectedSIMIdentifier: see StartCallRequest.
+	ExpectedSIMIdentifier string `json:"expected_sim_identifier"`
 }
 
 type OperationError struct {

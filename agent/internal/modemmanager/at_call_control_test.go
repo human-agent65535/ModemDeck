@@ -47,9 +47,10 @@ func TestQuectelATCallControlWithoutModemManagerVoice(t *testing.T) {
 	caller.atResponses[quectelCallListQuery] =
 		`+CLCC: 1,0,2,0,0,"+818012345678",145`
 	receipt, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "request-at-dial",
-		LineID:    line.ID,
-		Number:    "+81 (80) 1234-5678",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "request-at-dial",
+		LineID:                line.ID,
+		Number:                "+81 (80) 1234-5678",
 	})
 	if err != nil {
 		t.Fatalf("StartCall() error = %v", err)
@@ -233,9 +234,10 @@ func TestQuectelATDialTransportErrorUsesObservedCall(t *testing.T) {
 	receipt, err := provider.StartCall(
 		context.Background(),
 		domain.StartCallRequest{
-			RequestID: "request-ambiguous-at-dial",
-			LineID:    lineID,
-			Number:    "+818012345678",
+			ExpectedSIMIdentifier: testSIMIdentifier,
+			RequestID:             "request-ambiguous-at-dial",
+			LineID:                lineID,
+			Number:                "+818012345678",
 		},
 	)
 	if err != nil {
@@ -273,9 +275,10 @@ func TestQuectelATDialRequiresCLCCAndRollsBackOnce(t *testing.T) {
 	_, err = provider.StartCall(
 		context.Background(),
 		domain.StartCallRequest{
-			RequestID: "request-unobserved-at-dial",
-			LineID:    lineID,
-			Number:    "+818012345678",
+			ExpectedSIMIdentifier: testSIMIdentifier,
+			RequestID:             "request-unobserved-at-dial",
+			LineID:                lineID,
+			Number:                "+818012345678",
 		},
 	)
 	assertOperationError(t, err, domain.ErrorVerification, "start_call")

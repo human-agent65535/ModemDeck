@@ -2619,3 +2619,52 @@ func TestIncompatibleAgentReceivesNoDialOrMessage(t *testing.T) {
 		)
 	}
 }
+
+func TestDialAndMessageNameTheSIMTheLineCarried(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.November, 12, 13, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	agent.messageResult = agentclient.CommandReceipt{
+		RequestID:  "request-message-sim",
+		ResourceID: "message-endpoint-sim",
+	}
+	agent.startError = &agentclient.OperationError{
+		Status:  http.StatusConflict,
+		Code:    "conflict",
+		Message: "the SIM in this line is not the one the request was made for",
+	}
+	service, err := New(agent, &fakeRepository{}, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	service.now = func() time.Time { return now }
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	const simInSnapshot = "8901000000000000001"
+
+	if _, err := service.SendMessage(context.Background(), SendMessageInput{
+		RequestID: "request-message-sim",
+		LineID:    "line-1",
+		Number:    "+818012345678",
+		Text:      "hello",
+	}); err != nil {
+		t.Fatalf("SendMessage() error = %v", err)
+	}
+	if len(agent.messageRequests) != 1 || agent.messageRequests[0].ExpectedSIMIdentifier != simInSnapshot {
+		t.Fatalf("message requests = %+v, want the snapshot's SIM", agent.messageRequests)
+	}
+
+	// The Agent refuses a dial whose SIM changed; the caller sees a conflict.
+	_, err = service.StartCall(context.Background(), StartCallInput{
+		RequestID: "request-call-sim",
+		LineID:    "line-1",
+		Number:    "+818012345678",
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("StartCall() error = %v, want ErrConflict", err)
+	}
+	if len(agent.startRequests) != 1 || agent.startRequests[0].ExpectedSIMIdentifier != simInSnapshot {
+		t.Fatalf("start requests = %+v, want the snapshot's SIM", agent.startRequests)
+	}
+}

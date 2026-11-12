@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -277,6 +278,9 @@ type StartCallRequest struct {
 	RequestID string `json:"request_id"`
 	LineID    string `json:"line_id"`
 	Number    string `json:"number"`
+	// ExpectedSIMIdentifier is the sim_identifier of the line in the snapshot
+	// the caller decided on. See RequireExpectedSIM.
+	ExpectedSIMIdentifier string `json:"expected_sim_identifier"`
 }
 
 type CallCommandRequest struct {
@@ -296,6 +300,22 @@ type SendMessageRequest struct {
 	Number                  string `json:"number"`
 	Text                    string `json:"text"`
 	DeliveryReportRequested bool   `json:"delivery_report_requested"`
+	// ExpectedSIMIdentifier is the sim_identifier of the line in the snapshot
+	// the caller decided on. See RequireExpectedSIM.
+	ExpectedSIMIdentifier string `json:"expected_sim_identifier"`
+}
+
+// RequireExpectedSIM refuses a dial or message when the SIM now in the line is
+// not the one the caller saw. A line is a modem; the caller chose a subscriber.
+// If the card was changed after the caller's snapshot, the command would
+// otherwise be billed to, and appear to come from, a different subscriber.
+// The comparison is exact: a caller that names no SIM matches only a line that
+// reports none.
+func RequireExpectedSIM(operation string, line Line, expected string) error {
+	if strings.TrimSpace(expected) == strings.TrimSpace(line.SIMIdentifier) {
+		return nil
+	}
+	return Conflict(operation, "the SIM in this line is not the one the request was made for")
 }
 
 type DeleteMessageRequest struct {

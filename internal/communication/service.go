@@ -1849,6 +1849,7 @@ func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (stor
 		Number:                  number,
 		Text:                    text,
 		DeliveryReportRequested: deliveryPolicy.DeliveryReportsEnabled,
+		ExpectedSIMIdentifier:   line.ICCID,
 	})
 	if err != nil {
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
@@ -1994,9 +1995,10 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 	commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
 	defer cancel()
 	receipt, err := s.agent.StartCall(commandContext, agentclient.StartCallRequest{
-		RequestID: requestID,
-		LineID:    line.EndpointID,
-		Number:    number,
+		RequestID:             requestID,
+		LineID:                line.EndpointID,
+		Number:                number,
+		ExpectedSIMIdentifier: line.ICCID,
 	})
 	if err != nil {
 		if agentErrorCode(err) == "" {

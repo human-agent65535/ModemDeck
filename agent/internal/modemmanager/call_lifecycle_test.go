@@ -245,7 +245,8 @@ func TestOutgoingCreateSeedsOnlyRealMetadataBeforeAnyCallSnapshot(t *testing.T) 
 	p := newTestProvider(fake)
 	lineID := parsedLineID(fake.objects, p.ids)
 	receipt, err := p.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "short-outgoing", LineID: lineID, Number: "+818012345678"})
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "short-outgoing", LineID: lineID, Number: "+818012345678"})
 	if err != nil {
 		t.Fatal(err)
 	}

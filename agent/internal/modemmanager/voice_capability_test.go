@@ -86,9 +86,10 @@ func TestQDC507ModuleRuntimeReplacesQPCMVWithoutChangingCallControl(t *testing.T
 			if test.wantMedia {
 				lineID := line.ID
 				if _, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-					RequestID: "qdc507-runtime-call",
-					LineID:    lineID,
-					Number:    "+818012345678",
+					ExpectedSIMIdentifier: testSIMIdentifier,
+					RequestID:             "qdc507-runtime-call",
+					LineID:                lineID,
+					Number:                "+818012345678",
 				}); err != nil {
 					t.Fatalf("StartCall() error = %v", err)
 				}
@@ -242,9 +243,10 @@ func TestQuectelCallCommandDoesNotInitializeMissingVoiceModel(t *testing.T) {
 	lineID := ParseManagedObjects(objects, provider.ids).Lines[0].ID
 
 	_, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "start-without-voice-model",
-		LineID:    lineID,
-		Number:    "+818012345678",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "start-without-voice-model",
+		LineID:                lineID,
+		Number:                "+818012345678",
 	})
 	assertOperationError(t, err, domain.ErrorNotSupported, "start_call")
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
@@ -276,9 +278,10 @@ func TestQuectelPCMIsConfirmedAgainBeforeOutgoingCallStarts(t *testing.T) {
 	lineID := modeled.Lines[0].ID
 
 	receipt, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "start-media-71",
-		LineID:    lineID,
-		Number:    "+818012345678",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "start-media-71",
+		LineID:                lineID,
+		Number:                "+818012345678",
 	})
 	if err != nil {
 		t.Fatalf("StartCall() error = %v", err)
@@ -355,9 +358,10 @@ func TestQuectelPCMIsRestoredBeforeOutgoingCallWhenRuntimeStateChanged(t *testin
 
 	caller.atResponses[quectelPCMStatusQuery] = "+QPCMV: 0,0"
 	if _, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "restore-media-72",
-		LineID:    modeled.Lines[0].ID,
-		Number:    "+818012345678",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "restore-media-72",
+		LineID:                modeled.Lines[0].ID,
+		Number:                "+818012345678",
 	}); err != nil {
 		t.Fatalf("StartCall() error = %v", err)
 	}
@@ -855,9 +859,10 @@ func TestStartCallRejectsUnverifiedQuectelVoice(t *testing.T) {
 	lineID := ParseManagedObjects(objects, provider.ids).Lines[0].ID
 
 	_, err := provider.StartCall(context.Background(), domain.StartCallRequest{
-		RequestID: "request-qdc-voice",
-		LineID:    lineID,
-		Number:    "+818012345678",
+		ExpectedSIMIdentifier: testSIMIdentifier,
+		RequestID:             "request-qdc-voice",
+		LineID:                lineID,
+		Number:                "+818012345678",
 	})
 	assertOperationError(t, err, domain.ErrorNotSupported, "start_call")
 	for _, invocation := range caller.invocations() {
