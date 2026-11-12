@@ -658,11 +658,11 @@ func (api *API) commitPreparedCall(response http.ResponseWriter, request *http.R
 				"error", errors.Join(err, releaseErr),
 			)
 		}
-		preparation.state = preparationFailed
+		preparation.setStateLocked(preparationFailed)
 		api.writeCallMediaError(response, request, err)
 		return
 	}
-	preparation.state = preparationCommitted
+	preparation.setStateLocked(preparationCommitted)
 
 	api.publishLiveState()
 	writeJSON(response, http.StatusCreated, callSessionEnvelope{Call: callSession(call, calllease.ControlOwned)})

@@ -125,7 +125,7 @@ func (api *API) cancelRevokedPreparations(ctx context.Context, matches func(*out
 		}
 		p.dispatchMu.Unlock()
 		p.mu.Lock()
-		p.state = preparationCancelled
+		p.setStateLocked(preparationCancelled)
 		if leases, ok := api.preparationLease(); ok {
 			if _, err := leases.CancelOutgoing(p.id, p.owner.HolderID); err != nil {
 				result = errors.Join(result, fmt.Errorf("cancel revoked outgoing preparation %s: %w", p.id, err))

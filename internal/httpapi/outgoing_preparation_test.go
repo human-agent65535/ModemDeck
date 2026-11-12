@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -381,5 +382,82 @@ func TestMediaFailureWhileCommitWaitsNeverDispatches(t *testing.T) {
 	}
 	if response.Code != 503 || f.communications.startCalls != 0 {
 		t.Fatal("media failure while waiting still dialed", response.Code, f.communications.startCalls, response.Body.String())
+	}
+}
+
+func TestFinishedPreparationsDoNotFillThePreparationTable(t *testing.T) {
+	api, err := New(&fakeRepository{}, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	api.preparations = make(map[string]*outgoingPreparation)
+	for index := range maxOutgoingPreparations - 3 {
+		state := preparationCancelled
+		if index%2 == 0 {
+			state = preparationFailed
+		}
+		id := fmt.Sprintf("finished-%d", index)
+		api.preparations[id] = &outgoingPreparation{id: id, created: now, expires: now.Add(time.Minute), state: state}
+	}
+	api.preparations["expired"] = &outgoingPreparation{id: "expired", created: now, expires: now.Add(-time.Second)}
+	api.preparations["waiting"] = &outgoingPreparation{id: "waiting", created: now, expires: now.Add(time.Minute)}
+	api.preparations["committed"] = &outgoingPreparation{id: "committed", created: now, expires: now.Add(-time.Second), state: preparationCommitted}
+
+	api.preparationsMu.Lock()
+	api.pruneOutgoingPreparationsLocked(now)
+	api.preparationsMu.Unlock()
+
+	if len(api.preparations) != 2 || api.preparations["waiting"] == nil || api.preparations["committed"] == nil {
+		t.Fatalf("after pruning a full table %d preparations remain; want only the waiting and committed ones", len(api.preparations))
+	}
+}
+
+func TestPreparationsBelowTheLimitAreKeptForReplayUntilRetentionEnds(t *testing.T) {
+	api, err := New(&fakeRepository{}, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	busy := &outgoingPreparation{id: "busy", created: now.Add(-time.Hour), state: preparationCommitted}
+	busy.mu.Lock()
+	defer busy.mu.Unlock()
+	api.preparations = map[string]*outgoingPreparation{
+		"recent": {id: "recent", created: now, state: preparationCancelled},
+		"old":    {id: "old", created: now.Add(-outgoingPreparationRetention), state: preparationCancelled},
+		"busy":   busy,
+	}
+
+	api.preparationsMu.Lock()
+	api.pruneOutgoingPreparationsLocked(now)
+	api.preparationsMu.Unlock()
+
+	if api.preparations["recent"] == nil {
+		t.Fatal("a recently cancelled preparation must stay so a repeated request gets the same answer")
+	}
+	if api.preparations["old"] != nil {
+		t.Fatal("a preparation past its retention was kept")
+	}
+	if api.preparations["busy"] == nil {
+		t.Fatal("a preparation in use was removed")
+	}
+}
+
+func TestLeavingThePreparedStateStopsTheExpiryTimer(t *testing.T) {
+	for _, state := range []preparationState{preparationCommitted, preparationFailed, preparationCancelled} {
+		fired := make(chan struct{}, 1)
+		p := &outgoingPreparation{}
+		p.expiry = time.AfterFunc(20*time.Millisecond, func() { fired <- struct{}{} })
+		p.mu.Lock()
+		p.setStateLocked(state)
+		p.mu.Unlock()
+		if p.expiry != nil {
+			t.Fatalf("state %d kept its expiry timer", state)
+		}
+		select {
+		case <-fired:
+			t.Fatalf("state %d: the expiry timer still fired", state)
+		case <-time.After(60 * time.Millisecond):
+		}
 	}
 }

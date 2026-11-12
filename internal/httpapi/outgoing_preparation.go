@@ -19,6 +19,12 @@ import (
 
 const outgoingPrepareDuration = 30 * time.Second
 
+// A finished preparation is kept this long so a repeated request with the same
+// request ID gets the same answer instead of a second dial.
+const outgoingPreparationRetention = 10 * time.Minute
+
+const maxOutgoingPreparations = 1024
+
 type preparationState uint8
 
 const (
@@ -43,7 +49,57 @@ type outgoingPreparation struct {
 	transport       *mediaSocketTransport
 	call            store.Call
 	state           preparationState
+	// expiry ends a preparation that was never committed. It is stopped as soon
+	// as the preparation leaves the prepared state.
+	expiry *time.Timer
 }
+
+// setStateLocked moves the preparation to its next state. The caller holds
+// p.mu. Leaving the prepared state stops the expiry timer.
+func (p *outgoingPreparation) setStateLocked(state preparationState) {
+	p.state = state
+	if state != preparationPrepared && p.expiry != nil {
+		p.expiry.Stop()
+		p.expiry = nil
+	}
+}
+
+// finishedLocked reports whether the preparation can no longer lead to a call.
+// The caller holds p.mu.
+func (p *outgoingPreparation) finishedLocked(now time.Time) bool {
+	switch p.state {
+	case preparationCancelled, preparationFailed:
+		return true
+	case preparationPrepared:
+		return !now.Before(p.expires)
+	default:
+		return false
+	}
+}
+
+// pruneOutgoingPreparationsLocked drops preparations past their retention and,
+// when the table is full, every finished one. The caller holds preparationsMu.
+// A preparation whose own lock is held is in use and is left alone, so this
+// never waits on a dial in progress.
+func (api *API) pruneOutgoingPreparationsLocked(now time.Time) {
+	full := len(api.preparations) >= maxOutgoingPreparations
+	for id, p := range api.preparations {
+		if !p.mu.TryLock() {
+			continue
+		}
+		remove := !now.Before(p.created.Add(outgoingPreparationRetention)) ||
+			(full && p.finishedLocked(now))
+		if remove && p.expiry != nil {
+			p.expiry.Stop()
+			p.expiry = nil
+		}
+		p.mu.Unlock()
+		if remove {
+			delete(api.preparations, id)
+		}
+	}
+}
+
 type outgoingLeaseService interface {
 	RequireOutgoing(string, string) error
 	BeginOutgoing(string, string) error
@@ -127,7 +183,8 @@ func (api *API) prepareOutgoingCall(w http.ResponseWriter, r *http.Request) {
 		recordingEnabled = settings.DefaultEnabled
 	}
 	input.RecordingEnabled = &recordingEnabled
-	if len(api.preparations) >= 1024 {
+	api.pruneOutgoingPreparationsLocked(time.Now())
+	if len(api.preparations) >= maxOutgoingPreparations {
 		writeError(w, 503, "media_unavailable", "Too many call preparations", "")
 		return
 	}
@@ -154,8 +211,9 @@ func (api *API) prepareOutgoingCall(w http.ResponseWriter, r *http.Request) {
 	}
 	p := &outgoingPreparation{id: id, owner: owner, input: input, recordingChoice: recordingChoice, created: time.Now(), expires: expires}
 	api.preparations[id] = p
-	time.AfterFunc(10*time.Minute, func() { api.preparationsMu.Lock(); delete(api.preparations, id); api.preparationsMu.Unlock() })
-	time.AfterFunc(outgoingPrepareDuration, func() { api.expirePreparation(p) })
+	p.mu.Lock()
+	p.expiry = time.AfterFunc(outgoingPrepareDuration, func() { api.expirePreparation(p) })
+	p.mu.Unlock()
 	api.logger.Info("outgoing media prepared", "component", "calls", "preparation_id", id, "request_id", requestID, "line_id", input.LineID)
 	api.publishLiveState()
 	w.Header().Set("Cache-Control", "no-store")
@@ -173,10 +231,11 @@ func (api *API) expirePreparation(p *outgoingPreparation) {
 		return
 	}
 	if delay := time.Until(p.expires); delay > 0 {
-		time.AfterFunc(delay, func() { api.expirePreparation(p) })
+		// The lease was renewed; wait for the new deadline.
+		p.expiry = time.AfterFunc(delay, func() { api.expirePreparation(p) })
 		return
 	}
-	p.state = preparationCancelled
+	p.setStateLocked(preparationCancelled)
 	api.callLeases.ReleaseOutgoing(p.id, p.owner.HolderID)
 	if p.session != nil {
 		_ = p.session.Close(context.Background())
@@ -222,7 +281,7 @@ func (api *API) outgoingPreparationResource(w http.ResponseWriter, r *http.Reque
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if action == "" && r.Method == http.MethodDelete {
-		p.state = preparationCancelled
+		p.setStateLocked(preparationCancelled)
 		if p.session != nil {
 			_ = p.session.Close(context.Background())
 		}
@@ -310,7 +369,7 @@ func (api *API) outgoingPreparationResource(w http.ResponseWriter, r *http.Reque
 	defer func() { stopMediaCancellation(); cancelDispatch() }()
 	if dispatchCtx.Err() != nil || !p.session.TransportReady() {
 		api.callLeases.ReleaseOutgoing(p.id, p.owner.HolderID)
-		p.state = preparationFailed
+		p.setStateLocked(preparationFailed)
 		api.logPreparationRejection(p, "cancelled_before_dispatch")
 		writeError(w, 409, "outgoing_media_not_ready", "Outgoing media was cancelled before dial", "")
 		return
@@ -319,7 +378,7 @@ func (api *API) outgoingPreparationResource(w http.ResponseWriter, r *http.Reque
 	request := r.WithContext(dispatchCtx)
 	api.commitPreparedCall(w, request, p)
 	if p.state != preparationCommitted {
-		p.state = preparationFailed
+		p.setStateLocked(preparationFailed)
 		if p.session != nil {
 			_ = p.session.Close(context.Background())
 		}
@@ -375,7 +434,7 @@ func (api *API) attachPreparedHardware(p *outgoingPreparation, service preparedS
 	}
 	p.mu.Lock()
 	if p.state != preparationCancelled {
-		p.state = preparationFailed
+		p.setStateLocked(preparationFailed)
 	}
 	p.mu.Unlock()
 }
