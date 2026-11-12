@@ -235,7 +235,8 @@ func readHexAttribute(name string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	value, err := strconv.ParseUint(strings.TrimSpace(string(data)), 16, 32)
+	// USB identifiers and class codes are at most 16 bits, which fits int on every platform.
+	value, err := strconv.ParseUint(strings.TrimSpace(string(data)), 16, 16)
 	if err != nil {
 		return 0, err
 	}

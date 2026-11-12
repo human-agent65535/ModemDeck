@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -496,10 +497,7 @@ func createAutomaticServer(
 		Type:  "PRIVATE KEY",
 		Bytes: keyDER,
 	})
-	bundle := make([]byte, 0, len(certificatePEM)+len(caPEM)+len(keyPEM))
-	bundle = append(bundle, certificatePEM...)
-	bundle = append(bundle, caPEM...)
-	bundle = append(bundle, keyPEM...)
+	bundle := slices.Concat(certificatePEM, caPEM, keyPEM)
 	return certificateMaterial{
 		certificate: tls.Certificate{
 			Certificate: [][]byte{
