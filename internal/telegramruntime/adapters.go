@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/registration"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegram"
@@ -340,10 +341,7 @@ func mergePersistedLineMetadata(
 }
 
 func currentOperator(line store.LineSummary) string {
-	state := strings.ToLower(strings.TrimSpace(line.RegistrationState))
-	if line.RegistrationStateKnown &&
-		(state == "registered" || state == "home" || state == "registered-home" ||
-			state == "roaming" || state == "registered-roaming") {
+	if line.RegistrationStateKnown && registration.Parse(line.RegistrationState).Registered() {
 		for _, value := range []string{line.ServingOperatorName, line.ServingOperatorCode} {
 			if value = strings.TrimSpace(value); value != "" {
 				return value

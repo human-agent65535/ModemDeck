@@ -6,6 +6,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/phone"
+	"github.com/human-agent65535/modemdeck/internal/registration"
 )
 
 func quarantineDuplicateSubscriptionAttachments(
@@ -159,12 +160,7 @@ func subscriptionAttachmentRegistered(line agentclient.Line) bool {
 	case "connected", "registered":
 		return true
 	}
-	switch strings.ToLower(strings.TrimSpace(line.RegistrationState)) {
-	case "home", "registered", "roaming":
-		return true
-	default:
-		return false
-	}
+	return registration.Parse(line.RegistrationState).Registered()
 }
 
 func quarantineSubscription(line agentclient.Line) agentclient.Line {

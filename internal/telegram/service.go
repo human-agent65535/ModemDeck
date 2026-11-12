@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/human-agent65535/modemdeck/internal/registration"
 	"sort"
 	"strings"
 	"sync"
@@ -746,17 +747,19 @@ func lineDisplayIdentity(line Line, index int) string {
 
 func lineRegistrationLabel(line Line) string {
 	if line.RegistrationKnown {
-		switch strings.ToLower(strings.TrimSpace(line.RegistrationState)) {
-		case "registered", "home", "registered-home":
+		switch registration.Parse(line.RegistrationState) {
+		case registration.Home:
 			return "已驻网"
-		case "roaming", "registered-roaming":
+		case registration.Roaming:
 			return "漫游"
-		case "searching":
+		case registration.Searching:
 			return "搜网中"
-		case "denied":
+		case registration.Denied:
 			return "驻网被拒绝"
-		case "idle", "not-registered":
+		case registration.Idle:
 			return "未驻网"
+		case registration.Restricted:
+			return "仅限紧急呼叫"
 		}
 	}
 	if line.Roaming {
