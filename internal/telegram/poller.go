@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const maxServerRetryAfter = 24 * time.Hour
-
 type UpdateHandler interface {
 	HandleUpdate(context.Context, Update) error
 }
@@ -183,9 +181,8 @@ func (p *Poller) failureDelay(err error, failureCount int) time.Duration {
 		delay *= 2
 	}
 
-	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.RetryAfter > delay {
-		delay = min(apiErr.RetryAfter, maxServerRetryAfter)
+	if asked, ok := ServerRetryAfter(err); ok && asked > delay {
+		delay = asked
 	}
 	return delay
 }

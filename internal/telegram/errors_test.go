@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -80,5 +81,19 @@ func TestConfigurationAndCommandErrors(t *testing.T) {
 	}
 	if pollingErr.Unwrap() == nil {
 		t.Fatal("PollingError.Unwrap() = nil")
+	}
+}
+
+func TestServerRetryAfterIsBoundedAndOnlyForServerInstructions(t *testing.T) {
+	if delay, ok := ServerRetryAfter(fmt.Errorf("send: %w", &APIError{Code: 429, RetryAfter: 7 * time.Second})); !ok || delay != 7*time.Second {
+		t.Fatalf("ServerRetryAfter() = %s, %t, want 7s", delay, ok)
+	}
+	if delay, ok := ServerRetryAfter(&APIError{Code: 429, RetryAfter: 400 * time.Hour}); !ok || delay != 24*time.Hour {
+		t.Fatalf("ServerRetryAfter() = %s, %t, want the one day bound", delay, ok)
+	}
+	for _, err := range []error{&APIError{Code: 429}, errors.New("connection reset")} {
+		if _, ok := ServerRetryAfter(err); ok {
+			t.Fatalf("ServerRetryAfter(%v) reported an instruction", err)
+		}
 	}
 }

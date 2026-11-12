@@ -135,3 +135,18 @@ func errorClass(err error) string {
 		return "dependency"
 	}
 }
+
+// maxServerRetryAfter bounds a wait Telegram asks for, so one bad answer cannot
+// stop a bot for longer than a day.
+const maxServerRetryAfter = 24 * time.Hour
+
+// ServerRetryAfter returns how long Telegram asked the caller to wait before
+// the next request, bounded by maxServerRetryAfter. ok is false when err
+// carries no such instruction. Polling and sending both follow it.
+func ServerRetryAfter(err error) (delay time.Duration, ok bool) {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.RetryAfter <= 0 {
+		return 0, false
+	}
+	return min(apiErr.RetryAfter, maxServerRetryAfter), true
+}

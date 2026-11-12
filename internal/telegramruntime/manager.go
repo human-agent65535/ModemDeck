@@ -423,8 +423,8 @@ func telegramAPIRetryDelay(err error) (time.Duration, bool) {
 	if !errors.As(err, &apiError) || apiError.Code != 429 {
 		return 0, false
 	}
-	if apiError.RetryAfter > 0 {
-		return apiError.RetryAfter, true
+	if asked, ok := telegram.ServerRetryAfter(err); ok {
+		return asked, true
 	}
 	return defaultAPIRetryAfter, true
 }
