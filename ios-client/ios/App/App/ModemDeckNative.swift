@@ -275,6 +275,14 @@ final class ModemDeckCredentialStore {
         }
     }
 
+    /// The Keychain status behind a failed read, or nil when the read failed for
+    /// another reason (a stored pairing that could not be decoded is removed).
+    /// A caller uses it to tell "cannot be read right now" from "not paired".
+    static func keychainFailureStatus(_ error: Error) -> OSStatus? {
+        if case ModemDeckNativeError.keychain(let status) = error { return status }
+        return nil
+    }
+
     private func baseQuery() -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,

@@ -92,6 +92,23 @@ final class ModemDeckSessionController: ObservableObject {
     private let networkMonitor = NWPathMonitor()
     private var networkAvailable: Bool?
     private var connectivityObserver: AnyCancellable?
+    private var protectedDataObserver: AnyCancellable?
+    /// The Keychain could not be read, which happens before the first unlock after a
+    /// restart. The pairing is kept and `start()` runs again once it can be read.
+    private var credentialUnreadable = false
+    /// A sign-out could not delete the Keychain item. Until it is deleted the app must
+    /// not return to that account, so the next `start()` finishes the deletion first.
+    private var credentialRemovalPending: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.credentialRemovalPendingKey) }
+        set {
+            if newValue {
+                UserDefaults.standard.set(true, forKey: Self.credentialRemovalPendingKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.credentialRemovalPendingKey)
+            }
+        }
+    }
+    private static let credentialRemovalPendingKey = "modemdeck.credential-removal-pending"
     private var runtimeForeground = true
     private var runtimeEventStream: ModemDeckRuntimeCallStream?
     /// Incoming-SMS stream; keeps the message list live without relying on push delivery.
@@ -125,6 +142,11 @@ final class ModemDeckSessionController: ObservableObject {
         self.contactsStore = contactsStore
         messagesStore = ModemDeckMessagesStore(api: api, contactsStore: contactsStore)
         callsStore = ModemDeckCallsStore(api: api, contactsStore: contactsStore)
+        protectedDataObserver = NotificationCenter.default
+            .publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in await self?.retryUnreadableCredential() }
+            }
         connectivityObserver = NotificationCenter.default.publisher(for: .modemDeckRequestConnectivity)
             .sink { [weak self] notification in
                 guard let self, notification.object as? ModemDeckAPIClient === self.api,
@@ -197,6 +219,20 @@ final class ModemDeckSessionController: ObservableObject {
     }
 
     func start() async {
+        if credentialRemovalPending {
+            // An earlier sign-out left the Keychain item behind. Finish removing it
+            // before anything reads it, so the app never returns to that account.
+            do {
+                try credentialStore.clear()
+                credentialRemovalPending = false
+            } catch {
+                ModemDeckDiagnostics.shared.record(.app, "credential_removal_failed", error: error)
+                phase = .unpaired
+                connectionState = .offline
+                await refreshNotificationStatus()
+                return
+            }
+        }
         do {
             guard let credential = try credentialStore.load() else {
                 phase = .unpaired
@@ -218,14 +254,34 @@ final class ModemDeckSessionController: ObservableObject {
             recovery.enable()
             await refresh()
         } catch {
-            try? credentialStore.clear()
-            phase = .unpaired
-            connectionState = .offline
-            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
-            errorMessage = error.localizedDescription
+            if let status = ModemDeckCredentialStore.keychainFailureStatus(error) {
+                // The Keychain is unreadable right now, for example when a call push
+                // wakes the app before the first unlock. That says nothing about the
+                // pairing: keep it and try again when protected data is available or
+                // the app returns to the foreground. Deleting it would unpair the device.
+                credentialUnreadable = true
+                connectionState = .offline
+                ModemDeckDiagnostics.shared.record(
+                    .app,
+                    "credential_unreadable",
+                    fields: ["error_code": String(status)]
+                )
+            } else {
+                // A stored pairing that cannot be decoded was already removed by the store.
+                phase = .unpaired
+                connectionState = .offline
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+                errorMessage = error.localizedDescription
+            }
         }
         await refreshNotificationStatus()
         refreshMicrophoneStatus()
+    }
+
+    private func retryUnreadableCredential() async {
+        guard credentialUnreadable else { return }
+        credentialUnreadable = false
+        await start()
     }
 
     func refresh() async {
@@ -237,7 +293,10 @@ final class ModemDeckSessionController: ObservableObject {
         ModemDeckDiagnostics.shared.record(.app, "foreground")
         ModemDeckDiagnostics.shared.flush()
         recovery.setForeground(true)
-        guard phase == .paired else { return }
+        guard phase == .paired else {
+            await retryUnreadableCredential()
+            return
+        }
         startRuntimeEvents()
         startMessageEvents()
         if runtimeReloadRequested { requestRuntimeCollectionsRefresh() }
@@ -705,7 +764,12 @@ final class ModemDeckSessionController: ObservableObject {
         callsStore.clear()
         ModemDeckPushCoordinator.shared.clearConfiguration()
         api.clearCachedData()
-        try? credentialStore.clear()
+        do {
+            try credentialStore.clear()
+        } catch {
+            credentialRemovalPending = true
+            ModemDeckDiagnostics.shared.record(.app, "credential_removal_failed", error: error)
+        }
         try? await UNUserNotificationCenter.current().setBadgeCount(0)
         session = nil
         bootstrap = nil
