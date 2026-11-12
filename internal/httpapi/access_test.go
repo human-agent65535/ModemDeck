@@ -232,3 +232,82 @@ func TestAdminOnlyRoutesExcludeLineOwnedConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// Every administrator-only route is sent through the real handler as a member.
+// A route that lost its gate, or a new administrator route that never got one,
+// fails here; the path classification above cannot catch that.
+func TestMemberIsRefusedOnEveryAdministratorRoute(t *testing.T) {
+	t.Parallel()
+
+	api, err := New(&fakeUserRepository{fakeRepository: &fakeRepository{}}, Options{
+		DeviceConfigurations:  &fakeDeviceConfigurations{},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	memberContext := auth.ContextWithPrincipal(context.Background(), auth.Principal{
+		UserID:         "member-1",
+		Role:           auth.RoleMember,
+		AllowedLineIDs: []string{"line-1"},
+	})
+
+	// The member is not refused everywhere: its own routes still answer.
+	for _, path := range []string{"/api/v1/contacts", "/api/v1/devices"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil).WithContext(memberContext)
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, request)
+		if response.Code == http.StatusForbidden {
+			t.Fatalf("member GET %s = 403; the test would prove nothing", path)
+		}
+	}
+
+	for _, route := range []struct {
+		method, path, body string
+	}{
+		{http.MethodGet, "/api/v1/users", ""},
+		{http.MethodPost, "/api/v1/users", `{"username":"mallory","password":"a long password"}`},
+		{http.MethodPut, "/api/v1/users/member-2", `{"username":"mallory","enabled":true,"line_ids":[],"revision":1}`},
+		{http.MethodPut, "/api/v1/users/member-2/password", `{"password":"a long password"}`},
+		{http.MethodDelete, "/api/v1/users/member-2/ios-pairing", ""},
+		{http.MethodPost, "/api/v1/devices", `{}`},
+		{http.MethodPatch, "/api/v1/devices/867530900000001", `{}`},
+		{http.MethodGet, "/api/v1/about", ""},
+		{http.MethodGet, "/api/v1/updates/check", ""},
+		{http.MethodPost, "/api/v1/updates/apply", `{}`},
+		{http.MethodGet, "/api/v1/updates/status", ""},
+		{http.MethodGet, "/api/v1/external-access/status", ""},
+		{http.MethodPost, "/api/v1/external-access/refresh", `{}`},
+		{http.MethodPut, "/api/v1/external-access/origin-tls", `{}`},
+		{http.MethodDelete, "/api/v1/external-access/origin-tls", ""},
+		{http.MethodGet, "/api/v1/diagnostics", ""},
+		{http.MethodGet, "/api/v1/diagnostics/logs", ""},
+		{http.MethodGet, "/api/v1/diagnostics/devices/line-1/configuration", ""},
+		{http.MethodPatch, "/api/v1/diagnostics/devices/line-1/configuration", `{}`},
+		{http.MethodGet, "/api/v1/settings/tls", ""},
+		{http.MethodPut, "/api/v1/settings/tls", `{}`},
+		{http.MethodGet, "/api/v1/settings/tls/ca", ""},
+	} {
+		var body *bytes.Buffer
+		if route.body != "" {
+			body = bytes.NewBufferString(route.body)
+		} else {
+			body = &bytes.Buffer{}
+		}
+		request := httptest.NewRequest(route.method, route.path, body).WithContext(memberContext)
+		if route.body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf(
+				"member %s %s = %d, want 403; body = %s",
+				route.method,
+				route.path,
+				response.Code,
+				response.Body.String(),
+			)
+		}
+	}
+}
