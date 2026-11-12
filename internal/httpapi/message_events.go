@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
@@ -40,7 +39,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 	response.WriteHeader(http.StatusOK)
 	controller := http.NewResponseController(response)
 	_ = controller.SetWriteDeadline(time.Time{})
-	if _, err := fmt.Fprint(response, "retry: 2000\n\n"); err != nil {
+	if !startSSE(response) {
 		return
 	}
 	flusher.Flush()

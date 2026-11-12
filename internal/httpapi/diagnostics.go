@@ -197,7 +197,7 @@ func (api *API) diagnosticLogStream(response http.ResponseWriter, request *http.
 	response.WriteHeader(http.StatusOK)
 	controller := http.NewResponseController(response)
 	_ = controller.SetWriteDeadline(time.Time{})
-	if _, err := fmt.Fprint(response, "retry: 2000\n\n"); err != nil {
+	if !startSSE(response) {
 		return
 	}
 	if window.Truncated {
@@ -243,10 +243,9 @@ func (api *API) diagnosticLogStream(response http.ResponseWriter, request *http.
 			if time.Since(lastWrite) < 15*time.Second {
 				continue
 			}
-			if _, err := fmt.Fprint(response, ": keepalive\n\n"); err != nil {
+			if !writeSSEKeepalive(response, flusher) {
 				return
 			}
-			flusher.Flush()
 			lastWrite = time.Now()
 		}
 	}
@@ -376,13 +375,5 @@ func writeDiagnosticSSE(
 	id uint64,
 	value any,
 ) bool {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return false
-	}
-	if _, err := fmt.Fprintf(response, "id: %d\nevent: %s\ndata: %s\n\n", id, event, data); err != nil {
-		return false
-	}
-	flusher.Flush()
-	return true
+	return writeSSEWithID(response, flusher, event, id, value)
 }

@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -155,7 +154,7 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 	response.WriteHeader(http.StatusOK)
 	controller := http.NewResponseController(response)
 	_ = controller.SetWriteDeadline(time.Time{})
-	if _, err := fmt.Fprint(response, "retry: 2000\n\n"); err != nil {
+	if !startSSE(response) {
 		return
 	}
 	if !api.writeRuntimeState(
@@ -335,7 +334,7 @@ func (api *API) runtimeCallEventStream(
 	response.WriteHeader(http.StatusOK)
 	controller := http.NewResponseController(response)
 	_ = controller.SetWriteDeadline(time.Time{})
-	if _, err := fmt.Fprint(response, "retry: 2000\n\n"); err != nil {
+	if !startSSE(response) {
 		return
 	}
 	if !writeSSE(response, flusher, "call_state", state) || state.Ended {

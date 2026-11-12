@@ -1,8 +1,9 @@
 package messageevents
 
 import (
-	"sync"
 	"time"
+
+	"github.com/human-agent65535/modemdeck/internal/fanout"
 )
 
 const DefaultCapacity = 64
@@ -25,21 +26,17 @@ type Source interface {
 	Subscribe() (<-chan IncomingSMS, func())
 }
 
+// Buffer fans events out to subscribers; see fanout.Buffer for the delivery
+// rule.
 type Buffer struct {
-	mu          sync.Mutex
-	capacity    int
-	nextClient  uint64
-	subscribers map[uint64]chan IncomingSMS
+	events *fanout.Buffer[IncomingSMS]
 }
 
 func NewBuffer(capacity int) *Buffer {
 	if capacity <= 0 {
 		capacity = DefaultCapacity
 	}
-	return &Buffer{
-		capacity:    capacity,
-		subscribers: make(map[uint64]chan IncomingSMS),
-	}
+	return &Buffer{events: fanout.New[IncomingSMS](capacity)}
 }
 
 func (b *Buffer) Publish(event IncomingSMS) {
@@ -48,38 +45,9 @@ func (b *Buffer) Publish(event IncomingSMS) {
 	} else {
 		event.ObservedAt = event.ObservedAt.UTC()
 	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	for id, subscriber := range b.subscribers {
-		select {
-		case subscriber <- event:
-		default:
-			delete(b.subscribers, id)
-			close(subscriber)
-		}
-	}
+	b.events.Publish(event)
 }
 
 func (b *Buffer) Subscribe() (<-chan IncomingSMS, func()) {
-	b.mu.Lock()
-	b.nextClient++
-	clientID := b.nextClient
-	updates := make(chan IncomingSMS, b.capacity)
-	b.subscribers[clientID] = updates
-	b.mu.Unlock()
-
-	var once sync.Once
-	cancel := func() {
-		once.Do(func() {
-			b.mu.Lock()
-			if current, exists := b.subscribers[clientID]; exists {
-				delete(b.subscribers, clientID)
-				close(current)
-			}
-			b.mu.Unlock()
-		})
-	}
-	return updates, cancel
+	return b.events.Subscribe()
 }
