@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
+  contactImportFailureStopsImport,
   parseVCard,
   planContactImport,
   previewContactImport,
@@ -164,4 +165,18 @@ test('an import is counted before anything is written and waits for confirmation
   const write = importBody.indexOf('saveContact(')
   assert.ok(confirmation > 0 && write > confirmation, 'the confirmation must come before the first write')
   assert.match(importBody, /if \(!confirmed\) return null/)
+})
+
+test('an import stops on a failure that would repeat for every contact', async () => {
+  const apiError = status => Object.assign(new Error('failed'), { status })
+  for (const status of [400, 404, 409, 422]) {
+    assert.equal(contactImportFailureStopsImport(apiError(status)), false, `HTTP ${status} is about one contact`)
+  }
+  for (const error of [apiError(0), apiError(401), apiError(403), apiError(429), apiError(500), apiError(503), new Error('offline'), null]) {
+    assert.equal(contactImportFailureStopsImport(error), true)
+  }
+
+  const settings = await readFile(new URL('../src/components/ContactSyncSettings.vue', import.meta.url), 'utf8')
+  assert.match(settings, /if \(contactImportFailureStopsImport\(error\)\) \{[\s\S]*?unprocessed: pending\.length - position/)
+  assert.match(settings, /if \(result\.unprocessed > 0\) \{[\s\S]*?error\.value = t\('contactSync\.importStopped'/)
 })

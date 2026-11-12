@@ -161,6 +161,18 @@ export function previewContactImport(
   return preview
 }
 
+// Decides whether a failed contact write is about that one contact or about the
+// connection to ModemDeck. A rejected contact (validation, conflict, not found)
+// is counted and the import goes on. Anything else — no network, a server
+// fault, an expired login, rate limiting — would fail every remaining contact
+// the same way, so the import stops there.
+export function contactImportFailureStopsImport(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status
+  if (typeof status !== 'number') return true
+  if (status === 401 || status === 403 || status === 429) return true
+  return status < 400 || status >= 500
+}
+
 function unfoldVCard(source: string): string[] {
   return source
     .replace(/\r\n/g, '\n')

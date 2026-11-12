@@ -417,6 +417,7 @@ export default {
     importConfirmMessage: '将新建 {created} 个、更新 {updated} 个联系人，跳过 {skipped} 个。更新会覆盖已有联系人的姓名，并在导入内容包含备注或头像时替换它们。',
     importConfirmAction: '导入',
     importCancelled: '已取消导入。',
+    importStopped: '导入已中止：{reason} {summary} 还有 {remaining} 个联系人未处理，可稍后重新导入。',
     exportedContacts: '已导出 {count} 个联系人',
     importSummary: '新建 {created}，更新 {updated}，跳过 {skipped}，失败 {failed}。'
   },

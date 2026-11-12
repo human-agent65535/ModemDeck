@@ -34,7 +34,7 @@ test('initial page skeletons wait for every required request to settle', async (
   ])
 
   assert.match(barrier, /const loading = ref\(true\)/)
-  assert.match(barrier, /await Promise\.allSettled/)
+  assert.match(barrier, /Promise\.allSettled/)
   assert.match(client, /const READ_REQUEST_TIMEOUT_MS = 15_000/)
   for (const consumer of consumers) {
     assert.match(consumer, /useInitialLoadBarrier/)
@@ -366,4 +366,26 @@ test('recordings are a communication workspace with shared playback and call lin
   assert.match(view, /:download="`modemdeck-\$\{selected\.id\}\.ogg`"/)
   assert.match(view, /:to="\{ name: 'calls', query: \{ selected: selected\.call\.id \} \}"/)
   assert.doesNotMatch(view, /marketing|hero/)
+})
+
+test('the initial load barrier lifts when a loader never settles', async () => {
+  const { useInitialLoadBarrier } = await import('../src/composables/useInitialLoadBarrier.ts')
+  const barrier = useInitialLoadBarrier(20)
+  let settled = false
+  const started = Date.now()
+  await barrier.waitFor([
+    () => new Promise(() => {}),
+    async () => {
+      settled = true
+    }
+  ])
+  assert.equal(settled, true)
+  assert.equal(barrier.loading.value, false)
+  assert.ok(Date.now() - started < 2000, 'the barrier waited far beyond its limit')
+
+  // A normal load is not held back by the limit, and a failed loader still
+  // counts as settled.
+  const quick = useInitialLoadBarrier(60_000)
+  await quick.waitFor([async () => { throw new Error('load failed') }, async () => 1])
+  assert.equal(quick.loading.value, false)
 })

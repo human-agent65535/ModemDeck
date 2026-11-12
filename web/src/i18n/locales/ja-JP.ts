@@ -417,6 +417,7 @@ export default {
     "importConfirmMessage": "{created} 件を新規作成、{updated} 件を更新、{skipped} 件をスキップします。更新すると既存の連絡先の名前が置き換えられ、読み込むデータにメモや写真がある場合はそれらも置き換えられます。",
     "importConfirmAction": "読み込む",
     "importCancelled": "読み込みをキャンセルしました。",
+    "importStopped": "読み込みを中止しました：{reason} {summary} {remaining} 件は未処理です。後でもう一度読み込んでください。",
     "exportedContacts": "{count} 件の連絡先を書き出しました",
     "importSummary": "作成 {created}、更新 {updated}、スキップ {skipped}、失敗 {failed}。"
   },

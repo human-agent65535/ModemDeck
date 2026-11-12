@@ -417,6 +417,7 @@ export default {
     "importConfirmMessage": "Sẽ tạo {created}, cập nhật {updated} và bỏ qua {skipped} liên hệ. Khi cập nhật, tên của liên hệ hiện có sẽ bị thay thế, cùng với ghi chú hoặc ảnh nếu dữ liệu nhập có chứa chúng.",
     "importConfirmAction": "Nhập",
     "importCancelled": "Đã hủy nhập.",
+    "importStopped": "Đã dừng nhập: {reason} {summary} Còn {remaining} liên hệ chưa được xử lý; hãy nhập lại sau.",
     "exportedContacts": "Đã xuất {count} liên hệ",
     "importSummary": "Đã tạo {created}, cập nhật {updated}, bỏ qua {skipped}, lỗi {failed}."
   },

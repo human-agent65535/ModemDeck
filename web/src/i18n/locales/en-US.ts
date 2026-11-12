@@ -419,6 +419,7 @@ export default {
     importConfirmMessage: '{created} will be created, {updated} updated and {skipped} skipped. Updating replaces the existing contact\'s name, and its notes or photo when the import includes them.',
     importConfirmAction: 'Import',
     importCancelled: 'Import cancelled.',
+    importStopped: 'Import stopped: {reason} {summary} {remaining} contacts were not processed; import again later.',
     exportedContacts: 'Exported {count} contact(s)',
     importSummary:
       'Created {created}, updated {updated}, skipped {skipped}, failed {failed}.'

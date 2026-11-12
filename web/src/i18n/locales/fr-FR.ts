@@ -417,6 +417,7 @@ export default {
     "importConfirmMessage": "{created} seront créés, {updated} mis à jour et {skipped} ignorés. La mise à jour remplace le nom du contact existant, ainsi que ses notes ou sa photo si l'import les contient.",
     "importConfirmAction": "Importer",
     "importCancelled": "Import annulé.",
+    "importStopped": "Import interrompu : {reason} {summary} {remaining} contacts n'ont pas été traités ; réimportez plus tard.",
     "exportedContacts": "{count} contact(s) exporté(s)",
     "importSummary": "Créés {created}, mis à jour {updated}, ignorés {skipped}, échecs {failed}."
   },

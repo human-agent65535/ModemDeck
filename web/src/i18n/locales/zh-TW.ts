@@ -417,6 +417,7 @@ export default {
     importConfirmMessage: '將新增 {created} 位、更新 {updated} 位聯絡人，略過 {skipped} 位。更新會覆寫現有聯絡人的姓名，並在匯入內容包含備註或頭像時取代它們。',
     importConfirmAction: '匯入',
     importCancelled: '已取消匯入。',
+    importStopped: '匯入已中止：{reason} {summary} 還有 {remaining} 位聯絡人未處理，可稍後重新匯入。',
     exportedContacts: '已匯出 {count} 位聯絡人',
     importSummary: '新增 {created}，更新 {updated}，略過 {skipped}，失敗 {failed}。'
   },

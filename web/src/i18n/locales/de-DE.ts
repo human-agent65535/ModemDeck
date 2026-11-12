@@ -417,6 +417,7 @@ export default {
     "importConfirmMessage": "{created} werden erstellt, {updated} aktualisiert und {skipped} übersprungen. Beim Aktualisieren wird der Name des vorhandenen Kontakts ersetzt, ebenso Notizen oder Foto, wenn der Import sie enthält.",
     "importConfirmAction": "Importieren",
     "importCancelled": "Import abgebrochen.",
+    "importStopped": "Import abgebrochen: {reason} {summary} {remaining} Kontakte wurden nicht verarbeitet; später erneut importieren.",
     "exportedContacts": "{count} Kontakt(e) exportiert",
     "importSummary": "Erstellt {created}, aktualisiert {updated}, übersprungen {skipped}, fehlgeschlagen {failed}."
   },
