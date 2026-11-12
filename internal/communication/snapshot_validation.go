@@ -2,6 +2,7 @@ package communication
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
@@ -78,4 +79,30 @@ func (s *Service) logUnreadableModemTimestamps(snapshot agentclient.Snapshot) {
 	for _, deliveryReport := range snapshot.DeliveryReports {
 		report("delivery report", deliveryReport.ID, deliveryReport.LineID, deliveryReport.Timestamp)
 	}
+}
+
+// reportDuplicateSubscriptionQuarantine logs when the set of modem lines hidden
+// because they carry the same SIM changes. Their calls and messages are
+// filtered out of the snapshot, so the operator must be able to see that it
+// happened and which lines lost.
+func (s *Service) reportDuplicateSubscriptionQuarantine(lineIDs []string) {
+	s.quarantineReportMu.Lock()
+	changed := !slices.Equal(s.reportedQuarantine, lineIDs)
+	s.reportedQuarantine = slices.Clone(lineIDs)
+	s.quarantineReportMu.Unlock()
+	if !changed {
+		return
+	}
+	if len(lineIDs) == 0 {
+		s.loggerForDiagnostics().Info(
+			"no modem line is hidden for a duplicate SIM any more",
+			"component", "communication",
+		)
+		return
+	}
+	s.loggerForDiagnostics().Warn(
+		"modem lines with a SIM that another line also reports are hidden; their calls and messages are not shown",
+		"component", "communication",
+		"endpoint_line_ids", strings.Join(lineIDs, ","),
+	)
 }

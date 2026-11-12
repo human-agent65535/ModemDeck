@@ -255,6 +255,8 @@ type Service struct {
 	runtime                 runtimeevents.Publisher
 	random                  io.Reader
 	now                     func() time.Time
+	quarantineReportMu      sync.Mutex
+	reportedQuarantine      []string
 	timestampReportMu       sync.Mutex
 	reportedTimestamps      map[string]struct{}
 	loggerMu                sync.RWMutex
@@ -498,7 +500,8 @@ func (s *Service) commitSnapshotLocked(
 	previousStatus := cloneStatus(s.status)
 	previousSnapshot := cloneAgentSnapshot(s.lastSnapshot)
 	s.mu.RUnlock()
-	snapshot, _ = quarantineDuplicateSubscriptionAttachments(snapshot)
+	snapshot, quarantinedLineIDs := quarantineDuplicateSubscriptionAttachments(snapshot)
+	s.reportDuplicateSubscriptionQuarantine(quarantinedLineIDs)
 	if err := validateSnapshotCallLines(snapshot); err != nil {
 		return s.recordRefreshFailure("validate host agent snapshot", err)
 	}
@@ -2373,19 +2376,33 @@ func (s *Service) recordRefreshFailure(operation string, cause error) (Status, e
 	return status, operationError(CodeUnavailable, operation, "live hardware state is unavailable", cause)
 }
 
+// ValidateRequestID is the one rule for a caller-supplied request ID: 1 to 128
+// ASCII letters, digits, hyphens and underscores. The HTTP entry points apply
+// it before a command is accepted, so a value is never taken by one layer and
+// refused by the next.
+func ValidateRequestID(value string) error {
+	if value == "" {
+		return errors.New("request id is empty")
+	}
+	if len(value) > maxRequestIDLen {
+		return errors.New("request id is too long")
+	}
+	for _, character := range value {
+		if !(character >= 'a' && character <= 'z') &&
+			!(character >= 'A' && character <= 'Z') &&
+			!(character >= '0' && character <= '9') &&
+			character != '-' && character != '_' {
+			return errors.New("request id contains invalid characters")
+		}
+	}
+	return nil
+}
+
 func (s *Service) requestID(supplied string) (string, error) {
 	supplied = strings.TrimSpace(supplied)
 	if supplied != "" {
-		if len(supplied) > maxRequestIDLen {
-			return "", errors.New("request id is too long")
-		}
-		for _, character := range supplied {
-			if !(character >= 'a' && character <= 'z') &&
-				!(character >= 'A' && character <= 'Z') &&
-				!(character >= '0' && character <= '9') &&
-				character != '-' && character != '_' {
-				return "", errors.New("request id contains invalid characters")
-			}
+		if err := ValidateRequestID(supplied); err != nil {
+			return "", err
 		}
 		return supplied, nil
 	}

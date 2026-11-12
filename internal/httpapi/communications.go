@@ -918,6 +918,18 @@ func commandRequestID(response http.ResponseWriter, request *http.Request, bodyV
 	if headerValue != "" {
 		value = headerValue
 	}
+	if value != "" {
+		if err := communication.ValidateRequestID(value); err != nil {
+			writeError(
+				response,
+				http.StatusBadRequest,
+				"invalid_argument",
+				"request_id must be 1 to 128 letters, digits, hyphens or underscores",
+				"request_id",
+			)
+			return "", false
+		}
+	}
 	if strings.HasPrefix(value, reservedInternalRequestIDPrefix) {
 		writeError(
 			response,

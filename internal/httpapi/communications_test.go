@@ -1104,3 +1104,27 @@ func TestNetworkErrorsFromTheAgentKeepTheirHTTPStatus(t *testing.T) {
 		assertAPIError(t, response, want.status, want.code)
 	}
 }
+
+func TestCommandRequestIDIsValidatedAtTheHTTPEntry(t *testing.T) {
+	for _, test := range []struct {
+		name, value string
+		accepted    bool
+	}{
+		{"uuid", "ios-3f2b8c1e-0d4a-4b7e-9c11-5a6d7e8f9a0b", true},
+		{"absent", "", true},
+		{"space", "request 1", false},
+		{"slash", "request/1", false},
+		{"unicode", "请求-1", false},
+		{"too long", strings.Repeat("a", 129), false},
+	} {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/messages", nil)
+		_, ok := commandRequestID(response, request, test.value)
+		if ok != test.accepted {
+			t.Fatalf("%s: accepted = %t, want %t", test.name, ok, test.accepted)
+		}
+		if !test.accepted {
+			assertAPIError(t, response, http.StatusBadRequest, "invalid_argument")
+		}
+	}
+}

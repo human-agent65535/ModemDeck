@@ -2509,3 +2509,29 @@ func TestUnreadableModemTimestampIsReportedOnce(t *testing.T) {
 		t.Fatalf("the report does not name the message: %s", output.String())
 	}
 }
+
+func TestDuplicateSIMQuarantineIsReportedWhenItChanges(t *testing.T) {
+	t.Parallel()
+
+	service, err := New(connectedAgent(time.Now()), &fakeRepository{}, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	var output bytes.Buffer
+	service.SetLogger(slog.New(slog.NewTextHandler(&output, nil)))
+
+	service.reportDuplicateSubscriptionQuarantine(nil)
+	if output.Len() != 0 {
+		t.Fatalf("nothing is hidden, but it was reported: %s", output.String())
+	}
+	for range 3 {
+		service.reportDuplicateSubscriptionQuarantine([]string{"line-b"})
+	}
+	if got := strings.Count(output.String(), "are hidden"); got != 1 || !strings.Contains(output.String(), "line-b") {
+		t.Fatalf("reports = %d, want one naming line-b; log = %s", got, output.String())
+	}
+	service.reportDuplicateSubscriptionQuarantine(nil)
+	if !strings.Contains(output.String(), "no modem line is hidden") {
+		t.Fatalf("the end of the quarantine was not reported: %s", output.String())
+	}
+}
