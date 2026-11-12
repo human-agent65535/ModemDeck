@@ -2453,3 +2453,30 @@ func TestEndCallSendsTheHangupAgainAfterAFailedAttempt(t *testing.T) {
 		t.Fatalf("both attempts used request id %q", agent.actionRequests[0].RequestID)
 	}
 }
+
+func TestRefreshRefusesASnapshotWhoseCallNamesAnUnknownLine(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.November, 12, 10, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	agent.snapshot.Calls = []agentclient.Call{{
+		ID:        "call-endpoint-1",
+		LineID:    "line-gone",
+		Number:    "+818012345678",
+		Direction: "incoming",
+		State:     "active",
+	}}
+	repository := &fakeRepository{}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = service.Refresh(context.Background())
+	if !errors.Is(err, ErrUnavailable) || !errors.Is(err, agentclient.ErrProtocol) {
+		t.Fatalf("Refresh() error = %v, want an unavailable protocol error", err)
+	}
+	if repository.snapshot.Revision != "" || len(repository.snapshot.Calls) != 0 {
+		t.Fatalf("stored snapshot = %+v; an inconsistent snapshot must not be stored", repository.snapshot)
+	}
+}

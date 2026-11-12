@@ -496,6 +496,9 @@ func (s *Service) commitSnapshotLocked(
 	previousSnapshot := cloneAgentSnapshot(s.lastSnapshot)
 	s.mu.RUnlock()
 	snapshot, _ = quarantineDuplicateSubscriptionAttachments(snapshot)
+	if err := validateSnapshotCallLines(snapshot); err != nil {
+		return s.recordRefreshFailure("validate host agent snapshot", err)
+	}
 	stableLines, err := s.repository.Lines(ctx)
 	if err != nil {
 		return s.recordRefreshFailure("read stable line identities", err)
@@ -2726,6 +2729,7 @@ func projectSnapshot(
 
 	calls := make([]store.HardwareCall, 0, len(snapshot.Calls))
 	for _, call := range snapshot.Calls {
+		// validateSnapshotCallLines guarantees the line is present.
 		calls = append(calls, projectCall(
 			call,
 			lineIndex[call.LineID],
