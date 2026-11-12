@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { telegramDraftReturnID } from '../src/utils/telegramDraft.ts'
 
 const form = readFileSync(
   new URL('../src/components/TelegramSettingsForm.vue', import.meta.url),
@@ -49,6 +50,19 @@ test('starting again resets the same draft and switching Bot discards it', () =>
   assert.match(discard, /creating\.value = false/)
   assert.match(discard, /selectedID\.value = returnID/)
   assert.match(discard, /applyUnit\(telegramResource\.data\.find/)
+  assert.match(
+    discard,
+    /telegramDraftReturnID\(telegramResource\.data, draftReturnID\.value, nextID\)/
+  )
+})
+
+test('a discarded draft returns to the chosen Bot, else the previous one, else the first', () => {
+  const units = [{ id: 'a' }, { id: 'b' }]
+  assert.equal(telegramDraftReturnID(units, 'b', 'a'), 'a', 'the Bot the person chose wins')
+  assert.equal(telegramDraftReturnID(units, 'b'), 'b', 'cancel returns to where they were')
+  assert.equal(telegramDraftReturnID(units, 'deleted'), 'a', 'a Bot deleted meanwhile is skipped')
+  assert.equal(telegramDraftReturnID(units, ''), 'a')
+  assert.equal(telegramDraftReturnID([], 'b'), '', 'no Bot left: nothing is selected')
 })
 
 test('new Bot has a local cancel action and never uses backend deletion', () => {

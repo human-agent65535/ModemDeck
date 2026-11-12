@@ -118,9 +118,9 @@ function onFocus(event: FocusEvent): void {
 
 function onBlur(event: FocusEvent): void {
   emit('blur', event)
-  window.setTimeout(() => {
-    focused.value = false
-  }, 120)
+  // Choosing a suggestion happens on mousedown, which is prevented and so never
+  // blurs the field: a blur always means the person left it.
+  focused.value = false
 }
 </script>
 

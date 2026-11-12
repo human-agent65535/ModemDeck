@@ -475,7 +475,7 @@ function restoreDialogFocus(): void {
     : dialerReturnFocus?.isConnected
       ? dialerReturnFocus
       : props.permanent ? panelRef.value
-        : Array.from(document.querySelectorAll<HTMLElement>('.mobile-nav__dial, .rail__primary a')).find(element => element.getClientRects().length > 0)
+        : Array.from(document.querySelectorAll<HTMLElement>('[data-dialer-return-focus]')).find(element => element.getClientRects().length > 0)
   callReturnFocus = null
   dialerReturnFocus = null
   target?.focus()

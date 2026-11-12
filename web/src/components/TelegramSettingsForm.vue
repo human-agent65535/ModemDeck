@@ -18,6 +18,7 @@ import {
   X
 } from '@lucide/vue'
 import type { LineSummary, TelegramUnit, UserAccount } from '../api/types'
+import { telegramDraftReturnID } from '../utils/telegramDraft'
 import { gateway } from '../api/client'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { requestConfirmation } from '../state/confirmation'
@@ -352,11 +353,7 @@ async function startCreate(): Promise<void> {
 }
 
 function discardDraft(nextID?: string): string {
-  const returnID =
-    nextID ||
-    (telegramResource.data.some(unit => unit.id === draftReturnID.value)
-      ? draftReturnID.value
-      : telegramResource.data[0]?.id || '')
+  const returnID = telegramDraftReturnID(telegramResource.data, draftReturnID.value, nextID)
 
   creating.value = false
   draftReturnID.value = ''

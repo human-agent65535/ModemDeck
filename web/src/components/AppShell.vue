@@ -475,6 +475,7 @@ onBeforeUnmount(() => {
           v-for="item in primaryNav"
           :key="item.name"
           class="rail-link"
+          data-dialer-return-focus
           :class="{ 'is-current': route.name === item.name }"
           :to="{ name: item.name }"
           :title="item.label"
@@ -644,6 +645,7 @@ onBeforeUnmount(() => {
       </RouterLink>
       <button
         class="mobile-nav__dial"
+        data-dialer-return-focus
         :class="{
           'is-current': uiState.dialerOpen || activeCallPresent,
           'is-ringing': minimizedIncomingCall,
