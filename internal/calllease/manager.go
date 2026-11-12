@@ -111,9 +111,11 @@ type record struct {
 	prepareUntil time.Time
 	ending       bool
 	// endRetryAt is when the manager next asks the controller to end an ending
-	// call. An ending call stays tracked, and is asked to end again, until the
-	// authoritative snapshot no longer contains it.
+	// call, and endRetries how many times it already has. An ending call stays
+	// tracked, and is asked to end again, until the authoritative snapshot no
+	// longer contains it.
 	endRetryAt time.Time
+	endRetries int
 }
 
 type Manager struct {
@@ -774,7 +776,8 @@ func (m *Manager) expiredCalls() []expiredCall {
 			// An earlier attempt to end this call (here, or by the caller that
 			// revoked it) has not removed it from the hardware. Ask again.
 			if !now.Before(record.endRetryAt) {
-				record.endRetryAt = now.Add(m.duration)
+				record.endRetries++
+				record.endRetryAt = now.Add(m.endRetryDelay(record.endRetries))
 				expired = append(expired, expiredCall{callID: record.callID, record: record})
 			}
 			continue
@@ -792,12 +795,30 @@ func (m *Manager) expiredCalls() []expiredCall {
 }
 
 // beginEndingLocked marks a bound call as ending. Whoever marks it makes the
-// first attempt to end it; the manager repeats the attempt every lease duration
-// until the authoritative snapshot drops the call, so a failed hangup can never
-// leave a revoked or abandoned call connected.
+// first attempt to end it; the manager repeats the attempt until the
+// authoritative snapshot drops the call, so a failed hangup can never leave a
+// revoked or abandoned call connected and billed.
 func (m *Manager) beginEndingLocked(record *record, now time.Time) {
 	record.ending = true
-	record.endRetryAt = now.Add(m.duration)
+	record.endRetries = 0
+	record.endRetryAt = now.Add(m.endRetryDelay(0))
+}
+
+// maxEndRetryInterval bounds how rarely an ending call is asked to end again.
+const maxEndRetryInterval = 5 * time.Minute
+
+// endRetryDelay is the wait before the next attempt: one lease duration first,
+// then doubling up to maxEndRetryInterval. The Agent answers a hangup it cannot
+// carry out by resetting the modem, so the attempts must not arrive faster than
+// a modem can come back, and a call object that never disappears must not
+// become a reset every few seconds. They never stop: a call that may still be
+// connected keeps being ended.
+func (m *Manager) endRetryDelay(retries int) time.Duration {
+	delay := m.duration
+	for attempt := 0; attempt < retries && delay < maxEndRetryInterval; attempt++ {
+		delay *= 2
+	}
+	return min(delay, maxEndRetryInterval)
 }
 
 func (m *Manager) endExpiredCall(ctx context.Context, callID string, expected *record) {

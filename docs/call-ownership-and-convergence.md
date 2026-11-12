@@ -225,11 +225,19 @@ occupied/ending until authoritative hardware state becomes terminal.
 
 A failed end operation is repeated: while the record is ending and the
 authoritative snapshot still contains the call, the ownership manager runs the
-end operation again once per orphan grace. Each attempt is its own journaled
-command with a new request ID, so a failed attempt cannot block the next one;
-a hangup is idempotent at the modem, and an attempt that finds the call already
-terminal completes without reaching the hardware. The only retry state is the
-time of the next attempt on the ending record.
+end operation again. The first repeat comes one orphan grace after the first
+attempt; each later wait doubles, up to five minutes, and the attempts never
+stop while the call is reported. Each attempt is its own journaled command
+with a new request ID, so a failed attempt cannot block the next one; a hangup
+is idempotent at the modem, and an attempt that finds the call already terminal
+completes without reaching the hardware.
+
+The growing wait exists because of the Agent safety boundary: a hangup the
+Agent cannot carry out makes it reset the modem. Repeating the request faster
+than a modem can come back, or forever at a fixed short interval for a call
+object that never disappears, would turn that last resort into a reset loop.
+The retry state is the attempt count and the time of the next attempt on the
+ending record.
 
 No failure detector can both tolerate an arbitrarily long partition and
 identify an abandoned client immediately. The bounded grace is the explicit

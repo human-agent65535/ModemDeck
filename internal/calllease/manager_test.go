@@ -1676,20 +1676,28 @@ func TestFailedReleaseIsRetriedUntilTheSnapshotDropsTheCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = now.Add(11 * time.Second)
-	for attempt := 1; attempt <= 3; attempt++ {
+	// The waits grow from one lease duration and stop growing at the limit, so
+	// a hangup the Agent answers with a modem reset is not repeated every few
+	// seconds, and is still repeated for as long as the call is reported.
+	waits := []time.Duration{
+		10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second,
+		160 * time.Second, maxEndRetryInterval, maxEndRetryInterval,
+	}
+	for attempt, wait := range waits {
 		due := manager.expiredCalls()
 		if len(due) != 1 || due[0].callID != "call-1" {
 			t.Fatalf("attempt %d: due = %+v, want call-1", attempt, due)
-		}
-		if again := manager.expiredCalls(); len(again) != 0 {
-			t.Fatalf("attempt %d: repeated within the lease duration = %+v", attempt, again)
 		}
 		manager.endExpiredCall(context.Background(), due[0].callID, due[0].record)
 		if callID := <-controller.ended; callID != "call-1" {
 			t.Fatalf("attempt %d: ended call = %q, want call-1", attempt, callID)
 		}
 		<-reports
-		now = now.Add(11 * time.Second)
+		now = now.Add(wait - time.Second)
+		if early := manager.expiredCalls(); len(early) != 0 {
+			t.Fatalf("attempt %d: repeated %s after the last attempt, before its %s wait", attempt, wait-time.Second, wait)
+		}
+		now = now.Add(time.Second)
 	}
 	if _, err := manager.Claim(context.Background(), "call-1", "browser-2"); !errors.Is(err, ErrCallNotActive) {
 		t.Fatalf("claim while ending = %v, want ErrCallNotActive", err)
