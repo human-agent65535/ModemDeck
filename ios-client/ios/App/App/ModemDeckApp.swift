@@ -70,6 +70,12 @@ enum ModemDeckStroke {
     }
 }
 
+/// Runs a state change with `animation`, or at once when the user has turned on
+/// Reduce Motion. Use it instead of `withAnimation` for interface transitions.
+func modemDeckAnimated(_ animation: Animation, _ changes: () -> Void) {
+    withAnimation(UIAccessibility.isReduceMotionEnabled ? nil : animation, changes)
+}
+
 enum ModemDeckMotion {
     /// Entering and leaving multi-select in lists.
     static let selection = Animation.easeInOut(duration: 0.25)
@@ -2140,10 +2146,14 @@ extension ModemDeckLine {
     var tint: Color { palette.foreground }
 }
 
+/// An empty or informational state: a glyph, a title and an optional line of detail.
+/// `fillsPane` centres it in the whole pane (a list with nothing in it, a detail
+/// column with nothing selected); otherwise it sits inside a scrolling page.
 struct ModemDeckStateView: View {
     let icon: String
     let title: String
-    let detail: String
+    var detail = ""
+    var fillsPane = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -2153,15 +2163,57 @@ struct ModemDeckStateView: View {
                 .font(.headline)
                 .foregroundColor(.mdText)
                 .multilineTextAlignment(.center)
-            Text(detail)
-                .font(.subheadline)
-                .foregroundColor(.mdMuted)
-                .multilineTextAlignment(.center)
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundColor(.mdMuted)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(.horizontal, 28)
-        .padding(.vertical, 36)
-        .frame(maxWidth: .infinity)
+        .padding(.vertical, fillsPane ? 28 : 36)
+        .frame(maxWidth: .infinity, maxHeight: fillsPane ? .infinity : nil)
+        .background(fillsPane ? Color.mdBackground : Color.clear)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A title with its value, the row every grouped detail and settings card is built
+/// from. Text uses the system text styles, so it follows the user's text size.
+struct ModemDeckValueRow: View {
+    let title: String
+    let value: String
+    var icon: String?
+    var valueColor = Color.mdMuted
+
+    var body: some View {
+        HStack(spacing: 11) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.body.weight(.medium))
+                    .foregroundColor(.mdMuted)
+                    .frame(width: ModemDeckLayout.iconColumnWidth)
+                    .accessibilityHidden(true)
+            }
+            Text(title)
+                .font(.body)
+                .foregroundColor(.mdText)
+            Spacer(minLength: 14)
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(valueColor)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(3)
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: ModemDeckLayout.compactRowHeight)
+    }
+}
+
+/// The separator between rows of a grouped card, inset past the icon column.
+struct ModemDeckRowDivider: View {
+    var body: some View {
+        Rectangle().fill(Color.mdBorder).frame(height: 1).padding(.leading, 48)
     }
 }
 
@@ -2178,31 +2230,6 @@ struct ModemDeckStateIcon: View {
             .frame(width: size, height: size)
             .background(Circle().fill(Color.mdSurfaceHover))
             .accessibilityHidden(true)
-    }
-}
-
-struct ModemDeckWorkspaceEmptyView: View {
-    let icon: String
-    let title: String
-    var detail = ""
-
-    var body: some View {
-        VStack(spacing: 8) {
-            ModemDeckStateIcon(icon: icon)
-                .padding(.bottom, ModemDeckSpacing.xxs)
-            Text(title)
-                .font(.headline)
-                .foregroundColor(.mdText)
-            if !detail.isEmpty {
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundColor(.mdFaint)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .padding(28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.mdBackground)
     }
 }
 

@@ -267,9 +267,10 @@ struct ModemDeckHomeView: View {
             ModemDeckRouteContent(route: selectedRoute, controller: controller, showsBackButton: false)
                 .id(selectedRoute)
         } else {
-            ModemDeckWorkspaceEmptyView(
+            ModemDeckStateView(
                 icon: "tray", title: controller.text("选择短信或通话", "Select a message or call"),
-                detail: controller.text("详情会显示在这里。", "Details appear here.")
+                detail: controller.text("详情会显示在这里。", "Details appear here."),
+                fillsPane: true
             )
         }
     }

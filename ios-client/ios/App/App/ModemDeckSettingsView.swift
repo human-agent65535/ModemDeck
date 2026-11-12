@@ -438,36 +438,6 @@ private struct ModemDeckSettingsModule<Content: View>: View {
     }
 }
 
-private struct ModemDeckSettingsValueRow: View {
-    let title: String
-    let value: String
-    var icon: String?
-    var valueColor = Color.mdMuted
-
-    var body: some View {
-        HStack(spacing: 11) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.body.weight(.medium))
-                    .foregroundColor(.mdMuted)
-                    .frame(width: ModemDeckLayout.iconColumnWidth)
-                    .accessibilityHidden(true)
-            }
-            Text(title)
-                .font(.body)
-                .foregroundColor(.mdText)
-            Spacer(minLength: 14)
-            Text(value)
-                .font(.subheadline)
-                .foregroundColor(valueColor)
-                .multilineTextAlignment(.trailing)
-                .lineLimit(3)
-        }
-        .padding(.horizontal, 14)
-        .frame(minHeight: ModemDeckLayout.compactRowHeight)
-    }
-}
-
 private struct ModemDeckSettingsActionRow: View {
     let title: String
     let icon: String
@@ -499,12 +469,6 @@ private struct ModemDeckSettingsActionRow: View {
         }
         .buttonStyle(.plain)
         .disabled(busy)
-    }
-}
-
-private struct ModemDeckSettingsDivider: View {
-    var body: some View {
-        Rectangle().fill(Color.mdBorder).frame(height: 1).padding(.leading, 48)
     }
 }
 
@@ -671,12 +635,12 @@ private struct ModemDeckPreferencesSettingsView: View {
             backTitle: controller.text("返回设置", "Back to Settings")
         ) {
             ModemDeckSettingsModule(title: controller.text("个人资料", "Profile")) {
-                ModemDeckSettingsValueRow(
+                ModemDeckValueRow(
                     title: controller.text("账户", "Account"),
                     value: controller.session?.username ?? "—",
                     icon: "person.crop.circle"
                 )
-                ModemDeckSettingsDivider()
+                ModemDeckRowDivider()
                 ModemDeckSettingsMenuRow(
                     title: controller.text("资料联系人", "Profile Contact"),
                     icon: "person.text.rectangle",
@@ -700,7 +664,7 @@ private struct ModemDeckPreferencesSettingsView: View {
                     choices: languageChoices,
                     disabled: languageBusy
                 ) { updateLanguage($0) }
-                ModemDeckSettingsDivider()
+                ModemDeckRowDivider()
                 ModemDeckSettingsMenuRow(
                     title: controller.text("默认线路", "Default Line"),
                     icon: "simcard",
@@ -830,25 +794,25 @@ private struct ModemDeckSecuritySettingsView: View {
             backTitle: controller.text("返回设置", "Back to Settings")
         ) {
             ModemDeckSettingsModule(title: controller.text("当前身份", "Current Identity")) {
-                ModemDeckSettingsValueRow(
+                ModemDeckValueRow(
                     title: controller.text("用户名", "Username"),
                     value: controller.session?.username ?? "—",
                     icon: "person.crop.circle"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("角色", "Role"),
                     value: roleText,
                     icon: "person.badge.key"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("可用线路", "Allowed Lines"),
                     value: allowedLinesText,
                     icon: "simcard.2"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("凭据存储", "Credential Storage"),
                     value: "iOS Keychain",
                     icon: "key.fill",
@@ -886,7 +850,7 @@ private struct ModemDeckSecuritySettingsView: View {
                     )
                 } else {
                     ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-                        if index > 0 { ModemDeckSettingsDivider() }
+                        if index > 0 { ModemDeckRowDivider() }
                         ModemDeckAccountSessionSettingsRow(
                             title: sessionTitle(session),
                             detail: sessionDetail(session),
@@ -1184,13 +1148,13 @@ private struct ModemDeckNotificationSettingsView: View {
                     "SMS alerts arrive through APNs; incoming calls wake CallKit through PushKit."
                 )
             ) {
-                ModemDeckSettingsValueRow(
+                ModemDeckValueRow(
                     title: controller.text("通知权限", "Notification Permission"),
                     value: notificationStatusText,
                     icon: "bell.badge",
                     valueColor: notificationStatusColor
                 )
-                ModemDeckSettingsDivider()
+                ModemDeckRowDivider()
                 if controller.notificationStatus == "not_determined" {
                     ModemDeckSettingsActionRow(
                         title: controller.text("允许通知", "Allow Notifications"),
@@ -1206,7 +1170,7 @@ private struct ModemDeckNotificationSettingsView: View {
                         controller.openNotificationSettings()
                     }
                 }
-                ModemDeckSettingsDivider()
+                ModemDeckRowDivider()
                 ModemDeckSettingsActionRow(
                     title: controller.text("发送本机测试通知", "Send Local Test Notification"),
                     icon: "paperplane"
@@ -1288,7 +1252,7 @@ private struct ModemDeckCallSettingsView: View {
                 .padding(.horizontal, 14)
                 .frame(minHeight: ModemDeckLayout.compactRowHeight)
                 .disabled(callSettings == nil || callSettingsBusy)
-                ModemDeckSettingsDivider()
+                ModemDeckRowDivider()
                 Toggle(
                     controller.text("默认录制通话", "Record Calls by Default"),
                     isOn: Binding(
@@ -1302,22 +1266,22 @@ private struct ModemDeckCallSettingsView: View {
                 .padding(.horizontal, 14)
                 .frame(minHeight: ModemDeckLayout.compactRowHeight)
                 .disabled(recordingSettings == nil || recordingBusy)
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: "CallKit",
                     value: controller.text("已接入", "Enabled"),
                     icon: "phone.connection",
                     valueColor: .mdAccent
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("麦克风", "Microphone"),
                     value: microphoneStatusText,
                     icon: "mic",
                     valueColor: controller.microphoneStatus == "denied" ? .mdDanger : .mdMuted
                 )
                 if controller.microphoneStatus != "authorized" {
-                    ModemDeckSettingsDivider()
+                    ModemDeckRowDivider()
                     ModemDeckSettingsActionRow(
                         title: controller.microphoneStatus == "denied"
                             ? controller.text("打开麦克风设置", "Open Microphone Settings")
@@ -1523,7 +1487,7 @@ private struct ModemDeckDevicesSettingsView: View {
                     )
                 } else {
                     ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
-                        if index > 0 { ModemDeckSettingsDivider() }
+                        if index > 0 { ModemDeckRowDivider() }
                         ModemDeckSettingsStatusRow(
                             icon: "simcard",
                             title: line.displayName,
@@ -1549,7 +1513,7 @@ private struct ModemDeckDevicesSettingsView: View {
                     )
                 } else {
                     ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
-                        if index > 0 { ModemDeckSettingsDivider() }
+                        if index > 0 { ModemDeckRowDivider() }
                         ModemDeckSettingsStatusRow(
                             icon: "antenna.radiowaves.left.and.right",
                             title: device.name.isEmpty ? device.model : device.name,
@@ -1621,7 +1585,7 @@ private struct ModemDeckUsersSettingsView: View {
                     )
                 } else {
                     ForEach(Array(users.enumerated()), id: \.element.id) { index, user in
-                        if index > 0 { ModemDeckSettingsDivider() }
+                        if index > 0 { ModemDeckRowDivider() }
                         ModemDeckSettingsStatusRow(
                             icon: user.role == "admin" ? "person.badge.key.fill" : "person.fill",
                             title: userTitle(user),
@@ -1703,7 +1667,7 @@ private struct ModemDeckTelegramSettingsView: View {
                     )
                 } else {
                     ForEach(Array(units.enumerated()), id: \.element.id) { index, unit in
-                        if index > 0 { ModemDeckSettingsDivider() }
+                        if index > 0 { ModemDeckRowDivider() }
                         ModemDeckSettingsStatusRow(
                             icon: "paperplane.fill",
                             title: unit.displayName,
@@ -1772,26 +1736,26 @@ private struct ModemDeckAccessSettingsView: View {
             backTitle: controller.text("返回设置", "Back to Settings")
         ) {
             ModemDeckSettingsModule(title: controller.text("当前连接", "Current Connection")) {
-                ModemDeckSettingsValueRow(
+                ModemDeckValueRow(
                     title: controller.text("API 地址", "API Address"),
                     value: serverURL,
                     icon: "network"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("传输安全", "Transport Security"),
                     value: secureTransport ? "HTTPS" : "HTTP",
                     icon: secureTransport ? "lock.fill" : "lock.open",
                     valueColor: secureTransport ? .mdAccent : .mdDanger
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("验证方式", "Authentication"),
                     value: controller.text("配对设备凭据", "Paired device credential"),
                     icon: "key.fill"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("凭据存储", "Credential Storage"),
                     value: "iOS Keychain",
                     icon: "lock.shield.fill",
@@ -1806,20 +1770,20 @@ private struct ModemDeckAccessSettingsView: View {
                     "APNs delivers SMS alerts; PushKit and CallKit present incoming calls."
                 )
             ) {
-                ModemDeckSettingsValueRow(
+                ModemDeckValueRow(
                     title: "APNs",
                     value: ModemDeckDeviceInfo.apnsEnvironment,
                     icon: "bell.and.waves.left.and.right"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: "PushKit",
                     value: controller.text("已接入", "Enabled"),
                     icon: "phone.arrow.down.left",
                     valueColor: .mdAccent
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: "CallKit",
                     value: controller.text("已接入", "Enabled"),
                     icon: "phone.connection",
@@ -1858,16 +1822,16 @@ private struct ModemDeckDeviceDiagnosticsSettingsView: View {
                 .tint(.mdAccent)
                 .padding(.horizontal, 14)
                 .frame(minHeight: ModemDeckLayout.compactRowHeight)
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(title: controller.text("待上传", "Queued"),
+                ModemDeckRowDivider()
+                ModemDeckValueRow(title: controller.text("待上传", "Queued"),
                     value: String(status.pending), icon: "arrow.up.circle")
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(title: controller.text("最近上传", "Last Upload"),
+                ModemDeckRowDivider()
+                ModemDeckValueRow(title: controller.text("最近上传", "Last Upload"),
                     value: status.lastUpload.map { $0.formatted(date: .abbreviated, time: .standard) }
                         ?? controller.text("暂无", "None"), icon: "clock")
                 if status.dropped > 0 {
-                    ModemDeckSettingsDivider()
-                    ModemDeckSettingsValueRow(title: controller.text("队列已满时丢弃", "Dropped When Queue Was Full"),
+                    ModemDeckRowDivider()
+                    ModemDeckValueRow(title: controller.text("队列已满时丢弃", "Dropped When Queue Was Full"),
                         value: String(status.dropped), icon: "exclamationmark.circle")
                 }
             }
@@ -1904,22 +1868,22 @@ private struct ModemDeckDiagnosticsSettingsView: View {
                         detail: snapshot.database.error ?? controller.text("可用", "Available"),
                         active: snapshot.database.available
                     )
-                    ModemDeckSettingsDivider()
+                    ModemDeckRowDivider()
                     ModemDeckSettingsStatusRow(
                         icon: "antenna.radiowaves.left.and.right",
                         title: controller.text("硬件服务", "Hardware Service"),
                         detail: agentDetail(snapshot.hostAgent),
                         active: snapshot.hostAgent.connected
                     )
-                    ModemDeckSettingsDivider()
+                    ModemDeckRowDivider()
                     ModemDeckSettingsStatusRow(
                         icon: "phone.connection",
                         title: controller.text("通话运行时", "Call Runtime"),
                         detail: snapshot.calls.error ?? controller.text("可用", "Available"),
                         active: snapshot.calls.available
                     )
-                    ModemDeckSettingsDivider()
-                    ModemDeckSettingsValueRow(
+                    ModemDeckRowDivider()
+                    ModemDeckValueRow(
                         title: controller.text("采样时间", "Observed"),
                         value: controller.dateText(snapshot.observedAt),
                         icon: "clock"
@@ -1935,7 +1899,7 @@ private struct ModemDeckDiagnosticsSettingsView: View {
                         )
                     } else {
                         ForEach(Array(snapshot.lines.enumerated()), id: \.element.id) { index, line in
-                            if index > 0 { ModemDeckSettingsDivider() }
+                            if index > 0 { ModemDeckRowDivider() }
                             ModemDeckSettingsStatusRow(
                                 icon: "simcard",
                                 title: line.displayName,
@@ -1951,7 +1915,7 @@ private struct ModemDeckDiagnosticsSettingsView: View {
                 if !snapshot.activeCalls.isEmpty {
                     ModemDeckSettingsModule(title: controller.text("活动通话", "Active Calls")) {
                         ForEach(Array(snapshot.activeCalls.enumerated()), id: \.element.id) { index, call in
-                            if index > 0 { ModemDeckSettingsDivider() }
+                            if index > 0 { ModemDeckRowDivider() }
                             ModemDeckSettingsStatusRow(
                                 icon: "phone.fill",
                                 title: call.id,
@@ -2075,25 +2039,25 @@ private struct ModemDeckConnectionSettingsView: View {
             backTitle: controller.text("返回设置", "Back to Settings")
         ) {
             ModemDeckSettingsModule(title: controller.text("当前连接", "Current Connection")) {
-                ModemDeckSettingsValueRow(
+                ModemDeckValueRow(
                     title: controller.text("服务器", "Server"),
                     value: controller.serverDisplayName,
                     icon: "server.rack"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("账户", "Account"),
                     value: controller.session?.username ?? "—",
                     icon: "person.crop.circle"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("角色", "Role"),
                     value: controller.session?.role ?? "—",
                     icon: "person.badge.key"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("用户 ID", "User ID"),
                     value: controller.session?.userId ?? "—",
                     icon: "number"
@@ -2187,19 +2151,19 @@ private struct ModemDeckAboutSettingsView: View {
             backTitle: controller.text("返回设置", "Back to Settings")
         ) {
             ModemDeckSettingsModule(title: controller.text("应用", "Application")) {
-                ModemDeckSettingsValueRow(
+                ModemDeckValueRow(
                     title: controller.text("App 版本", "App Version"),
                     value: ModemDeckDeviceInfo.appVersion,
                     icon: "app.badge"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: "Bundle ID",
                     value: Bundle.main.bundleIdentifier ?? "—",
                     icon: "shippingbox"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: "APNs",
                     value: ModemDeckDeviceInfo.apnsEnvironment,
                     icon: "bell.and.waves.left.and.right"
@@ -2207,25 +2171,25 @@ private struct ModemDeckAboutSettingsView: View {
             }
 
             ModemDeckSettingsModule(title: controller.text("此设备", "This Device")) {
-                ModemDeckSettingsValueRow(
+                ModemDeckValueRow(
                     title: controller.text("名称", "Name"),
                     value: UIDevice.current.name,
                     icon: UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("设备类型", "Device Type"),
                     value: UIDevice.current.localizedModel,
                     icon: "rectangle.on.rectangle"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("硬件型号", "Hardware Model"),
                     value: ModemDeckDeviceInfo.hardwareIdentifier,
                     icon: "cpu"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("系统", "System"),
                     value: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
                     icon: "gear"
@@ -2233,13 +2197,13 @@ private struct ModemDeckAboutSettingsView: View {
             }
 
             ModemDeckSettingsModule(title: controller.text("服务", "Service")) {
-                ModemDeckSettingsValueRow(
+                ModemDeckValueRow(
                     title: controller.text("API 服务器", "API Server"),
                     value: controller.serverDisplayName,
                     icon: "network"
                 )
-                ModemDeckSettingsDivider()
-                ModemDeckSettingsValueRow(
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
                     title: controller.text("硬件服务", "Hardware Service"),
                     value: controller.bootstrap?.capabilities.agentConnected == true
                         ? controller.text("在线", "Online")

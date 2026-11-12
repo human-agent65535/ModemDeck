@@ -849,10 +849,11 @@ struct ModemDeckCallsView: View {
             )
             .id(call.id)
         } else {
-            ModemDeckWorkspaceEmptyView(
+            ModemDeckStateView(
                 icon: "tray",
                 title: controller.text("选择通话", "Select a call"),
-                detail: controller.text("通话详情会显示在这里。", "Call details appear here.")
+                detail: controller.text("通话详情会显示在这里。", "Call details appear here."),
+                fillsPane: true
             )
         }
     }
@@ -950,7 +951,7 @@ struct ModemDeckCallsView: View {
                     selectedCallID = call.id
                 } else { navigate(.call(call.id)) }
             },
-            beginSelection: { withAnimation(ModemDeckMotion.selection) { selecting = true; selectedIDs = [call.id] } },
+            beginSelection: { modemDeckAnimated(ModemDeckMotion.selection) { selecting = true; selectedIDs = [call.id] } },
             toggleRead: call.missed ? { try await store.mutate(call.read ? .unread : .read, calls: [call]) } : nil,
             toggleFavorite: { try await store.mutate(call.favorite ? .unfavorite : .favorite, calls: [call]) },
             delete: { try await store.mutate(.delete, calls: [call]) }
@@ -1014,7 +1015,7 @@ struct ModemDeckCallsView: View {
     }
 
     private func endCallSelection() {
-        withAnimation(ModemDeckMotion.selection) {
+        modemDeckAnimated(ModemDeckMotion.selection) {
             selecting = false
             selectedIDs.removeAll()
         }
@@ -1335,9 +1336,10 @@ struct ModemDeckRecordingsView: View {
             )
             .id(recording.id)
         } else {
-            ModemDeckWorkspaceEmptyView(
+            ModemDeckStateView(
                 icon: "tray",
-                title: controller.text("选择录音", "Select a recording")
+                title: controller.text("选择录音", "Select a recording"),
+                fillsPane: true
             )
         }
     }
@@ -1397,7 +1399,7 @@ struct ModemDeckRecordingsView: View {
                     selectedRecordingID = recording.id
                 } else { navigate(.recording(recording.id)) }
             },
-            beginSelection: { withAnimation(ModemDeckMotion.selection) { selecting = true; selectedIDs = [recording.id] } },
+            beginSelection: { modemDeckAnimated(ModemDeckMotion.selection) { selecting = true; selectedIDs = [recording.id] } },
             toggleFavorite: { try await store.mutate(recording.favorite ? .unfavorite : .favorite, recordings: [recording]) },
             delete: { try await store.mutate(.delete, recordings: [recording]) }
         ) { actions in
@@ -1449,7 +1451,7 @@ struct ModemDeckRecordingsView: View {
     }
 
     private func endRecordingSelection() {
-        withAnimation(ModemDeckMotion.selection) {
+        modemDeckAnimated(ModemDeckMotion.selection) {
             selecting = false
             selectedIDs.removeAll()
         }
@@ -1590,44 +1592,6 @@ private struct ModemDeckDetailCard<Content: View>: View {
                         .stroke(Color.mdBorder, lineWidth: ModemDeckStroke.regular)
                 )
         }
-    }
-}
-
-private struct ModemDeckDetailValueRow: View {
-    let title: String
-    let value: String
-    var icon: String? = nil
-    var valueColor = Color.mdMuted
-
-    var body: some View {
-        HStack(spacing: 11) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.mdMuted)
-                    .frame(width: ModemDeckLayout.iconColumnWidth)
-            }
-            Text(title)
-                .font(.system(size: 15))
-                .foregroundColor(.mdText)
-            Spacer(minLength: 14)
-            Text(value)
-                .font(.system(size: 14))
-                .foregroundColor(valueColor)
-                .multilineTextAlignment(.trailing)
-                .lineLimit(3)
-        }
-        .padding(.horizontal, 14)
-        .frame(minHeight: ModemDeckLayout.compactRowHeight)
-    }
-}
-
-private struct ModemDeckDetailDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color.mdBorder)
-            .frame(height: 1)
-            .padding(.leading, 48)
     }
 }
 
@@ -1791,33 +1755,33 @@ struct ModemDeckCallDetailView: View {
                     }
 
                     ModemDeckDetailCard(title: controller.text("通话详情", "Call Details")) {
-                        ModemDeckDetailValueRow(
+                        ModemDeckValueRow(
                             title: controller.text("方向", "Direction"),
                             value: directionText,
                             icon: directionIcon,
                             valueColor: call.missed ? .mdDanger : .mdMuted
                         )
-                        ModemDeckDetailDivider()
-                        ModemDeckDetailValueRow(
+                        ModemDeckRowDivider()
+                        ModemDeckValueRow(
                             title: controller.text("时间", "Time"),
                             value: controller.dateText(call.startedAt),
                             icon: "clock"
                         )
-                        ModemDeckDetailDivider()
-                        ModemDeckDetailValueRow(
+                        ModemDeckRowDivider()
+                        ModemDeckValueRow(
                             title: controller.text("时长", "Duration"),
                             value: ModemDeckDateText.duration(call.durationSeconds),
                             icon: "timer"
                         )
-                        ModemDeckDetailDivider()
-                        ModemDeckDetailValueRow(
+                        ModemDeckRowDivider()
+                        ModemDeckValueRow(
                             title: controller.text("线路", "Line"),
                             value: line?.displayName ?? call.lineId,
                             icon: "simcard"
                         )
                         if let failure = call.failureCode, !failure.isEmpty {
-                            ModemDeckDetailDivider()
-                            ModemDeckDetailValueRow(
+                            ModemDeckRowDivider()
+                            ModemDeckValueRow(
                                 title: controller.text("失败原因", "Failure"),
                                 value: failure,
                                 icon: "exclamationmark.triangle",
@@ -1829,7 +1793,7 @@ struct ModemDeckCallDetailView: View {
                     if !recordings.isEmpty {
                         ModemDeckDetailCard(title: controller.text("录音", "Recordings")) {
                             ForEach(Array(recordings.enumerated()), id: \.element.id) { index, recording in
-                                if index > 0 { ModemDeckDetailDivider() }
+                                if index > 0 { ModemDeckRowDivider() }
                                 NavigationLink {
                                     ModemDeckRecordingDetailView(
                                         recording: recording,
@@ -2236,19 +2200,19 @@ struct ModemDeckRecordingDetailView: View {
                     }
 
                     ModemDeckDetailCard(title: controller.text("录音详情", "Recording Details")) {
-                        ModemDeckDetailValueRow(
+                        ModemDeckValueRow(
                             title: controller.text("录制时间", "Recorded"),
                             value: controller.dateText(recording.segment.createdAt),
                             icon: "clock"
                         )
-                        ModemDeckDetailDivider()
-                        ModemDeckDetailValueRow(
+                        ModemDeckRowDivider()
+                        ModemDeckValueRow(
                             title: controller.text("时长", "Duration"),
                             value: ModemDeckDateText.duration(recording.segment.durationMs / 1_000),
                             icon: "timer"
                         )
-                        ModemDeckDetailDivider()
-                        ModemDeckDetailValueRow(
+                        ModemDeckRowDivider()
+                        ModemDeckValueRow(
                             title: controller.text("文件大小", "File Size"),
                             value: ByteCountFormatter.string(
                                 fromByteCount: Int64(recording.segment.sizeBytes),
@@ -2256,14 +2220,14 @@ struct ModemDeckRecordingDetailView: View {
                             ),
                             icon: "doc"
                         )
-                        ModemDeckDetailDivider()
-                        ModemDeckDetailValueRow(
+                        ModemDeckRowDivider()
+                        ModemDeckValueRow(
                             title: controller.text("线路", "Line"),
                             value: line?.displayName ?? recording.call.lineId,
                             icon: "simcard"
                         )
-                        ModemDeckDetailDivider()
-                        ModemDeckDetailValueRow(
+                        ModemDeckRowDivider()
+                        ModemDeckValueRow(
                             title: controller.text("状态", "Status"),
                             value: recording.playable
                                 ? controller.text("可播放", "Playable")
@@ -2978,7 +2942,7 @@ struct ModemDeckActiveCallView: View {
                     : canSendDTMF ? nil : controller.text("此线路不支持拨号音", "This line can't send keypad tones")
             ) {
                 if reduceMotion { showingKeypad.toggle() }
-                else { withAnimation(ModemDeckMotion.keypad) { showingKeypad.toggle() } }
+                else { modemDeckAnimated(ModemDeckMotion.keypad) { showingKeypad.toggle() } }
             }
             .accessibilityIdentifier("call-keypad")
         case .audio:
@@ -3033,7 +2997,7 @@ struct ModemDeckActiveCallView: View {
             if keypadVisible {
                 Button {
                     if reduceMotion { showingKeypad = false }
-                    else { withAnimation(ModemDeckMotion.keypad) { showingKeypad = false } }
+                    else { modemDeckAnimated(ModemDeckMotion.keypad) { showingKeypad = false } }
                 } label: {
                     Text(controller.text("隐藏", "Hide"))
                         .font(.body.weight(.medium))

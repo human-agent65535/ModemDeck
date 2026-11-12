@@ -168,7 +168,7 @@ struct ModemDeckContactsView: View {
                     selectedContactID = contact.id
                 } else { navigate(.contact(contact.id)) }
             },
-            beginSelection: { withAnimation(ModemDeckMotion.selection) { selecting = true; selectedIDs = [contact.id] } },
+            beginSelection: { modemDeckAnimated(ModemDeckMotion.selection) { selecting = true; selectedIDs = [contact.id] } },
             toggleFavorite: {
                 let saved = try await controller.api.updateContact(
                     id: contact.id,
@@ -200,10 +200,11 @@ struct ModemDeckContactsView: View {
             )
             .id(contact.id)
         } else {
-            ModemDeckWorkspaceEmptyView(
+            ModemDeckStateView(
                 icon: "person.crop.circle",
                 title: controller.text("选择联系人", "Select a contact"),
-                detail: controller.text("联系人详情会显示在这里。", "Contact details appear here.")
+                detail: controller.text("联系人详情会显示在这里。", "Contact details appear here."),
+                fillsPane: true
             )
         }
     }
@@ -276,7 +277,7 @@ struct ModemDeckContactsView: View {
     }
 
     private func endContactSelection() {
-        withAnimation(ModemDeckMotion.selection) {
+        modemDeckAnimated(ModemDeckMotion.selection) {
             selecting = false
             selectedIDs.removeAll()
         }
@@ -1827,10 +1828,11 @@ struct ModemDeckMessagesView: View {
             )
             .id(thread.id)
         } else {
-            ModemDeckWorkspaceEmptyView(
+            ModemDeckStateView(
                 icon: "tray",
                 title: controller.text("选择会话", "Select a conversation"),
-                detail: controller.text("短信会显示在这里。", "Messages appear here.")
+                detail: controller.text("短信会显示在这里。", "Messages appear here."),
+                fillsPane: true
             )
         }
     }
@@ -1924,7 +1926,7 @@ struct ModemDeckMessagesView: View {
                     selectedThreadID = thread.id
                 } else { navigate(.message(thread.id)) }
             },
-            beginSelection: { withAnimation(ModemDeckMotion.selection) { selecting = true; selectedIDs = [thread.id] } },
+            beginSelection: { modemDeckAnimated(ModemDeckMotion.selection) { selecting = true; selectedIDs = [thread.id] } },
             toggleRead: { try await store.mutate(unread ? .read : .unread, threads: [thread]) },
             toggleFavorite: { try await store.mutate(thread.favorite ? .unfavorite : .favorite, threads: [thread]) },
             delete: { try await store.mutate(.delete, threads: [thread]) }
@@ -1987,7 +1989,7 @@ struct ModemDeckMessagesView: View {
     }
 
     private func endMessageSelection() {
-        withAnimation(ModemDeckMotion.selection) {
+        modemDeckAnimated(ModemDeckMotion.selection) {
             selecting = false
             selectedIDs.removeAll()
         }
@@ -2276,7 +2278,6 @@ struct ModemDeckConversationView: View {
     let onDeleted: (String) -> Void
     @StateObject private var store: ModemDeckConversationStore
     @Environment(\.presentationMode) private var presentationMode
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @GestureState private var timestampDrag: CGFloat = 0
     @State private var timestampPan: CGFloat = 0
     @StateObject private var draft: ModemDeckMessageDraft
@@ -2749,7 +2750,7 @@ struct ModemDeckConversationView: View {
         Task { @MainActor in
             await Task.yield()
             if animated {
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                modemDeckAnimated(.easeOut(duration: 0.22)) {
                     proxy.scrollTo(conversationBottomID, anchor: .bottom)
                 }
             } else {
