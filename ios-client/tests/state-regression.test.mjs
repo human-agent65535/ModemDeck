@@ -57,8 +57,10 @@ test('native message and search queries preserve phone prefixes and reserved cha
 
 test('native collections fetch all pages, retain filters, and reject partial snapshots', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckAPI.swift', import.meta.url), 'utf8')
+  // allPages follows cursors with the shared page follower.
   await verify('pagination-stubs.swift', ['func contacts(', 'func calls()', 'func recordings()',
-    'private func allPages<', 'private func isCurrentCredential(', 'private func path('].map(marker => declaration(source, marker)))
+    'private func allPages<', 'private func isCurrentCredential(', 'private func path(',
+    'func modemDeckFollowPages('].map(marker => declaration(source, marker)))
 })
 
 test('call stream decodes server fields, ownership-only updates and rejects malformed events', { skip: process.platform !== 'darwin' }, async () => {
@@ -109,7 +111,10 @@ test('native drop accounting and server stats expose only enumerated numeric fac
 
 test('native conversation refresh removes deleted cache entries and send completion preserves newer drafts', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckSession.swift', import.meta.url), 'utf8')
+  // The conversation's refresh follows cursors with the shared page follower.
+  const api = await readFile(new URL('../ios/App/App/ModemDeckAPI.swift', import.meta.url), 'utf8')
   await verify('conversation-stubs.swift', [
+    declaration(api, 'func modemDeckFollowPages('),
     declaration(source, 'struct ModemDeckOutgoingMessage:'),
     ...['final class ModemDeckConversationStore:', 'final class ModemDeckMessageDraft:']
       .map(marker => '@MainActor\n' + declaration(source, marker))
@@ -118,9 +123,12 @@ test('native conversation refresh removes deleted cache entries and send complet
 
 test('activity snapshot preserves all historical rows, date ordering and stable identities', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckHomeView.swift', import.meta.url), 'utf8')
+  // Timestamps are read with the app's shared ISO 8601 parser.
+  const app = await readFile(new URL('../ios/App/App/ModemDeckApp.swift', import.meta.url), 'utf8')
   await verify('activity-stubs.swift', ['private enum ModemDeckActivityItem:',
     'private struct ModemDeckActivitySource:', 'private struct ModemDeckActivityDay:',
-    'private struct ModemDeckActivitySnapshot'].map(marker => declaration(source, marker)))
+    'private struct ModemDeckActivitySnapshot'].map(marker => declaration(source, marker))
+    .concat(declaration(app, 'struct ModemDeckISO8601Parser')))
 })
 
 
@@ -242,7 +250,10 @@ test('durable SSE revisions refresh history after call end and recording finaliz
     'private func stopRuntimeEvents(', 'private func acceptRuntimeHeartbeat(', 'private func acceptRuntimeEvent(',
     'private func requestRuntimeCollectionsRefresh()', 'func refreshCollections()']
     .map(marker => declaration(source, marker).replace('private func', 'func'))
+  // Reconnect delays come from the shared backoff schedule.
+  const recovery = await readFile(new URL('../ios/App/App/ModemDeckConnectionRecovery.swift', import.meta.url), 'utf8')
   await verify('runtime-history-stubs.swift', [
+    declaration(recovery, 'enum ModemDeckBackoff'),
     declaration(source, 'struct ModemDeckRuntimeDataWatermark'),
     `@MainActor final class Store {\n${runtimeStoreFields}\n${['func load()', 'private func finishWaitingLoads()', 'func clear()'].map(marker => declaration(source.slice(source.indexOf('final class ModemDeckCallsStore:')), marker)).join('\n')}\n}`,
     `@MainActor final class Controller {\n${methods.join('\n')}\n${runtimeControllerFields}\n}`
@@ -293,8 +304,10 @@ const runtimeStoreFields = `
 
 test('pinned collection requests cancel old pairing responses without revoking a replacement or changing verification semantics', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckAPI.swift', import.meta.url), 'utf8')
+  // The error body is read by the product's ModemDeckServerError.
   await verify('pairing-request-stubs.swift', ['func verify(', 'private func decode<', 'private func data(',
-    'private func isCurrentCredential(', 'private func reportConnectivity('].map(marker => declaration(source, marker).replace('private func', 'func')))
+    'private func isCurrentCredential(', 'private func reportConnectivity(', 'struct ModemDeckServerError:']
+    .map(marker => declaration(source, marker).replace('private func', 'func')))
 })
 
 

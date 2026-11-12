@@ -267,13 +267,13 @@ struct ModemDeckSettingsView: View {
         }
     }
 
+    /// The directory row names an unset or unknown state by what the page is for.
     private var notificationSubtitle: String {
-        switch controller.notificationStatus {
-        case "authorized": return controller.text("已允许", "Allowed")
-        case "provisional": return controller.text("临时允许", "Provisional")
-        case "denied": return controller.text("已关闭", "Off")
-        default: return controller.text("管理推送通知", "Manage push notifications")
-        }
+        controller.permissionText(
+            controller.notificationStatus,
+            notDetermined: nil,
+            other: controller.text("管理推送通知", "Manage push notifications")
+        )
     }
 
     private func settingsGroupLabel(_ title: String) -> some View {
@@ -931,7 +931,7 @@ private struct ModemDeckSecuritySettingsView: View {
         let ids = controller.session?.allowedLineIds ?? []
         if ids.isEmpty { return controller.text("全部", "All") }
         let names = ids.map { id in
-            controller.bootstrap?.lineCatalog.first(where: { $0.id == id })?.displayName ?? id
+            controller.bootstrap?.catalogLine(id: id)?.displayName ?? id
         }
         return names.joined(separator: ", ")
     }
@@ -1140,7 +1140,7 @@ private struct ModemDeckPasswordChangeSheet: View {
                 )
                 changed()
             } catch let error as ModemDeckAPIError {
-                errorMessage = passwordError(error)
+                errorMessage = error.passwordChangeDescription(chinese: controller.usesChinese)
                 saving = false
             } catch {
                 ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
@@ -1164,21 +1164,6 @@ private struct ModemDeckPasswordChangeSheet: View {
             return controller.text("两次输入的新密码不一致。", "The new passwords do not match.")
         }
         return nil
-    }
-
-    private func passwordError(_ error: ModemDeckAPIError) -> String {
-        switch error.code {
-        case "invalid_current_password":
-            return controller.text("当前密码不正确。", "The current password is incorrect.")
-        case "password_too_short":
-            return controller.text("新密码至少需要 8 个字符。", "The new password needs at least 8 characters.")
-        case "password_too_long", "password_invalid":
-            return controller.text("新密码包含不支持的内容。", "The new password contains unsupported content.")
-        case "password_unchanged":
-            return controller.text("新密码不能与当前密码相同。", "The new password must differ from the current password.")
-        default:
-            return error.localizedDescription
-        }
     }
 }
 
@@ -1247,13 +1232,11 @@ private struct ModemDeckNotificationSettingsView: View {
     }
 
     private var notificationStatusText: String {
-        switch controller.notificationStatus {
-        case "authorized": return controller.text("已允许", "Allowed")
-        case "provisional": return controller.text("临时允许", "Provisional")
-        case "denied": return controller.text("已关闭", "Off")
-        case "not_determined": return controller.text("未设置", "Not Set")
-        default: return controller.text("未知", "Unknown")
-        }
+        controller.permissionText(
+            controller.notificationStatus,
+            notDetermined: controller.text("未设置", "Not Set"),
+            other: controller.text("未知", "Unknown")
+        )
     }
 
     private var notificationStatusColor: Color {
@@ -1385,13 +1368,14 @@ private struct ModemDeckCallSettingsView: View {
         }
     }
 
+    /// The microphone has no provisional state, so "provisional" reads as unknown here.
     private var microphoneStatusText: String {
-        switch controller.microphoneStatus {
-        case "authorized": return controller.text("已允许", "Allowed")
-        case "denied": return controller.text("已关闭", "Off")
-        case "not_determined": return controller.text("未设置", "Not Set")
-        default: return controller.text("未知", "Unknown")
-        }
+        controller.permissionText(
+            controller.microphoneStatus,
+            recognizesProvisional: false,
+            notDetermined: controller.text("未设置", "Not Set"),
+            other: controller.text("未知", "Unknown")
+        )
     }
 
     private func requestMicrophone() {
@@ -1664,7 +1648,7 @@ private struct ModemDeckUsersSettingsView: View {
         ]
         if user.role != "admin" {
             let names = user.lineIds.compactMap { id in
-                controller.bootstrap?.lineCatalog.first(where: { $0.id == id })?.displayName
+                controller.bootstrap?.catalogLine(id: id)?.displayName
             }
             parts.append(names.isEmpty
                          ? controller.text("无线路", "No lines")
@@ -1742,7 +1726,7 @@ private struct ModemDeckTelegramSettingsView: View {
             parts.append(controller.text("全部获授权线路", "All assigned lines"))
         } else if !unit.lineScopes.isEmpty {
             let names = unit.lineScopes.map { id in
-                controller.bootstrap?.lineCatalog.first(where: { $0.id == id })?.displayName ?? id
+                controller.bootstrap?.catalogLine(id: id)?.displayName ?? id
             }
             parts.append(names.joined(separator: ", "))
         }
@@ -2288,5 +2272,26 @@ enum ModemDeckDeviceInfo {
             return UInt8(bitPattern: value)
         }
         return String(bytes: bytes, encoding: .utf8) ?? UIDevice.current.localizedModel
+    }
+}
+
+extension ModemDeckSessionController {
+    /// The text for a permission state ("authorized", "provisional", "denied", "not_determined").
+    /// Screens word an unset or unrecognised state differently, so they pass those words:
+    /// `notDetermined` for "not_determined" (nil words it like any other state) and `other` for
+    /// anything else, including "provisional" when `recognizesProvisional` is false.
+    func permissionText(
+        _ status: String,
+        recognizesProvisional: Bool = true,
+        notDetermined: String?,
+        other: String
+    ) -> String {
+        switch status {
+        case "authorized": return text("已允许", "Allowed")
+        case "provisional" where recognizesProvisional: return text("临时允许", "Provisional")
+        case "denied": return text("已关闭", "Off")
+        case "not_determined": return notDetermined ?? other
+        default: return other
+        }
     }
 }

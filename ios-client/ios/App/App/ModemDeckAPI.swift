@@ -82,6 +82,25 @@ enum ModemDeckAPIError: LocalizedError {
         }
     }
 
+    /// The text for a failed password change. The password screen names the new password and
+    /// its length, so its words differ from `knownMessage` for the same codes, and it also
+    /// names `password_too_long` and `password_invalid`. `chinese` is the app's language.
+    func passwordChangeDescription(chinese: Bool) -> String {
+        let text = { (chineseText: String, englishText: String) in chinese ? chineseText : englishText }
+        switch code {
+        case "invalid_current_password":
+            return text("当前密码不正确。", "The current password is incorrect.")
+        case "password_too_short":
+            return text("新密码至少需要 8 个字符。", "The new password needs at least 8 characters.")
+        case "password_too_long", "password_invalid":
+            return text("新密码包含不支持的内容。", "The new password contains unsupported content.")
+        case "password_unchanged":
+            return text("新密码不能与当前密码相同。", "The new password must differ from the current password.")
+        default:
+            return localizedDescription
+        }
+    }
+
     var isAuthenticationFailure: Bool {
         if case .server(let status, _, _) = self {
             return status == 401
@@ -323,10 +342,52 @@ struct ModemDeckBootstrap: Codable, Equatable {
     let systemSettings: ModemDeckSystemSettings
 }
 
+extension ModemDeckBootstrap {
+    /// A line from the catalog, which names every line the account can see; history rows
+    /// and settings use it, so a line that is offline now still has its name.
+    func catalogLine(id: String) -> ModemDeckLine? {
+        lineCatalog.first { $0.id == id }
+    }
+
+    /// A line from the live lines. With `singleLineFallback`, an empty id on a device with
+    /// exactly one line means that line (a call that has not reported its line yet).
+    func liveLine(id: String, singleLineFallback: Bool) -> ModemDeckLine? {
+        lines.first { $0.id == id } ??
+            (singleLineFallback && id.isEmpty && lines.count == 1 ? lines.first : nil)
+    }
+}
+
 struct ModemDeckPageMeta: Decodable, Equatable {
     let limit: Int
     let nextCursor: String
     let hasMore: Bool
+}
+
+/// Fetches a listing's first page and follows `next_cursor` until the server says there is no
+/// more, or until `wantsMore` says to stop, and returns the cursor of the first page not fetched
+/// ("" when the listing ended). A cursor the server already handed out is an invalid response,
+/// so a server that repeats one cannot keep the client looping. A page that has more but no
+/// cursor ends the listing when `emptyCursorEnds`, and is an invalid response otherwise.
+/// It runs on the caller's actor, so `wantsMore` and `fetch` may read the caller's state.
+func modemDeckFollowPages(
+    isolation: isolated (any Actor)? = #isolation,
+    emptyCursorEnds: Bool,
+    wantsMore: () -> Bool,
+    fetch: (_ cursor: String) async throws -> ModemDeckPageMeta
+) async throws -> String {
+    var cursor = ""
+    var seenCursors = Set<String>()
+    while true {
+        let page = try await fetch(cursor)
+        guard page.hasMore else { return "" }
+        guard !page.nextCursor.isEmpty else {
+            if emptyCursorEnds { return "" }
+            throw ModemDeckAPIError.invalidResponse
+        }
+        guard wantsMore() else { return page.nextCursor }
+        guard seenCursors.insert(page.nextCursor).inserted else { throw ModemDeckAPIError.invalidResponse }
+        cursor = page.nextCursor
+    }
 }
 
 struct ModemDeckContactPhone: Codable, Hashable {
@@ -367,13 +428,13 @@ extension Collection where Element == ModemDeckContact {
             return directMatch
         }
 
-        guard let identity = modemDeckCanonicalPhoneIdentity(number) else { return nil }
+        guard let identity = ModemDeckPhoneIdentity.canonical(number) else { return nil }
         let matches = filter { contact in
             contact.phones.contains { phone in
-                if let canonical = modemDeckCanonicalPhoneIdentity(phone.canonicalE164 ?? "") {
+                if let canonical = ModemDeckPhoneIdentity.canonical(phone.canonicalE164 ?? "") {
                     return canonical == identity
                 }
-                return modemDeckCanonicalPhoneIdentity(phone.displayNumber) == identity
+                return ModemDeckPhoneIdentity.canonical(phone.displayNumber) == identity
             }
         }
         return matches.count == 1 ? matches.first : nil
@@ -382,35 +443,84 @@ extension Collection where Element == ModemDeckContact {
 
 extension Collection where Element == ModemDeckMessageThread {
     func modemDeckThread(lineID: String, number: String) -> ModemDeckMessageThread? {
-        let compact = number.filter { !" ().-/".contains($0) }
-        guard !compact.isEmpty else { return nil }
-        let identity = modemDeckCanonicalPhoneIdentity(compact)
+        guard !ModemDeckPhoneIdentity.compact(number).isEmpty else { return nil }
         return first { thread in
-            guard thread.lineId == lineID else { return false }
-            let peer = thread.peer.filter { !" ().-/".contains($0) }
-            if let identity, let peerIdentity = modemDeckCanonicalPhoneIdentity(peer) {
-                return identity == peerIdentity
-            }
-            return peer == compact
+            thread.lineId == lineID && ModemDeckPhoneIdentity.sameThreadPeer(number, thread.peer)
         }
     }
 }
 
-private func modemDeckCanonicalPhoneIdentity(_ value: String) -> String? {
-    let source = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !source.isEmpty else { return nil }
-    let compact = source.filter { !" ().-/".contains($0) }
-    guard compact.first == "+" else { return nil }
-    let digits = compact.dropFirst()
-    guard (8...15).contains(digits.count),
-          digits.first != "0",
-          digits.allSatisfy({ character in
-              character.unicodeScalars.count == 1 &&
-                  character.unicodeScalars.first.map { (48...57).contains($0.value) } == true
-          }) else {
-        return nil
+/// The client's rules for telling whether two written numbers name the same party. The server
+/// is the authority (it parses with a number library and the line's home region); these rules
+/// only match what the client already has. The rules differ by purpose, and each is kept as it
+/// was: contacts match only on a full `+` number, conversations fall back to the digits as
+/// written, avatars also read a `00` prefix as `+`, and contact import keeps `+` and digits.
+enum ModemDeckPhoneIdentity {
+    /// Separators people write inside a number.
+    static let separators = " ().-/"
+
+    /// The number with its separators removed.
+    static func compact(_ value: String) -> String {
+        value.filter { !separators.contains($0) }
     }
-    return compact
+
+    /// An ASCII digit; other scripts' digits are not phone digits here.
+    static func isASCIIDigit(_ character: Character) -> Bool {
+        character.unicodeScalars.count == 1 &&
+            character.unicodeScalars.first.map { (48...57).contains($0.value) } == true
+    }
+
+    /// A `+` number of 8 to 15 ASCII digits not starting with 0, without separators;
+    /// nil for anything else, including a national number.
+    static func canonical(_ value: String) -> String? {
+        let source = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return nil }
+        let written = compact(source)
+        guard written.first == "+" else { return nil }
+        let digits = written.dropFirst()
+        guard (8...15).contains(digits.count),
+              digits.first != "0",
+              digits.allSatisfy(isASCIIDigit) else {
+            return nil
+        }
+        return written
+    }
+
+    /// Whether a typed number and a conversation's peer are the same party: by their
+    /// canonical form when both have one, otherwise by the numbers without separators.
+    static func sameThreadPeer(_ number: String, _ peer: String) -> Bool {
+        let compactNumber = compact(number)
+        let compactPeer = compact(peer)
+        if let identity = canonical(compactNumber), let peerIdentity = canonical(compactPeer) {
+            return identity == peerIdentity
+        }
+        return compactPeer == compactNumber
+    }
+
+    /// The key an avatar compares a name and an address by. Text that is not a number is
+    /// lower-cased with its whitespace collapsed; a number loses its separators and a
+    /// leading `00` before a digit becomes `+`.
+    static func avatarKey(_ value: String) -> String {
+        let source = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCompatibilityMapping
+            .lowercased()
+        guard !source.isEmpty else { return "" }
+        let allowed = CharacterSet(charactersIn: "+0123456789" + separators)
+        guard source.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            return source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        var written = compact(source)
+        if written.hasPrefix("00"), written.dropFirst(2).first?.isNumber == true {
+            written = "+" + written.dropFirst(2)
+        }
+        return written
+    }
+
+    /// The key contact import removes a contact's repeated numbers by: `+` and every
+    /// character Swift counts as a number, in any script.
+    static func importKey(_ value: String) -> String {
+        value.filter { $0 == "+" || $0.isNumber }
+    }
 }
 
 struct ModemDeckMessageThread: Codable, Identifiable, Hashable {
@@ -505,7 +615,6 @@ struct ModemDeckRecordingCall: Codable, Identifiable, Hashable {
 struct ModemDeckCallPreparation: Decodable {
     let preparationId: String
     let mediaSocketPath: String
-    let expiresAt: String
     let recordingEnabled: Bool
     var clientSessionID: String?
 }
@@ -766,6 +875,60 @@ enum ModemDeckRecordingBatchAction: String, Encodable {
     case delete
 }
 
+// The local copy of an item after a state action the server has accepted. Every field the
+// action does not change is carried over; `.delete` returns the item unchanged, since callers
+// remove deleted items themselves.
+
+extension ModemDeckMessageThread {
+    func applying(_ action: ModemDeckMessageThreadAction) -> ModemDeckMessageThread {
+        ModemDeckMessageThread(
+            key: key,
+            lineId: lineId,
+            peer: peer,
+            contactId: contactId,
+            contactName: contactName,
+            lastMessageId: lastMessageId,
+            lastTimestamp: lastTimestamp,
+            lastContent: lastContent,
+            unreadCount: action == .read ? 0 : unreadCount,
+            firstUnreadMessageId: action == .read ? nil : firstUnreadMessageId,
+            markedUnread: action == .unread ? true : (action == .read ? false : markedUnread),
+            favorite: action == .favorite ? true : (action == .unfavorite ? false : favorite)
+        )
+    }
+}
+
+extension ModemDeckCallRecord {
+    func applying(_ action: ModemDeckCallBatchAction) -> ModemDeckCallRecord {
+        ModemDeckCallRecord(
+            id: id,
+            lineId: lineId,
+            direction: direction,
+            remoteNumber: remoteNumber,
+            contactName: contactName,
+            contactId: contactId,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationSeconds: durationSeconds,
+            missed: missed,
+            read: action == .read ? true : (action == .unread ? false : read),
+            favorite: action == .favorite ? true : (action == .unfavorite ? false : favorite),
+            failureCode: failureCode
+        )
+    }
+}
+
+extension ModemDeckRecording {
+    func applying(_ action: ModemDeckRecordingBatchAction) -> ModemDeckRecording {
+        ModemDeckRecording(
+            segment: segment,
+            call: call,
+            playable: playable,
+            favorite: action == .favorite ? true : (action == .unfavorite ? false : favorite)
+        )
+    }
+}
+
 private struct ModemDeckContactsResponse: Decodable {
     let contacts: [ModemDeckContact]
     let meta: ModemDeckPageMeta
@@ -851,6 +1014,13 @@ struct ModemDeckServerError: Decodable {
     let code: String?
     let message: String?
     let detail: String?
+
+    /// The error body of a failed response; nil when there is no body or it is not one.
+    /// Each caller still turns it into its own error and text.
+    static func decode(_ data: Data?) -> ModemDeckServerError? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode(ModemDeckServerError.self, from: data)
+    }
 }
 
 private struct ModemDeckOperationIdentity {
@@ -1017,15 +1187,14 @@ final class ModemDeckAPIClient {
 
     func messageThreads(query: String = "") async throws -> [ModemDeckMessageThread] {
         var result: [ModemDeckMessageThread] = []
-        var cursor = ""
-        repeat {
+        _ = try await modemDeckFollowPages(emptyCursorEnds: true, wantsMore: { true }) { cursor in
             let response = try await decode(
                 ModemDeckThreadsResponse.self,
                 path: listPath("/api/v1/messages/threads", query: query, cursor: cursor)
             )
             result.append(contentsOf: response.threads)
-            cursor = response.meta.hasMore ? response.meta.nextCursor : ""
-        } while !cursor.isEmpty
+            return response.meta
+        }
         if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             offlineCache.write(result, key: "message-threads")
         }
@@ -1191,22 +1360,6 @@ final class ModemDeckAPIClient {
             body: try encoder.encode(Payload(lineId: lineID))
         )
         cacheUnreadSummary(summary)
-        return summary
-    }
-
-    func deleteMessageThread(_ thread: ModemDeckMessageThread) async throws -> ModemDeckUnreadSummary {
-        struct Payload: Encodable {
-            let lineId: String
-            let peer: String
-        }
-        let summary = try await decode(
-            ModemDeckUnreadSummary.self,
-            path: "/api/v1/messages/threads",
-            method: "DELETE",
-            body: try encoder.encode(Payload(lineId: thread.lineId, peer: thread.peer))
-        )
-        cacheUnreadSummary(summary)
-        cacheMessages([], lineID: thread.lineId, peer: thread.peer)
         return summary
     }
 
@@ -1628,22 +1781,15 @@ final class ModemDeckAPIClient {
         meta: KeyPath<Response, ModemDeckPageMeta>
     ) async throws -> [Item] {
         var result: [Item] = []
-        var cursor = ""
-        var seenCursors = Set<String>()
-        repeat {
+        _ = try await modemDeckFollowPages(emptyCursorEnds: false, wantsMore: { true }) { cursor in
             guard !Task.isCancelled, isCurrentCredential(credential) else { throw CancellationError() }
             var query = queryItems + [URLQueryItem(name: "limit", value: "100")]
             if !cursor.isEmpty { query.append(URLQueryItem(name: "cursor", value: cursor)) }
             let response = try await decode(responseType, path: path(base, queryItems: query), credential: credential)
             guard !Task.isCancelled, isCurrentCredential(credential) else { throw CancellationError() }
             result.append(contentsOf: response[keyPath: items])
-            let page = response[keyPath: meta]
-            if !page.hasMore { return result }
-            cursor = page.nextCursor
-            guard !cursor.isEmpty, seenCursors.insert(cursor).inserted else {
-                throw ModemDeckAPIError.invalidResponse
-            }
-        } while !cursor.isEmpty
+            return response[keyPath: meta]
+        }
         return result
     }
 
@@ -1754,7 +1900,7 @@ final class ModemDeckAPIClient {
             if [502, 503, 504].contains(response.statusCode) {
                 await reportConnectivity(false, credential: credential, verifying: pairingVerification)
             }
-            let serverError = try? decoder.decode(ModemDeckServerError.self, from: payload)
+            let serverError = ModemDeckServerError.decode(payload)
             let message = serverError?.message?.trimmingCharacters(in: .whitespacesAndNewlines)
             if response.statusCode == 401, !pairingVerification {
                 await MainActor.run {

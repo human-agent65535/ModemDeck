@@ -1,5 +1,25 @@
 import Foundation
 
+/// The retry delays every reconnect and retry loop uses. Each loop keeps its own schedule and
+/// its own attempt counter and limit; this only keeps a schedule written once.
+enum ModemDeckBackoff {
+    /// Connection probes and the per-call runtime stream: 1, 2, 5, 10, then 30 seconds.
+    static let connectionSeconds: [TimeInterval] = [1, 2, 5, 10, 30]
+    /// APNs registration and push token upload: 5, 15, 30, then 60 seconds.
+    static let pushSeconds: [TimeInterval] = [5, 15, 30, 60]
+
+    /// The delay before retry `attempt` (from 0); past the end the last delay repeats.
+    static func delay(_ schedule: [TimeInterval], attempt: Int) -> TimeInterval {
+        schedule[min(attempt, schedule.count - 1)]
+    }
+
+    /// The message and runtime event streams: 2 seconds doubling, at most 30
+    /// (2, 4, 8, 16, then 30).
+    static func eventStreamDelay(attempt: Int) -> TimeInterval {
+        min(30.0, 2.0 * pow(2.0, Double(min(attempt, 4))))
+    }
+}
+
 /// One foreground owner for connection probes. It never retries a business write.
 @MainActor
 final class ModemDeckConnectionRecovery {
@@ -18,7 +38,7 @@ final class ModemDeckConnectionRecovery {
     private(set) var foreground = true
 
     init(
-        delays: [UInt64] = [1, 2, 5, 10, 30].map { UInt64($0) * 1_000_000_000 },
+        delays: [UInt64] = ModemDeckBackoff.connectionSeconds.map { UInt64($0) * 1_000_000_000 },
         sleep: @escaping Sleep = { try await Task.sleep(nanoseconds: $0) },
         probe: @escaping Probe
     ) {

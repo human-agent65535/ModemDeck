@@ -3,6 +3,7 @@ import Combine
 struct ModemDeckMessage { let id: Int64; let timestamp: String; let incoming: Bool }
 struct ModemDeckMessageThread { let id: String; let lineId: String; let peer: String; let firstUnreadMessageId: Int64? }
 struct Meta { let hasMore: Bool; let nextCursor: String }
+typealias ModemDeckPageMeta = Meta
 struct ModemDeckMessagesResponse { let messages: [ModemDeckMessage]; let meta: Meta }
 struct Summary {}
 enum Action { case read }

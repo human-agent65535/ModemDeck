@@ -1,7 +1,6 @@
 import Foundation
 struct ModemDeckCredential { let serverURL: String; let token: String }
 struct ModemDeckMobileSession: Decodable { let authenticated: Bool }
-struct ModemDeckServerError: Decodable { let code: String; let message: String? }
 enum ModemDeckAPIError: Error { case notPaired, invalidResponse; case server(status: Int, code: String, message: String) }
 final class CredentialStore {
     var current = ModemDeckCredential(serverURL: "https://example.invalid", token: "old")

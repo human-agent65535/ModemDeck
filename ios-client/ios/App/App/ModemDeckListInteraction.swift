@@ -12,6 +12,19 @@ extension EnvironmentValues {
     }
 }
 
+extension Set where Element == String {
+    /// Select All in a list's selection bar: when every visible item is already selected it
+    /// clears them, otherwise it selects them all. Selected items the filters hide stay selected.
+    mutating func modemDeckToggleAll<Visible: Sequence>(_ visible: Visible) where Visible.Element == String {
+        let visible = Set(visible)
+        if !visible.isEmpty && visible.isSubset(of: self) {
+            subtract(visible)
+        } else {
+            formUnion(visible)
+        }
+    }
+}
+
 private struct ModemDeckSelectionGesture: ViewModifier {
     let action: (() -> Void)?
     let enabled: Bool

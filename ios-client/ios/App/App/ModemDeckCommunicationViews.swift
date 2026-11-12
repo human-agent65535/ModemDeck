@@ -272,12 +272,7 @@ struct ModemDeckContactsView: View {
     }
 
     private func toggleAllContacts() {
-        let visible = Set(filteredContacts.map(\.id))
-        if !visible.isEmpty && visible.isSubset(of: selectedIDs) {
-            selectedIDs.subtract(visible)
-        } else {
-            selectedIDs.formUnion(visible)
-        }
+        selectedIDs.modemDeckToggleAll(filteredContacts.map(\.id))
     }
 
     private func endContactSelection() {
@@ -475,7 +470,7 @@ struct ModemDeckAvatar: View {
 
     private var paletteIndex: Int {
         let source = paletteKey?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (source?.isEmpty == false ? source! : name).unicodeScalars.reduce(0) {
+        return (source.flatMap { $0.isEmpty ? nil : $0 } ?? name).unicodeScalars.reduce(0) {
             ($0 * 31 + Int($1.value)) % 8
         }
     }
@@ -611,19 +606,7 @@ struct ModemDeckCommunicationAvatar: View {
     }
 
     private func comparisonKey(_ value: String) -> String {
-        let source = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            .precomposedStringWithCompatibilityMapping
-            .lowercased()
-        guard !source.isEmpty else { return "" }
-        let allowed = CharacterSet(charactersIn: "+0123456789 ().-/")
-        guard source.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
-            return source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        }
-        var compact = source.filter { !" ().-/".contains($0) }
-        if compact.hasPrefix("00"), compact.dropFirst(2).first?.isNumber == true {
-            compact = "+" + compact.dropFirst(2)
-        }
-        return compact
+        ModemDeckPhoneIdentity.avatarKey(value)
     }
 }
 
@@ -764,27 +747,6 @@ struct ModemDeckIdentityHeader: View {
     private var showsSubtitle: Bool {
         let compact = { (value: String) in value.filter { !" ()-.".contains($0) } }
         return !subtitle.isEmpty && compact(subtitle) != compact(title)
-    }
-
-    private func headerButton(_ item: ModemDeckHeaderAction) -> some View {
-        Button(action: item.action) {
-            Group {
-                if item.busy {
-                    ProgressView().tint(item.color)
-                } else {
-                    Image(systemName: item.icon)
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(item.color)
-                        .dynamicTypeSize(...ModemDeckLayout.headerGlyphMaximumSize)
-                }
-            }
-            .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(item.disabled || item.busy)
-        .opacity(item.disabled && !item.busy ? ModemDeckOpacity.disabled : 1)
-        .accessibilityLabel(item.title)
     }
 }
 
@@ -2021,12 +1983,7 @@ struct ModemDeckMessagesView: View {
     }
 
     private func toggleAllThreads() {
-        let visible = Set(filteredThreads.map(\.id))
-        if !visible.isEmpty && visible.isSubset(of: selectedIDs) {
-            selectedIDs.subtract(visible)
-        } else {
-            selectedIDs.formUnion(visible)
-        }
+        selectedIDs.modemDeckToggleAll(filteredThreads.map(\.id))
     }
 
     private func endMessageSelection() {
@@ -2155,7 +2112,7 @@ struct ModemDeckMessageThreadRow: View {
     @Environment(\.modemDeckRowsShowTimeOnly) private var rowsShowTimeOnly
 
     private var line: ModemDeckLine? {
-        controller.bootstrap?.lineCatalog.first(where: { $0.id == thread.lineId })
+        controller.bootstrap?.catalogLine(id: thread.lineId)
     }
 
     private var displayName: String {

@@ -22,6 +22,28 @@ final class ModemDeckAudioRoute: NSObject, ObservableObject {
             object: nil, queue: .main) { [weak self] _ in self?.refresh() }
     }
 
+    /// The call screen's symbol for the current output.
+    var outputIcon: String {
+        switch output {
+        case "speaker": return "speaker.wave.2.fill"
+        case "receiver": return "iphone"
+        case "bluetooth", "headphones", "external": return "headphones"
+        default: return "speaker.wave.2.fill"
+        }
+    }
+
+    /// The call screen's name for the current output: an accessory's own name when it has
+    /// one. `speaker` and `audio` are the localized words for the speaker and for audio.
+    func outputTitle(speaker: String, audio: String) -> String {
+        switch output {
+        case "speaker": return speaker
+        case "receiver": return "iPhone"
+        case "bluetooth", "headphones", "external":
+            return currentOutputName.isEmpty ? audio : currentOutputName
+        default: return audio
+        }
+    }
+
     func setActive(_ value: Bool) {
         active = value
         errorMessage = ""

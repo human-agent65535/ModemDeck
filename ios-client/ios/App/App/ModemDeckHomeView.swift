@@ -51,15 +51,13 @@ private struct ModemDeckActivitySnapshot {
     var routes: Set<ModemDeckRoute> = []
 
     static func build(_ source: ModemDeckActivitySource) -> Self {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
+        let parser = ModemDeckISO8601Parser()
         let calendar = Calendar.current
         // Parse each timestamp once; sorting and grouping must never run inside
         // a List row builder or use the main actor's shared date formatters.
         let items = source.threads.map(ModemDeckActivityItem.message) + source.calls.map(ModemDeckActivityItem.call)
         var dated: [(item: ModemDeckActivityItem, date: Date)] = items.map { item in
-            let date = fractional.date(from: item.timestamp) ?? plain.date(from: item.timestamp) ?? Date.distantPast
+            let date = parser.date(item.timestamp) ?? Date.distantPast
             return (item: item, date: date)
         }
         dated.sort { $0.date == $1.date ? $0.item.id < $1.item.id : $0.date > $1.date }

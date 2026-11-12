@@ -60,11 +60,6 @@ extension Color {
     static let mdOutgoingBubbleFailed = mdAccent.opacity(0.55)
 }
 
-enum ModemDeckOpacity {
-    /// A control that cannot be used right now.
-    static let disabled: Double = 0.45
-}
-
 enum ModemDeckStroke {
     static let regular: CGFloat = 1
     static let thin: CGFloat = 0.5
@@ -376,57 +371,78 @@ extension ModemDeckSessionController {
         }
     }
 
+    /// The locale every date in the app is written in, following the app's language.
+    private var dateLocale: Locale { Locale(identifier: usesChinese ? "zh_CN" : "en_US") }
+
     func dateText(_ value: String) -> String {
-        ModemDeckDateText.short(
-            value,
-            locale: Locale(identifier: usesChinese ? "zh_CN" : "en_US")
-        )
+        ModemDeckDateText.short(value, locale: dateLocale)
     }
 
     /// Time of day only, for rows that already sit under a day heading.
     func timeOfDayText(_ value: String) -> String {
-        guard let date = ModemDeckDateText.date(value) else { return value }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: usesChinese ? "zh_CN" : "en_US")
-        formatter.setLocalizedDateFormatFromTemplate("j:mm")
-        return formatter.string(from: date)
+        ModemDeckDateText.time(value, locale: dateLocale)
     }
 
     func compactDateText(_ value: String) -> String {
-        ModemDeckDateText.compact(
-            value,
-            locale: Locale(identifier: usesChinese ? "zh_CN" : "en_US")
-        )
+        ModemDeckDateText.compact(value, locale: dateLocale)
     }
 
     func messageDayText(_ value: String) -> String {
         ModemDeckDateText.day(
             value,
-            locale: Locale(identifier: usesChinese ? "zh_CN" : "en_US"),
+            locale: dateLocale,
             today: text("今天", "Today"),
             yesterday: text("昨天", "Yesterday")
         )
     }
 
     func messageTimeText(_ value: String) -> String {
-        ModemDeckDateText.time(
-            value,
-            locale: Locale(identifier: usesChinese ? "zh_CN" : "en_US")
-        )
+        ModemDeckDateText.time(value, locale: dateLocale)
+    }
+}
+
+/// Reads the server's ISO 8601 timestamps, with or without fractional seconds. Each value
+/// owns its formatters, so a background task can build its own instead of sharing the app's.
+struct ModemDeckISO8601Parser {
+    private let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private let plain = ISO8601DateFormatter()
+
+    func date(_ value: String) -> Date? {
+        fractional.date(from: value) ?? plain.date(from: value)
     }
 }
 
 enum ModemDeckDateText {
-    private static let fractionalFormatter: ISO8601DateFormatter = {
+    private static let parser = ModemDeckISO8601Parser()
+
+    private static let fractionalTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
 
-    private static let formatter = ISO8601DateFormatter()
+    private static let timestampFormatter = ISO8601DateFormatter()
 
     static func date(_ value: String) -> Date? {
-        fractionalFormatter.date(from: value) ?? formatter.date(from: value)
+        parser.date(value)
+    }
+
+    /// An ISO 8601 timestamp in UTC, with milliseconds when `fractionalSeconds` is true.
+    static func timestamp(_ date: Date, fractionalSeconds: Bool) -> String {
+        (fractionalSeconds ? fractionalTimestampFormatter : timestampFormatter).string(from: date)
+    }
+
+    /// A new formatter for a localized template. Formatters are not cached, so each one
+    /// uses the current time zone and calendar.
+    private static func formatter(_ template: String, locale: Locale) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        return formatter
     }
 
     static func short(_ value: String, locale: Locale = .current) -> String {
@@ -439,16 +455,15 @@ enum ModemDeckDateText {
     static func compact(_ value: String, locale: Locale = .current) -> String {
         guard !value.isEmpty, let date = date(value) else { return value }
         let calendar = Calendar.current
-        let formatter = DateFormatter()
-        formatter.locale = locale
+        let template: String
         if calendar.isDateInToday(date) {
-            formatter.setLocalizedDateFormatFromTemplate("j:mm")
+            template = "j:mm"
         } else if calendar.component(.year, from: date) == calendar.component(.year, from: Date()) {
-            formatter.setLocalizedDateFormatFromTemplate("Md")
+            template = "Md"
         } else {
-            formatter.setLocalizedDateFormatFromTemplate("yMd")
+            template = "yMd"
         }
-        return formatter.string(from: date)
+        return formatter(template, locale: locale).string(from: date)
     }
 
     static func day(
@@ -461,22 +476,14 @@ enum ModemDeckDateText {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) { return today }
         if calendar.isDateInYesterday(date) { return yesterday }
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        if calendar.component(.year, from: date) == calendar.component(.year, from: Date()) {
-            formatter.setLocalizedDateFormatFromTemplate("EEEEMMMMd")
-        } else {
-            formatter.setLocalizedDateFormatFromTemplate("yMMMEd")
-        }
-        return formatter.string(from: date)
+        let template = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
+            ? "EEEEMMMMd" : "yMMMEd"
+        return formatter(template, locale: locale).string(from: date)
     }
 
     static func time(_ value: String, locale: Locale = .current) -> String {
         guard !value.isEmpty, let date = date(value) else { return value }
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.setLocalizedDateFormatFromTemplate("j:mm")
-        return formatter.string(from: date)
+        return formatter("j:mm", locale: locale).string(from: date)
     }
 
     static func sameDay(_ left: String, _ right: String) -> Bool {
@@ -484,9 +491,32 @@ enum ModemDeckDateText {
         return Calendar.current.isDate(leftDate, inSameDayAs: rightDate)
     }
 
-    static func duration(_ seconds: Int) -> String {
-        let safe = max(0, seconds)
-        return String(format: "%d:%02d", safe / 60, safe % 60)
+    /// How a length of time is written. The screens differ, and each keeps its own form.
+    enum DurationStyle {
+        /// `m:ss`, minutes counting on past an hour (`75:00`): call history and recording lengths.
+        case minutes
+        /// `mm:ss`, then `h:mm:ss` past an hour: the live call clock (matches Web).
+        case callClock
+        /// `m:ss`, then `h:mm:ss` past an hour: the recording player's position.
+        case playback
+    }
+
+    /// Negative lengths are written as zero.
+    static func duration(_ seconds: Int, style: DurationStyle = .minutes) -> String {
+        let total = max(0, seconds)
+        let hours = total / 3_600, minutes = (total % 3_600) / 60, rest = total % 60
+        switch style {
+        case .minutes:
+            return String(format: "%d:%02d", total / 60, rest)
+        case .callClock:
+            return hours > 0
+                ? String(format: "%d:%02d:%02d", hours, minutes, rest)
+                : String(format: "%02d:%02d", minutes, rest)
+        case .playback:
+            return hours > 0
+                ? String(format: "%d:%02d:%02d", hours, minutes, rest)
+                : String(format: "%d:%02d", minutes, rest)
+        }
     }
 }
 
@@ -891,18 +921,6 @@ enum ModemDeckSection: String, CaseIterable, Identifiable {
         #else
         return .home
         #endif
-    }
-
-    var icon: String {
-        switch self {
-        case .home: return ModemDeckLucideAsset.house
-        case .contacts: return ModemDeckLucideAsset.usersRound
-        case .messages: return ModemDeckLucideAsset.messageSquareText
-        case .dial: return ModemDeckLucideAsset.phoneCall
-        case .calls: return ModemDeckLucideAsset.phone
-        case .recordings: return ModemDeckLucideAsset.audioLines
-        case .settings: return ModemDeckLucideAsset.settings
-        }
     }
 }
 
@@ -1314,7 +1332,7 @@ private struct ModemDeckDetailSettingsButton: ViewModifier {
         if trailingBarColumn, let openSettings {
             content.toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    ModemDeckSettingsButton(title: controller.text("设置", "Settings"), open: openSettings)
+                    ModemDeckSettingsButton(controller: controller, open: openSettings)
                 }
             }
         } else {
@@ -1566,7 +1584,7 @@ struct ModemDeckPageHeader: View {
             .toolbar {
                 if let openSettings, !(usesSplitWorkspace && trailingBarColumn) {
                     ToolbarItem(placement: .topBarLeading) {
-                        ModemDeckSettingsButton(title: controller.text("设置", "Settings"), open: openSettings)
+                        ModemDeckSettingsButton(controller: controller, open: openSettings)
                     }
                 }
                 if let closeSettings {
@@ -1579,16 +1597,17 @@ struct ModemDeckPageHeader: View {
     }
 }
 
-/// Opens Settings from the leading edge of a top-level page.
+/// Opens Settings from the leading edge of a top-level page. Every page's button is named
+/// "Settings"; the headers and the split detail bar all build it here.
 struct ModemDeckSettingsButton: View {
-    let title: String
+    @ObservedObject var controller: ModemDeckSessionController
     let open: () -> Void
 
     var body: some View {
         Button(action: open) {
             Image(systemName: "gearshape")
         }
-        .accessibilityLabel(title)
+        .accessibilityLabel(controller.text("设置", "Settings"))
         .accessibilityIdentifier("open-settings")
     }
 }
@@ -1686,7 +1705,7 @@ struct ModemDeckCollectionHeader<Actions: View>: View {
             .toolbar {
                 if !barButtonsSettling, showsSettings, let openSettings, !(usesSplitWorkspace && trailingBarColumn) {
                     ToolbarItem(placement: .topBarLeading) {
-                        ModemDeckSettingsButton(title: controller.text("设置", "Settings"), open: openSettings)
+                        ModemDeckSettingsButton(controller: controller, open: openSettings)
                     }
                 }
                 if !barButtonsSettling {

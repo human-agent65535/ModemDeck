@@ -575,12 +575,6 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let credential: ModemDeckCredential
     }
 
-    private static let timestampFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
     private static let maximumRememberedEndedCalls = 64
 
     private let callProvider: CXProvider
@@ -841,8 +835,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             return
         }
         runtimeCallReconnectWorkItem?.cancel()
-        let delays: [TimeInterval] = [1, 2, 5, 10, 30]
-        let delay = delays[min(runtimeCallRetryAttempt, delays.count - 1)]
+        let delay = ModemDeckBackoff.delay(ModemDeckBackoff.connectionSeconds, attempt: runtimeCallRetryAttempt)
         runtimeCallRetryAttempt += 1
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -1279,8 +1272,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     private func scheduleAPNSRegistrationRetry() {
         dispatchPrecondition(condition: .onQueue(.main))
         apnsRegistrationRetryWorkItem?.cancel()
-        let delays: [TimeInterval] = [5, 15, 30, 60]
-        let delay = delays[min(apnsRegistrationRetryAttempt, delays.count - 1)]
+        let delay = ModemDeckBackoff.delay(ModemDeckBackoff.pushSeconds, attempt: apnsRegistrationRetryAttempt)
         apnsRegistrationRetryAttempt += 1
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -1294,8 +1286,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     private func scheduleTokenSyncRetry(forceEmpty: Bool) {
         dispatchPrecondition(condition: .onQueue(.main))
         tokenSyncRetryWorkItem?.cancel()
-        let delays: [TimeInterval] = [5, 15, 30, 60]
-        let delay = delays[min(tokenSyncRetryAttempt, delays.count - 1)]
+        let delay = ModemDeckBackoff.delay(ModemDeckBackoff.pushSeconds, attempt: tokenSyncRetryAttempt)
         tokenSyncRetryAttempt += 1
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -2281,10 +2272,10 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             "capturedPeakDBFS": call.capturedPeakDBFS,
             "receivedPackets": call.receivedPackets,
             "muted": mutedCallUUIDs.contains(uuid),
-            "createdAt": Self.timestampFormatter.string(from: call.createdAt)
+            "createdAt": ModemDeckDateText.timestamp(call.createdAt, fractionalSeconds: true)
         ]
         if let activeAt = call.activeAt {
-            payload["activeAt"] = Self.timestampFormatter.string(from: activeAt)
+            payload["activeAt"] = ModemDeckDateText.timestamp(activeAt, fractionalSeconds: true)
         }
         if let level = call.microphoneDBFS { payload["microphoneDBFS"] = level }
         return payload

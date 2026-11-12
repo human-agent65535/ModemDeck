@@ -157,6 +157,16 @@ private struct ModemDeckDialKeyButton: View {
     }
 }
 
+/// The phone keypad's keys and their letters, shared by the dialer and the in-call keypad.
+private enum ModemDeckDialKey {
+    static let all: [(String, String)] = [
+        ("1", ""), ("2", "ABC"), ("3", "DEF"),
+        ("4", "GHI"), ("5", "JKL"), ("6", "MNO"),
+        ("7", "PQRS"), ("8", "TUV"), ("9", "WXYZ"),
+        ("*", ""), ("0", "+"), ("#", "")
+    ]
+}
+
 private func normalizeModemDeckDialTarget(_ value: String) -> ModemDeckDialTarget {
     let original = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !original.isEmpty else {
@@ -343,12 +353,7 @@ struct ModemDeckDialerView: View {
     @State private var recordingError = ""
     @State private var validationAttempted = false
 
-    private let keys = [
-        ("1", ""), ("2", "ABC"), ("3", "DEF"),
-        ("4", "GHI"), ("5", "JKL"), ("6", "MNO"),
-        ("7", "PQRS"), ("8", "TUV"), ("9", "WXYZ"),
-        ("*", ""), ("0", "+"), ("#", "")
-    ]
+    private let keys = ModemDeckDialKey.all
 
     init(controller: ModemDeckSessionController) {
         self.controller = controller
@@ -1005,12 +1010,7 @@ struct ModemDeckCallsView: View {
     }
 
     private func toggleAllCalls() {
-        let visible = Set(filteredCalls.map(\.id))
-        if !visible.isEmpty && visible.isSubset(of: selectedIDs) {
-            selectedIDs.subtract(visible)
-        } else {
-            selectedIDs.formUnion(visible)
-        }
+        selectedIDs.modemDeckToggleAll(filteredCalls.map(\.id))
     }
 
     private func endCallSelection() {
@@ -1091,7 +1091,7 @@ struct ModemDeckCallRecordRow: View {
     @Environment(\.modemDeckRowsShowTimeOnly) private var rowsShowTimeOnly
 
     private var line: ModemDeckLine? {
-        controller.bootstrap?.lineCatalog.first(where: { $0.id == call.lineId })
+        controller.bootstrap?.catalogLine(id: call.lineId)
     }
 
     private var displayName: String {
@@ -1445,12 +1445,7 @@ struct ModemDeckRecordingsView: View {
     }
 
     private func toggleAllRecordings() {
-        let visible = Set(filteredRecordings.map(\.id))
-        if !visible.isEmpty && visible.isSubset(of: selectedIDs) {
-            selectedIDs.subtract(visible)
-        } else {
-            selectedIDs.formUnion(visible)
-        }
+        selectedIDs.modemDeckToggleAll(filteredRecordings.map(\.id))
     }
 
     private func endRecordingSelection() {
@@ -1500,7 +1495,7 @@ struct ModemDeckRecordingRow: View {
     var contextActions: [ModemDeckContextAction] = []
 
     private var line: ModemDeckLine? {
-        controller.bootstrap?.lineCatalog.first(where: { $0.id == recording.call.lineId })
+        controller.bootstrap?.catalogLine(id: recording.call.lineId)
     }
 
     private var displayName: String {
@@ -1717,7 +1712,7 @@ struct ModemDeckCallDetailView: View {
     }
 
     private var line: ModemDeckLine? {
-        controller.bootstrap?.lineCatalog.first(where: { $0.id == call.lineId })
+        controller.bootstrap?.catalogLine(id: call.lineId)
     }
 
     private var dialLine: ModemDeckLine? {
@@ -2149,7 +2144,7 @@ struct ModemDeckRecordingDetailView: View {
     }
 
     private var line: ModemDeckLine? {
-        controller.bootstrap?.lineCatalog.first(where: { $0.id == recording.call.lineId })
+        controller.bootstrap?.catalogLine(id: recording.call.lineId)
     }
 
     private var dialLine: ModemDeckLine? {
@@ -2367,21 +2362,58 @@ struct ModemDeckRecordingDetailView: View {
     }
 }
 
-/// Shared call clock: `mm:ss`, then `h:mm:ss` past an hour (matches Web).
-func modemDeckCallClock(_ interval: TimeInterval) -> String {
-    let total = max(0, Int(interval))
-    let hours = total / 3600
-    let minutes = (total % 3600) / 60
-    let seconds = total % 60
-    return hours > 0
-        ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        : String(format: "%02d:%02d", minutes, seconds)
+extension ModemDeckPresentedCall {
+    /// The active call screen's status line: the ended result, ending, audio recovery, then the
+    /// call's state; a test call reports its test phase. `endedCall` is this call's result.
+    func statusText(endedCall: ModemDeckEndedCall?, ending: Bool, chinese: Bool) -> String {
+        let text = { (chineseText: String, englishText: String) in chinese ? chineseText : englishText }
+        if let endedCall { return text(endedCall.message.chinese, endedCall.message.english) }
+        if ending { return text("正在结束…", "Ending…") }
+        if mediaState == "reconnecting" { return text("正在恢复音频连接…", "Reconnecting audio…") }
+        if mediaState == "waiting_for_audio" { return text("等待系统启用音频…", "Waiting for system audio…") }
+        if state == "ringing-out" { return text("对方振铃中…", "Ringing…") }
+        let isActive = state == "active"
+        let countdown = testRemainingMS > 0 ? " · \((testRemainingMS + 999) / 1000)s" : ""
+        if testCall {
+            if state == "connecting" { return text("正在连接测试音频…", "Connecting test audio…") }
+            if isActive && testAudio {
+                switch testPhase {
+                case "guide": return text("请听语音提示", "Listen to the instructions")
+                case "tone": return text("音频已连接 · 正在播放提示音", "Audio connected · Playing test tone")
+                case "speak": return text("请说几句话", "Say a few words") + countdown
+                case "playback_prompt": return text("准备回放你的声音", "Preparing your playback")
+                case "playback": return text("正在回放你的声音", "Playing back your voice") + countdown
+                case "pause": return text("即将再次测试", "The test will repeat shortly")
+                default: return text("测试音频已连接", "Test audio connected")
+                }
+            }
+            return isActive
+                ? text("测试通话已接通", "Test call connected")
+                : text("ModemDeck 测试通话", "ModemDeck Test Call")
+        }
+        switch state {
+        case "ringing": return text("来电", "Incoming Call")
+        case "connecting": return text("正在连接…", "Connecting…")
+        case "active": return text("通话中", "Connected")
+        default: return state
+        }
+    }
+}
+
+extension ModemDeckPresentedCall {
+    /// A test call, or any call before the bootstrap has loaded, may always be rejected or
+    /// hung up; otherwise the call's line must offer it.
+    func canReject(on line: ModemDeckLine?, bootstrapLoaded: Bool) -> Bool {
+        testCall || !bootstrapLoaded || line?.capabilities?.rejectCall == true
+    }
+
+    func canHangup(on line: ModemDeckLine?, bootstrapLoaded: Bool) -> Bool {
+        testCall || !bootstrapLoaded || line?.capabilities?.hangupCall == true
+    }
 }
 
 private func modemDeckCallLine(_ call: ModemDeckPresentedCall, in bootstrap: ModemDeckBootstrap?) -> ModemDeckLine? {
-    guard let bootstrap else { return nil }
-    return bootstrap.lines.first(where: { $0.id == call.lineID }) ??
-        (call.lineID.isEmpty && bootstrap.lines.count == 1 ? bootstrap.lines.first : nil)
+    bootstrap?.liveLine(id: call.lineID, singleLineFallback: true)
 }
 
 struct ModemDeckMiniCallBar: View {
@@ -2397,11 +2429,13 @@ struct ModemDeckMiniCallBar: View {
     private var name: String { call.displayName.isEmpty ? call.remoteNumber : call.displayName }
     private var line: ModemDeckLine? { modemDeckCallLine(call, in: controller.bootstrap) }
 
+    /// Unlike `line`, the line here is looked up without the single-line fallback.
     private var canEnd: Bool {
-        if call.testCall || controller.bootstrap == nil { return true }
-        let line = controller.bootstrap?.lines.first { $0.id == call.lineID }
+        let line = controller.bootstrap?.liveLine(id: call.lineID, singleLineFallback: false)
+        let loaded = controller.bootstrap != nil
         return call.state == "ringing" && call.direction == "incoming"
-            ? line?.capabilities?.rejectCall == true : line?.capabilities?.hangupCall == true
+            ? call.canReject(on: line, bootstrapLoaded: loaded)
+            : call.canHangup(on: line, bootstrapLoaded: loaded)
     }
 
     private var endLabel: String {
@@ -2415,7 +2449,7 @@ struct ModemDeckMiniCallBar: View {
     private func status(at now: Date) -> String {
         if let endedCall { return controller.text(endedCall.message.chinese, endedCall.message.english) }
         if callController.ending { return controller.text("正在结束…", "Ending…") }
-        if isLive, let activeDate { return modemDeckCallClock(now.timeIntervalSince(activeDate)) }
+        if isLive, let activeDate { return ModemDeckDateText.duration(Int(now.timeIntervalSince(activeDate)), style: .callClock) }
         if call.state == "ringing" && call.direction == "incoming" { return controller.text("来电", "Incoming Call") }
         return controller.text("通话进行中", "Call in progress")
     }
@@ -2588,11 +2622,11 @@ struct ModemDeckActiveCallView: View {
     }
 
     private var canReject: Bool {
-        call.testCall || controller.bootstrap == nil || callLine?.capabilities?.rejectCall == true
+        call.canReject(on: callLine, bootstrapLoaded: controller.bootstrap != nil)
     }
 
     private var canHangup: Bool {
-        call.testCall || controller.bootstrap == nil || callLine?.capabilities?.hangupCall == true
+        call.canHangup(on: callLine, bootstrapLoaded: controller.bootstrap != nil)
     }
 
     private var canSendDTMF: Bool {
@@ -2846,7 +2880,7 @@ struct ModemDeckActiveCallView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("call-ended-status")
                 if let elapsed = endedCall.elapsedSeconds {
-                    Text(controller.text("通话时长 ", "Duration ") + modemDeckCallClock(TimeInterval(elapsed)))
+                    Text(controller.text("通话时长 ", "Duration ") + ModemDeckDateText.duration(elapsed, style: .callClock))
                         .font(.subheadline).monospacedDigit().foregroundColor(.mdMuted)
                         .accessibilityIdentifier("call-ended-duration")
                 }
@@ -3040,38 +3074,7 @@ struct ModemDeckActiveCallView: View {
     }
 
     private var stateText: String {
-        if let endedCall { return controller.text(endedCall.message.chinese, endedCall.message.english) }
-        if callController.ending { return controller.text("正在结束…", "Ending…") }
-        if call.mediaState == "reconnecting" { return controller.text("正在恢复音频连接…", "Reconnecting audio…") }
-        if call.mediaState == "waiting_for_audio" { return controller.text("等待系统启用音频…", "Waiting for system audio…") }
-        if call.state == "ringing-out" { return controller.text("对方振铃中…", "Ringing…") }
-        if call.testCall {
-            if call.state == "connecting" { return controller.text("正在连接测试音频…", "Connecting test audio…") }
-            if isActive && call.testAudio {
-                switch call.testPhase {
-                case "guide": return controller.text("请听语音提示", "Listen to the instructions")
-                case "tone": return controller.text("音频已连接 · 正在播放提示音", "Audio connected · Playing test tone")
-                case "speak": return controller.text("请说几句话", "Say a few words") + countdown
-                case "playback_prompt": return controller.text("准备回放你的声音", "Preparing your playback")
-                case "playback": return controller.text("正在回放你的声音", "Playing back your voice") + countdown
-                case "pause": return controller.text("即将再次测试", "The test will repeat shortly")
-                default: return controller.text("测试音频已连接", "Test audio connected")
-                }
-            }
-            return isActive
-                ? controller.text("测试通话已接通", "Test call connected")
-                : controller.text("ModemDeck 测试通话", "ModemDeck Test Call")
-        }
-        switch call.state {
-        case "ringing": return controller.text("来电", "Incoming Call")
-        case "connecting": return controller.text("正在连接…", "Connecting…")
-        case "active": return connectedText
-        default: return call.state
-        }
-    }
-
-    private var countdown: String {
-        call.testRemainingMS > 0 ? " · \((call.testRemainingMS + 999) / 1000)s" : ""
+        call.statusText(endedCall: endedCall, ending: callController.ending, chinese: controller.usesChinese)
     }
 
     // MARK: Audio route
@@ -3079,23 +3082,10 @@ struct ModemDeckActiveCallView: View {
     private var speakerOn: Bool { audioRoute.output == "speaker" }
 
     private var routeTitle: String {
-        switch audioRoute.output {
-        case "speaker": return controller.text("扬声器", "Speaker")
-        case "receiver": return "iPhone"
-        case "bluetooth", "headphones", "external":
-            return audioRoute.currentOutputName.isEmpty ? controller.text("音频", "Audio") : audioRoute.currentOutputName
-        default: return controller.text("音频", "Audio")
-        }
+        audioRoute.outputTitle(speaker: controller.text("扬声器", "Speaker"), audio: controller.text("音频", "Audio"))
     }
 
-    private var routeIcon: String {
-        switch audioRoute.output {
-        case "speaker": return "speaker.wave.2.fill"
-        case "receiver": return "iphone"
-        case "bluetooth", "headphones", "external": return "headphones"
-        default: return "speaker.wave.2.fill"
-        }
-    }
+    private var routeIcon: String { audioRoute.outputIcon }
 
     private var speakerUnavailableHint: String? {
         if !audioRoute.active { return controller.text("通话音频连接后可用", "Available once call audio connects") }
@@ -3187,7 +3177,7 @@ private struct ModemDeckCallTimerText: View {
 
     var body: some View {
         TimelineView(.periodic(from: start, by: 1)) { context in
-            let clock = modemDeckCallClock(context.date.timeIntervalSince(start))
+            let clock = ModemDeckDateText.duration(Int(context.date.timeIntervalSince(start)), style: .callClock)
             Text(clock)
                 .font(font)
                 .monospacedDigit()
@@ -3340,12 +3330,7 @@ private struct ModemDeckInCallKeypad: View {
     let pressedDigits: String
     let pressedLabel: String
     let action: (String) -> Void
-    private let keys = [
-        ("1", ""), ("2", "ABC"), ("3", "DEF"),
-        ("4", "GHI"), ("5", "JKL"), ("6", "MNO"),
-        ("7", "PQRS"), ("8", "TUV"), ("9", "WXYZ"),
-        ("*", ""), ("0", "+"), ("#", "")
-    ]
+    private let keys = ModemDeckDialKey.all
 
     var body: some View {
         VStack(spacing: ModemDeckSpacing.md) {
@@ -3488,10 +3473,6 @@ private struct ModemDeckRecordingPlaybackControls: View {
     }
 
     private func clock(_ seconds: TimeInterval) -> String {
-        let total = max(0, Int(seconds.rounded(.down)))
-        let hours = total / 3_600, minutes = (total % 3_600) / 60, rest = total % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, rest)
-            : String(format: "%d:%02d", minutes, rest)
+        ModemDeckDateText.duration(Int(seconds.rounded(.down)), style: .playback)
     }
 }

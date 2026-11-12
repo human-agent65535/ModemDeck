@@ -1074,8 +1074,14 @@ final class ModemDeckCallAudioSession: NSObject {
         timer.setEventHandler { [weak self] in
             guard let self, !self.stopped, !self.leaseRequestInFlight else { return }
             self.leaseRequestInFlight = true
+            let leasePath: String
+            if let preparation = self.preparation, !self.preparationCommitted {
+                leasePath = self.preparationPath(preparation.preparationId) + "/lease"
+            } else {
+                leasePath = self.callPath("lease")
+            }
             self.request(
-                path: self.preparation != nil && !self.preparationCommitted ? self.preparationPath(self.preparation!.preparationId) + "/lease" : self.callPath("lease"),
+                path: leasePath,
                 method: "PUT",
                 json: [:]
             ) { [weak self] result in
@@ -1203,8 +1209,7 @@ final class ModemDeckCallAudioSession: NSObject {
                     return
                 }
                 guard (200..<300).contains(response.statusCode) else {
-                    if let data,
-                       let error = try? JSONDecoder().decode(ModemDeckServerError.self, from: data),
+                    if let error = ModemDeckServerError.decode(data),
                        let message = error.message, !message.isEmpty {
                         completion(.failure(ModemDeckAPIError.server(
                             status: response.statusCode, code: error.code ?? "", message: message

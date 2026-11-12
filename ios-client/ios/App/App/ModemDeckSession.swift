@@ -400,7 +400,7 @@ final class ModemDeckSessionController: ObservableObject {
     private func scheduleMessageEventsReconnect() {
         guard runtimeForeground, phase == .paired, messageReconnectWorkItem == nil else { return }
         let generation = messageEventGeneration
-        let delay = min(30.0, 2.0 * pow(2.0, Double(min(messageReconnectAttempts, 4))))
+        let delay = ModemDeckBackoff.eventStreamDelay(attempt: messageReconnectAttempts)
         messageReconnectAttempts = min(messageReconnectAttempts + 1, 5)
         let item = DispatchWorkItem { [weak self] in
             guard let self, generation == self.messageEventGeneration else { return }
@@ -440,7 +440,7 @@ final class ModemDeckSessionController: ObservableObject {
     private func scheduleRuntimeEventsReconnect() {
         guard runtimeForeground, phase == .paired, runtimeReconnectWorkItem == nil else { return }
         let generation = runtimeEventGeneration
-        let delay = min(30.0, 2.0 * pow(2.0, Double(min(runtimeReconnectAttempts, 4))))
+        let delay = ModemDeckBackoff.eventStreamDelay(attempt: runtimeReconnectAttempts)
         runtimeReconnectAttempts = min(runtimeReconnectAttempts + 1, 5)
         let item = DispatchWorkItem { [weak self] in
             guard let self, generation == self.runtimeEventGeneration else { return }
@@ -897,8 +897,12 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 let locallyEnded = self.localEndRequestedCallID == previous?.callID
                 self.resetCallState()
                 if let previous {
-                    let status = self.lastTerminationStatus?.callID == previous.callID
-                        ? self.lastTerminationStatus!.status : (state["terminationState"] as? String ?? "ended")
+                    let status: String
+                    if let termination = self.lastTerminationStatus, termination.callID == previous.callID {
+                        status = termination.status
+                    } else {
+                        status = state["terminationState"] as? String ?? "ended"
+                    }
                     self.presentEndedCall(previous, status: status, locallyEnded: locallyEnded,
                         failureMessage: state["failureMessage"] as? String ?? "",
                         testResult: state["testResult"] as? String ?? "")
@@ -1388,10 +1392,10 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             "microphoneDBFS": level, "serverInputDBFS": -26, "capturedPeakDBFS": -18,
             "receivedPackets": 120, "localCapturedFrames": 160, "localSentPackets": 150,
             "mediaState": "active", "muted": false,
-            "createdAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime))
+            "createdAt": ModemDeckDateText.timestamp(Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime), fractionalSeconds: false)
         ]
         if state == "active" {
-            fixture["activeAt"] = ISO8601DateFormatter().string(from: Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime))
+            fixture["activeAt"] = ModemDeckDateText.timestamp(Date().addingTimeInterval(startedAt - ProcessInfo.processInfo.systemUptime), fractionalSeconds: false)
         }
         if state != "active", state != "ringing", !audioTest {
             outgoingRecordingSnapshots = ["uat-call-surface": ProcessInfo.processInfo.environment["MODEMDECK_UAT_RECORDING_ENABLED"] == "1"]
@@ -1631,20 +1635,7 @@ final class ModemDeckMessagesStore: ObservableObject {
         revision += 1
         threads = threads.map { thread in
             guard lineID.isEmpty || thread.lineId == lineID else { return thread }
-            return ModemDeckMessageThread(
-                key: thread.key,
-                lineId: thread.lineId,
-                peer: thread.peer,
-                contactId: thread.contactId,
-                contactName: thread.contactName,
-                lastMessageId: thread.lastMessageId,
-                lastTimestamp: thread.lastTimestamp,
-                lastContent: thread.lastContent,
-                unreadCount: 0,
-                firstUnreadMessageId: nil,
-                markedUnread: false,
-                favorite: thread.favorite
-            )
+            return thread.applying(.read)
         }
         api.cacheMessageThreads(threads)
         apply(summary)
@@ -1660,24 +1651,7 @@ final class ModemDeckMessagesStore: ObservableObject {
                 api.cacheMessages([], lineID: thread.lineId, peer: thread.peer)
                 return nil
             }
-            return ModemDeckMessageThread(
-                key: thread.key,
-                lineId: thread.lineId,
-                peer: thread.peer,
-                contactId: thread.contactId,
-                contactName: thread.contactName,
-                lastMessageId: thread.lastMessageId,
-                lastTimestamp: thread.lastTimestamp,
-                lastContent: thread.lastContent,
-                unreadCount: action == .read ? 0 : thread.unreadCount,
-                firstUnreadMessageId: action == .read ? nil : thread.firstUnreadMessageId,
-                markedUnread: action == .unread
-                    ? true
-                    : (action == .read ? false : thread.markedUnread),
-                favorite: action == .favorite
-                    ? true
-                    : (action == .unfavorite ? false : thread.favorite)
-            )
+            return thread.applying(action)
         }
         api.cacheMessageThreads(threads)
     }
@@ -1770,23 +1744,28 @@ final class ModemDeckConversationStore: ObservableObject {
             reloadRequested = false
             let revision = revision
             do {
-                var response = try await api.messagePage(lineID: thread.lineId, peer: thread.peer)
-                var loaded = response.messages
-                var cursor = response.meta.hasMore ? response.meta.nextCursor : ""
                 // Refresh every page currently displayed, then replace that
                 // authoritative window. Unioning a cache resurrects deletions.
-                let oldestDisplayed = authoritativeLoadCompleted ? messages.first?.id : nil
-                let anchors = [thread.firstUnreadMessageId, oldestDisplayed].compactMap { $0 }.filter { $0 > 0 }
-                var seenCursors = Set<String>()
-                while anchors.contains(where: { anchor in !loaded.contains(where: { $0.id == anchor }) }), !cursor.isEmpty {
-                    guard seenCursors.insert(cursor).inserted else { throw ModemDeckAPIError.invalidResponse }
-                    response = try await api.messagePage(
+                // The window is read once the first page has arrived.
+                var anchors: [Int64]?
+                var loaded: [ModemDeckMessage] = []
+                let cursor = try await modemDeckFollowPages(
+                    emptyCursorEnds: true,
+                    wantsMore: {
+                        let oldestDisplayed = authoritativeLoadCompleted ? messages.first?.id : nil
+                        let window: [Int64] = anchors ??
+                            [thread.firstUnreadMessageId, oldestDisplayed].compactMap { $0 }.filter { $0 > 0 }
+                        anchors = window
+                        return window.contains(where: { anchor in !loaded.contains(where: { $0.id == anchor }) })
+                    }
+                ) { cursor in
+                    let response = try await api.messagePage(
                         lineID: thread.lineId,
                         peer: thread.peer,
                         cursor: cursor
                     )
-                    loaded = merge(response.messages, with: loaded)
-                    cursor = response.meta.hasMore ? response.meta.nextCursor : ""
+                    loaded = cursor.isEmpty ? response.messages : merge(response.messages, with: loaded)
+                    return response.meta
                 }
                 guard revision == self.revision else {
                     reloadRequested = true
@@ -1985,23 +1964,7 @@ final class ModemDeckCallsStore: ObservableObject {
         calls = calls.compactMap { call in
             guard ids.contains(call.id) else { return call }
             if action == .delete { return nil }
-            return ModemDeckCallRecord(
-                id: call.id,
-                lineId: call.lineId,
-                direction: call.direction,
-                remoteNumber: call.remoteNumber,
-                contactName: call.contactName,
-                contactId: call.contactId,
-                startedAt: call.startedAt,
-                endedAt: call.endedAt,
-                durationSeconds: call.durationSeconds,
-                missed: call.missed,
-                read: action == .read ? true : (action == .unread ? false : call.read),
-                favorite: action == .favorite
-                    ? true
-                    : (action == .unfavorite ? false : call.favorite),
-                failureCode: call.failureCode
-            )
+            return call.applying(action)
         }
         api.cacheCalls(calls)
         if action == .delete {
@@ -2015,14 +1978,7 @@ final class ModemDeckCallsStore: ObservableObject {
         recordings = recordings.compactMap { recording in
             guard ids.contains(recording.id) else { return recording }
             if action == .delete { return nil }
-            return ModemDeckRecording(
-                segment: recording.segment,
-                call: recording.call,
-                playable: recording.playable,
-                favorite: action == .favorite
-                    ? true
-                    : (action == .unfavorite ? false : recording.favorite)
-            )
+            return recording.applying(action)
         }
         api.cacheRecordings(recordings)
     }
@@ -2163,7 +2119,7 @@ final class ModemDeckContactImporter: ObservableObject {
                         var seen = Set<String>()
                         let phones = contact.phoneNumbers.compactMap { value -> ModemDeckContactDraft.Phone? in
                             let number = value.value.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                            let identity = number.filter { $0 == "+" || $0.isNumber }
+                            let identity = ModemDeckPhoneIdentity.importKey(number)
                             guard !identity.isEmpty, seen.insert(identity).inserted else { return nil }
                             let label = value.label.map {
                                 CNLabeledValue<NSString>.localizedString(forLabel: $0)
