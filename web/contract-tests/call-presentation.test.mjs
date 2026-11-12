@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { gateway } from '../src/api/client.ts'
+import { translate } from '../src/i18n/index.ts'
 import { callState, initializeCallRuntime, shutdownCallRuntime, requestActiveCallRefresh, acceptRuntimeActiveCalls, hangupCall, rejectCall, answerCall, sendDTMF, dismissCall, occupiedLineIDs, renewActiveCallLease } from '../src/state/call.ts'
 import { uiState, minimizeCallSurface } from '../src/state/ui.ts'
 
@@ -103,7 +104,8 @@ test('failed hangup keeps the live session and exposes a retryable action error'
     gateway.callAction = async () => { throw new Error('Temporary command failure') }
     await hangupCall()
     assert.equal(callState.session?.phase, 'active')
-    assert.equal(callState.error, 'Temporary command failure')
+    // Thrown text is for developers; the person sees the localized action failure.
+    assert.equal(callState.error, translate('runtime.callActionFailed'))
     assert.equal(callState.busy, false)
     assert.equal(callState.pendingAction, '')
     t.mock.timers.tick(2000)

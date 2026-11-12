@@ -14,9 +14,9 @@ import {
 import { gateway } from '../api/client'
 import { tlsCAPath } from '../api/contract'
 import type { TLSSettings } from '../api/types'
-import { ApiError } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
+import { forbiddenOrUserErrorMessage, LocalizedError } from '../utils/errorMessage'
 import { formatBytes } from '../utils/format'
 import FileDropControl from './FileDropControl.vue'
 import CertificateFacts from './CertificateFacts.vue'
@@ -50,10 +50,7 @@ const renewalLabel = computed(() =>
 )
 
 function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError && error.status === 403) {
-    return t('tls.updateForbidden')
-  }
-  return error instanceof Error && error.message ? error.message : fallback
+  return forbiddenOrUserErrorMessage(error, fallback, t('tls.updateForbidden'))
 }
 
 async function loadTLSSettings(): Promise<void> {
@@ -83,7 +80,7 @@ function handleFileSelection(kind: 'certificate' | 'private-key', file: File): v
 
 async function readPEM(file: File, kind: 'certificate' | 'private-key'): Promise<string> {
   if (file.size > MAX_PEM_BYTES) {
-    throw new Error(
+    throw new LocalizedError(
       kind === 'certificate' ? t('tls.certificateTooLarge') : t('tls.privateKeyTooLarge')
     )
   }
@@ -92,12 +89,12 @@ async function readPEM(file: File, kind: 'certificate' | 'private-key'): Promise
   try {
     text = await file.text()
   } catch {
-    throw new Error(
+    throw new LocalizedError(
       kind === 'certificate' ? t('tls.readCertificateFailed') : t('tls.readPrivateKeyFailed')
     )
   }
   if (!text.trim() || text.includes('\0') || text.includes('\uFFFD')) {
-    throw new Error(
+    throw new LocalizedError(
       kind === 'certificate' ? t('tls.certificateMustBePEM') : t('tls.privateKeyMustBePEM')
     )
   }
@@ -108,7 +105,7 @@ async function readPEM(file: File, kind: 'certificate' | 'private-key'): Promise
           text
         )
   if (!validPEM) {
-    throw new Error(
+    throw new LocalizedError(
       kind === 'certificate' ? t('tls.certificateInvalidPEM') : t('tls.privateKeyInvalidPEM')
     )
   }

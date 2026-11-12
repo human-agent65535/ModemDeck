@@ -6,6 +6,7 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { errorResourceStatus, LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import {
   isExpectedDeviceRecoveryOutage,
   waitForUnavailableThenReadable
@@ -19,11 +20,7 @@ export type DiagnosticDeviceResource = {
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : translate('runtime.requestFailed')
-}
-
-function errorStatus(error: unknown): ResourceStatus {
-  return error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+  return userErrorMessage(error, translate('runtime.requestFailed'))
 }
 
 export function useDiagnosticDevices() {
@@ -58,7 +55,7 @@ export function useDiagnosticDevices() {
   async function readHardware(lineID: string): Promise<DeviceHardwareConfiguration> {
     const configuration = await gateway.getDiagnosticDeviceConfiguration(lineID)
     if (!configuration.hardware) {
-      throw new Error(translate('runtime.invalidDeviceConfiguration'))
+      throw new LocalizedError(translate('runtime.invalidDeviceConfiguration'))
     }
     return configuration.hardware
   }
@@ -92,7 +89,7 @@ export function useDiagnosticDevices() {
         return false
       } catch (error) {
         if (isCurrent(normalizedLineID, generation)) {
-          target.status = hasHardware ? 'ready' : errorStatus(error)
+          target.status = hasHardware ? 'ready' : errorResourceStatus(error)
           target.error = errorText(error)
         }
         return false
@@ -132,7 +129,7 @@ export function useDiagnosticDevices() {
             latest.revision
           )
           if (!updated.hardware) {
-            throw new Error(translate('runtime.invalidDeviceConfiguration'))
+            throw new LocalizedError(translate('runtime.invalidDeviceConfiguration'))
           }
           accepted = true
           break
@@ -149,7 +146,7 @@ export function useDiagnosticDevices() {
         }
       }
       if (!accepted) {
-        throw lastConflict || new Error(translate('runtime.requestFailed'))
+        throw lastConflict || new LocalizedError(translate('runtime.requestFailed'))
       }
 
       const result = await waitForUnavailableThenReadable({
@@ -176,7 +173,7 @@ export function useDiagnosticDevices() {
       return false
     } catch (error) {
       if (isCurrent(normalizedLineID, generation)) {
-        target.status = target.hardware ? 'ready' : errorStatus(error)
+        target.status = target.hardware ? 'ready' : errorResourceStatus(error)
         target.error = errorText(error)
       }
       return false

@@ -11,6 +11,7 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { errorResourceStatus, LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import {
   isExpectedDeviceRecoveryOutage,
   waitForUnavailableThenReadable
@@ -95,7 +96,7 @@ export function resetDeviceConfigurationState(): void {
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : translate('runtime.requestFailed')
+  return userErrorMessage(error, translate('runtime.requestFailed'))
 }
 
 function deviceConfigurationErrorText(
@@ -128,10 +129,6 @@ function deviceConfigurationErrorText(
     }
   }
   return errorText(error)
-}
-
-function errorStatus(error: unknown): ResourceStatus {
-  return error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
 }
 
 function resourceFor(lineID: string): DeviceConfigurationResource {
@@ -170,7 +167,7 @@ function completeDeviceConfiguration(
     !configuration.incoming_calls ||
     !configuration.messaging
   ) {
-    throw new Error(translate('runtime.invalidDeviceConfiguration'))
+    throw new LocalizedError(translate('runtime.invalidDeviceConfiguration'))
   }
   return configuration as Required<DeviceConfiguration>
 }
@@ -219,7 +216,7 @@ export async function loadGlobalIncomingCallSettings(force = false): Promise<boo
     return true
   } catch (error) {
     if (generation !== globalSettingsGeneration) return false
-    globalIncomingCallState.status = errorStatus(error)
+    globalIncomingCallState.status = errorResourceStatus(error)
     globalIncomingCallState.error = errorText(error)
     return false
   }
@@ -258,7 +255,7 @@ export async function updateGlobalIncomingCallSettings(
     } catch (refreshError) {
       if (generation !== globalSettingsGeneration) return false
       globalIncomingCallState.data = current
-      globalIncomingCallState.status = errorStatus(refreshError)
+      globalIncomingCallState.status = errorResourceStatus(refreshError)
       globalIncomingCallState.error = translate('runtime.refreshAfterSaveFailed', {
         error: saveError,
         refreshError: errorText(refreshError)
@@ -314,7 +311,7 @@ export async function loadDeviceConfiguration(
       return false
     } catch (error) {
       if (isCurrentDeviceConfigurationRequest(normalizedLineID, generation)) {
-        target.status = hasConfiguration ? 'ready' : errorStatus(error)
+        target.status = hasConfiguration ? 'ready' : errorResourceStatus(error)
         target.error = errorText(error)
       }
       return false
@@ -346,7 +343,7 @@ async function restoreDeviceConfiguration(
     }
   } catch (refreshError) {
     if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
-      target.status = target.data ? 'ready' : errorStatus(refreshError)
+      target.status = target.data ? 'ready' : errorResourceStatus(refreshError)
       target.error = translate('runtime.refreshAfterSaveFailed', {
         error: saveError,
         refreshError: errorText(refreshError)
@@ -426,7 +423,7 @@ async function applyHardwareUpdate(
     }
   }
   if (lastConflict) throw lastConflict
-  throw new Error(translate('runtime.requestFailed'))
+  throw new LocalizedError(translate('runtime.requestFailed'))
 }
 
 export function setRadioEnabled(lineID: string, enabled: boolean): Promise<boolean> {

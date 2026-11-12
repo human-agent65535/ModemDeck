@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { gateway } from '../src/api/client.ts'
+import { translate } from '../src/i18n/index.ts'
 import {
   answerCall,
   callState,
@@ -427,7 +428,7 @@ test('an owned recording toggle stays pessimistic and defers runtime refreshes',
     assert.equal(snapshotReads, 3)
     assert.equal(callRecordingState.enabled, true)
     assert.equal(callRecordingState.recordingStatus, 'recording')
-    assert.match(callRecordingState.error, /forced recording failure/)
+    assert.equal(callRecordingState.error, translate('runtime.recordingToggleFailed'))
   } finally {
     syncCallRecording(null)
     gateway.setCallRecording = originalSetCallRecording

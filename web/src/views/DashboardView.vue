@@ -69,6 +69,8 @@ import {
   bootstrapResource,
   callsResource,
   capabilityReason,
+  communicationPeerAvatar,
+  communicationPeerName,
   contactEditingAvailable,
   contactForNumber,
   contactsResource,
@@ -95,6 +97,7 @@ import {
   markThreadsRead,
   markThreadsUnread,
   presentModuleLines,
+  RECORD_NAME_FIRST,
   recentIncomingThreadKeys,
   refreshCalls,
   refreshContacts,
@@ -299,23 +302,17 @@ const favoriteContacts = computed(() =>
 )
 
 function callName(call: CallRecord): string {
-  return (
-    call.display_name ||
-    contactForNumber(call.remote_number)?.display_name ||
-    displayPhoneNumber(call.remote_number, call.line_id)
+  return communicationPeerName(
+    { number: call.remote_number, lineID: call.line_id, recordName: call.display_name },
+    RECORD_NAME_FIRST
   )
 }
 
 function threadName(thread: MessageThread): string {
-  return (
-    thread.contact_name ||
-    contactForNumber(thread.peer)?.display_name ||
-    displayPhoneNumber(thread.peer, thread.line_id)
+  return communicationPeerName(
+    { number: thread.peer, lineID: thread.line_id, recordName: thread.contact_name },
+    RECORD_NAME_FIRST
   )
-}
-
-function avatarForNumber(number: string): string {
-  return contactForNumber(number)?.avatar || ''
 }
 
 function activityHasReadState(activity: CommunicationActivity): boolean {
@@ -347,7 +344,7 @@ async function markActivityRead(activity: CommunicationActivity): Promise<void> 
     await markMissedCallRead(activity.call)
   } catch (error) {
     activityMutationError.value = t('calls.markReadFailed', {
-      error: error instanceof Error ? error.message : String(error)
+      error: failureMessage(error)
     })
   }
 }
@@ -414,12 +411,10 @@ async function removeActivity(activity: CommunicationActivity): Promise<void> {
       await router.replace({ name: 'dashboard' })
     }
   } catch (error) {
-    activityMutationError.value =
-      error instanceof Error
-        ? error.message
-        : activity.kind === 'message'
-          ? t('messages.deleteFailed')
-          : t('calls.deleteFailed')
+    activityMutationError.value = userErrorMessage(
+      error,
+      activity.kind === 'message' ? t('messages.deleteFailed') : t('calls.deleteFailed')
+    )
   } finally {
     deletingActivityKey.value = ''
   }
@@ -812,7 +807,7 @@ onMounted(() => {
               :thread="activity.thread"
               :name="threadName(activity.thread)"
               :peer="displayPhoneNumber(activity.thread.peer, activity.thread.line_id)"
-              :avatar="avatarForNumber(activity.thread.peer)"
+              :avatar="communicationPeerAvatar(activity.thread.peer)"
               :contact-bound="Boolean(
                 activity.thread.contact_id || contactForNumber(activity.thread.peer)
               )"
@@ -827,7 +822,7 @@ onMounted(() => {
               :call="activity.call"
               :name="callName(activity.call)"
               :number="displayPhoneNumber(activity.call.remote_number, activity.call.line_id)"
-              :avatar="avatarForNumber(activity.call.remote_number)"
+              :avatar="communicationPeerAvatar(activity.call.remote_number)"
               :contact-bound="Boolean(
                 activity.call.contact_id ||
                   contactForNumber(activity.call.remote_number)

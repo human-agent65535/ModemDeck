@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test, { mock } from 'node:test'
-import { createRenderer, effectScope } from 'vue'
+import { createRenderer, effectScope, ref } from 'vue'
 import {
   objectValue,
   requiredBoolean,
@@ -17,13 +17,22 @@ import { playableRecordingCallIDs, recordingCatalogState } from '../src/state/re
 import {
   attachedLineForKey,
   bootstrapResource,
+  communicationPeerAvatar,
+  communicationPeerName,
+  CONTACT_NAME_FIRST,
+  contactsResource,
   defaultLineID,
+  displayPhoneNumber,
   lineFallbackFor,
   lineForKey,
   lineWithKey,
+  RECORD_NAME_FIRST,
+  RECORD_NAME_ONLY,
+  resetMissingLineFilter,
   resetWorkspaceState,
   unreadMissedCallCount
 } from '../src/state/workspace.ts'
+import { translate } from '../src/i18n/index.ts'
 import { communicationAvatarFallback } from '../src/utils/communicationAvatar.ts'
 import { communicationAddressKind } from '../src/utils/communicationAddress.ts'
 import {
@@ -41,6 +50,12 @@ import {
   formatPlaybackTime,
   recordingStatusLabel
 } from '../src/utils/format.ts'
+import {
+  errorResourceStatus,
+  forbiddenOrUserErrorMessage,
+  LocalizedError,
+  userErrorMessage
+} from '../src/utils/errorMessage.ts'
 import { randomRequestID } from '../src/utils/id.ts'
 import {
   compactPhoneSyntax,
@@ -484,4 +499,86 @@ test('Escape leaves selection mode only while the list is mounted', () => {
     if (previousWindow === undefined) delete globalThis.window
     else globalThis.window = previousWindow
   }
+})
+
+test('peer names keep each page\'s order between the record name and the contact name', t => {
+  t.after(resetWorkspaceState)
+  resetWorkspaceState()
+  contactsResource.data = [{
+    id: 'contact-1',
+    display_name: 'Saved Contact',
+    avatar: 'data:image/png;base64,AA==',
+    favorite: false,
+    phones: [{ id: 'phone-1', label: 'mobile', number: '090-1111-2222', normalized_number: '+819011112222', primary: true }]
+  }]
+  const known = { number: '+819011112222', lineID: 'line-1', recordName: 'Name On Record' }
+  const unnamed = { number: '+819011112222', lineID: 'line-1' }
+  const stranger = { number: '+819099998888', lineID: 'line-1' }
+
+  // Dashboard, Calls, Recordings, the call surface and the incoming-call notification.
+  assert.equal(communicationPeerName(known, RECORD_NAME_FIRST), 'Name On Record')
+  // Messages thread list and header, and the incoming-message notification.
+  assert.equal(communicationPeerName(known, CONTACT_NAME_FIRST), 'Saved Contact')
+  assert.equal(communicationPeerName(unnamed, RECORD_NAME_FIRST), 'Saved Contact')
+  assert.equal(communicationPeerName(unnamed, CONTACT_NAME_FIRST), 'Saved Contact')
+  // Global search shows only the record's name and never looks up the contact's.
+  assert.equal(communicationPeerName(known, RECORD_NAME_ONLY), 'Name On Record')
+  assert.equal(communicationPeerName(unnamed, RECORD_NAME_ONLY), '090-1111-2222')
+  assert.equal(communicationPeerName({ ...unnamed, recordName: '' }, RECORD_NAME_ONLY), '090-1111-2222')
+  // Without any name every order falls back to the displayed number.
+  for (const order of [RECORD_NAME_FIRST, CONTACT_NAME_FIRST, RECORD_NAME_ONLY]) {
+    assert.equal(communicationPeerName(stranger, order), displayPhoneNumber(stranger.number, 'line-1'))
+  }
+
+  assert.equal(communicationPeerAvatar('+819011112222'), 'data:image/png;base64,AA==')
+  assert.equal(communicationPeerAvatar('+819099998888'), '')
+})
+
+test('a line filter resets to every line only when its line is gone', () => {
+  const lines = [bootstrapLine('line-a'), bootstrapLine('line-b')]
+  const filter = ref('line-b')
+  resetMissingLineFilter(filter, lines)
+  assert.equal(filter.value, 'line-b')
+  resetMissingLineFilter(filter, lines.slice(0, 1))
+  assert.equal(filter.value, 'all')
+  resetMissingLineFilter(filter, [])
+  assert.equal(filter.value, 'all')
+})
+
+test('user error messages never show server or thrown text', () => {
+  const fallback = 'Localized fallback'
+  // Unknown codes, plain thrown errors and anything else use the caller's fallback.
+  assert.equal(userErrorMessage(new ApiError('raw server text', 400, 'unknown_code'), fallback), fallback)
+  assert.equal(userErrorMessage(new ApiError('raw server text', 409), fallback), fallback)
+  assert.equal(userErrorMessage(new Error('Outgoing media readiness timed out'), fallback), fallback)
+  assert.equal(userErrorMessage('raw string', fallback), fallback)
+  assert.equal(userErrorMessage(undefined, fallback), fallback)
+  // Known codes and transport failures translate.
+  assert.equal(userErrorMessage(new ApiError('raw', 409, 'conflict'), fallback), translate('errors.operation_conflict'))
+  // Only an explicit revision_conflict reads as "edited elsewhere".
+  assert.equal(userErrorMessage(new ApiError('raw', 409, 'revision_conflict'), fallback), translate('errors.revision_conflict'))
+  assert.notEqual(translate('errors.operation_conflict'), translate('errors.revision_conflict'))
+  assert.equal(userErrorMessage(new ApiError('raw', 404, 'call_not_found'), fallback), translate('errors.not_found'))
+  assert.equal(userErrorMessage(new ApiError('raw', 401), fallback), translate('errors.authentication_required'))
+  assert.equal(userErrorMessage(new ApiError('raw', 403), fallback), translate('errors.forbidden'))
+  assert.equal(userErrorMessage(new ApiError('raw', 503), fallback), translate('errors.server'))
+  assert.equal(userErrorMessage(new TypeError('Failed to fetch'), fallback), translate('errors.network'))
+  // Text the client already localized is shown as is.
+  assert.equal(userErrorMessage(new LocalizedError('Bild ist zu groß'), fallback), 'Bild ist zu groß')
+  // Console output that logs the error name keeps reading `Error`.
+  assert.equal(new LocalizedError('x').name, 'Error')
+})
+
+test('a 403 shows the resource\'s own forbidden text, otherwise the user error message', () => {
+  const forbidden = 'Recordings are not available to you'
+  assert.equal(forbiddenOrUserErrorMessage(new ApiError('raw', 403), 'fallback', forbidden), forbidden)
+  // Even a known code does not override the resource's forbidden text.
+  assert.equal(forbiddenOrUserErrorMessage(new ApiError('raw', 403, 'conflict'), 'fallback', forbidden), forbidden)
+  assert.equal(forbiddenOrUserErrorMessage(new ApiError('raw', 400), 'fallback', forbidden), 'fallback')
+  assert.equal(forbiddenOrUserErrorMessage(new ApiError('raw', 500), 'fallback', forbidden), translate('errors.server'))
+  assert.equal(forbiddenOrUserErrorMessage(new LocalizedError('Shown as is'), 'fallback', forbidden), 'Shown as is')
+
+  assert.equal(errorResourceStatus(new ApiError('raw', 403)), 'forbidden')
+  assert.equal(errorResourceStatus(new ApiError('raw', 500)), 'error')
+  assert.equal(errorResourceStatus(new Error('raw')), 'error')
 })

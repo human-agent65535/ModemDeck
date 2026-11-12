@@ -3,6 +3,7 @@ import { loadAudioCore } from './audioCore.ts'
 import { fixtureCallMediaPreview, fixtureMode, gateway } from '../api/client'
 import type { CallSession, OutgoingCallPreparation } from '../api/types'
 import { translate } from '../i18n'
+import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import { browserSoundState } from './browserSounds'
 import type { CallMediaTarget } from './callAudioProtocol'
 import { CALL_AUDIO_FORMAT, callAudioWebSocketURL, decodeCallAudioPacket, encodeCallAudioPacket, isCallAudioReady, isRecoverableCallAudioError, validateCallAudioProgress } from './callAudioProtocol'
@@ -37,6 +38,8 @@ const MEDIA_STABLE_FRAMES = 40
 const MEDIA_WRITE_TIMEOUT_MS = 2000
 const MEDIA_HEALTH_INTERVAL_MS = 1000
 const MEDIA_RECOVERY_TIMEOUT_MS = 15_000
+// How long a prepared outgoing call waits for its media before the dial fails.
+const OUTGOING_MEDIA_READY_TIMEOUT_MS = 15_000
 const MEDIA_LOCK_PREFIX = 'modemdeck-call-media:'
 
 export const callMediaState = reactive<{
@@ -156,7 +159,7 @@ function stopMicrophonePipeline(pipeline: MicrophonePipeline): void {
 
 async function createMicrophonePipeline(capture: MediaStream): Promise<MicrophonePipeline> {
   const runtime = audioRuntime
-  if (!runtime) throw new Error(translate('runtime.callAudioFailed'))
+  if (!runtime) throw new LocalizedError(translate('runtime.callAudioFailed'))
   const context = runtime.context
   try {
     const source = context.createMediaStreamSource(capture)
@@ -264,7 +267,7 @@ function mediaError(error: unknown): string {
     }
     if (error.name === 'NotReadableError') return translate('runtime.microphoneBusy')
   }
-  return error instanceof Error ? error.message : translate('runtime.callAudioFailed')
+  return userErrorMessage(error, translate('runtime.callAudioFailed'))
 }
 
 async function playRemoteAudio(): Promise<void> {
@@ -321,7 +324,7 @@ function beginRecoveryWindow(callID: string, token: number): void {
     failConnection(
       callID,
       token,
-      new Error(translate('runtime.callAudioConnectionFailed'))
+      new LocalizedError(translate('runtime.callAudioConnectionFailed'))
     )
   }, MEDIA_RECOVERY_TIMEOUT_MS)
 }
@@ -509,7 +512,7 @@ async function openAudioSocket(callID: string, token: number, ownership: MediaOw
           return
         }
         if (message.type === 'ready') {
-          if (runtime.ready || !isCallAudioReady(message)) throw new Error(translate('runtime.callAudioFailed'))
+          if (runtime.ready || !isCallAudioReady(message)) throw new LocalizedError(translate('runtime.callAudioFailed'))
           logPreparation('wss_ready')
           runtime.ready = true
           updateAudioRuntime(runtime)
@@ -529,7 +532,7 @@ async function openAudioSocket(callID: string, token: number, ownership: MediaOw
         }
         return
       }
-      if (!runtime.ready || !(event.data instanceof ArrayBuffer)) throw new Error(translate('runtime.callAudioFailed'))
+      if (!runtime.ready || !(event.data instanceof ArrayBuffer)) throw new LocalizedError(translate('runtime.callAudioFailed'))
       const packet = decodeCallAudioPacket(event.data)
       validateCallAudioProgress(runtime.lastPacket, packet)
       runtime.lastPacket = { sequence: packet.sequence, timestamp: packet.timestamp }
@@ -549,7 +552,7 @@ async function openAudioSocket(callID: string, token: number, ownership: MediaOw
   connection.onclose = event => {
     if (!isCurrent(callID, token) || socket !== connection) return
     if (event.code === 1008 || event.code === 1002 || event.code === 1003) {
-      failConnection(callID, token, new Error(translate('runtime.callAudioConnectionFailed')))
+      failConnection(callID, token, new LocalizedError(translate('runtime.callAudioConnectionFailed')))
     } else recoverConnection(callID, token, ownership)
   }
 }
@@ -560,7 +563,7 @@ async function connect(callID: string, token: number, ownership: MediaOwnership)
   try {
     callMediaState.status = 'requesting'
     if (!navigator.mediaDevices?.getUserMedia || typeof AudioWorkletNode === 'undefined' || typeof WebAssembly === 'undefined') {
-      throw new Error(translate('runtime.microphoneHTTPSRequired'))
+      throw new LocalizedError(translate('runtime.microphoneHTTPSRequired'))
     }
     const wasmBinary = await loadAudioCore()
     if (!isCurrent(callID, token)) return
@@ -588,7 +591,7 @@ async function connect(callID: string, token: number, ownership: MediaOwnership)
       lastSentAt: -Infinity, lastReceivedAt: -Infinity, sentFrames: 0, receivedFrames: 0 }
     audioRuntime = runtime
     const initialized = new Promise<void>((resolve, reject) => {
-      const timeout = window.setTimeout(() => reject(new Error(translate('runtime.callAudioFailed'))), MEDIA_CONNECT_TIMEOUT_MS)
+      const timeout = window.setTimeout(() => reject(new LocalizedError(translate('runtime.callAudioFailed'))), MEDIA_CONNECT_TIMEOUT_MS)
       runtime.cancelInitialization = () => {
         window.clearTimeout(timeout)
         runtime.cancelInitialization = undefined
@@ -597,8 +600,8 @@ async function connect(callID: string, token: number, ownership: MediaOwnership)
       node.onprocessorerror = () => {
         runtime.cancelInitialization = undefined
         window.clearTimeout(timeout)
-        reject(new Error(translate('runtime.callAudioFailed')))
-        failConnection(callID, token, new Error(translate('runtime.callAudioFailed')))
+        reject(new LocalizedError(translate('runtime.callAudioFailed')))
+        failConnection(callID, token, new LocalizedError(translate('runtime.callAudioFailed')))
       }
       node.port.onmessage = ({ data }: MessageEvent<WorkletAudioMessage>) => {
         if (data.type === 'ready') {
@@ -637,7 +640,8 @@ async function connect(callID: string, token: number, ownership: MediaOwnership)
     if (!isCurrent(callID, token) || audioRuntime !== runtime) return
     await playRemoteAudio()
     if (!isCurrent(callID, token)) return
-    if (audioState.outputRoutingError) throw new Error(audioState.outputRoutingError)
+    // Already the text the audio settings show for this output.
+    if (audioState.outputRoutingError) throw new LocalizedError(audioState.outputRoutingError)
     await openAudioSocket(callID, token, ownership)
   } catch (error) {
     for (const track of pendingMicrophone?.getTracks() || []) track.stop()
@@ -653,7 +657,7 @@ async function ownAndConnect(
 ): Promise<void> {
   try {
     if (!navigator.locks?.request) {
-      throw new Error(translate('runtime.callAudioFailed'))
+      throw new LocalizedError(translate('runtime.callAudioFailed'))
     }
     await navigator.locks.request(
       `${MEDIA_LOCK_PREFIX}${callID}`,
@@ -715,7 +719,10 @@ export async function prepareOutgoingCallMedia(preparation: OutgoingCallPreparat
   const ready = new Promise<void>((resolve, reject) => {
     preparationMedia = { id, path: preparation.media_socket_path, callID: '', startedAt: performance.now(),
       encoded: false, uplinkReady: false, resolve, reject,
-      timeout: window.setTimeout(() => reject(new Error('Outgoing media readiness timed out')), 15000) }
+      timeout: window.setTimeout(
+        () => reject(new LocalizedError(translate('runtime.callAudioFailed'))),
+        OUTGOING_MEDIA_READY_TIMEOUT_MS
+      ) }
   })
   currentCallID = attemptedCallID = id
   callMediaState.callID = id

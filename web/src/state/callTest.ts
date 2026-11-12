@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 import type { ModemDeckGateway } from '../api/gateway'
 import { ApiError, type CallTestStatus } from '../api/types'
+import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 
 type Dependencies = {
   gateway: Pick<ModemDeckGateway, 'startCallTest' | 'getCallTestStatus' | 'endCallTest'>
@@ -59,7 +60,7 @@ export function createCallTestController(dependencies: Dependencies) {
         await dependencies.gateway.endCallTest(id)
       } catch (cause) {
         if (token !== generation || state.error) return
-        state.error = cause instanceof Error ? cause.message : dependencies.failureMessage()
+        state.error = userErrorMessage(cause, dependencies.failureMessage())
         state.status = 'error'
       }
     }
@@ -69,7 +70,7 @@ export function createCallTestController(dependencies: Dependencies) {
     try {
       const status = await dependencies.gateway.getCallTestStatus(id)
       if (token !== generation) return
-      if (status.id !== id) throw new Error(dependencies.failureMessage())
+      if (status.id !== id) throw new LocalizedError(dependencies.failureMessage())
       pollFailures = 0
       state.session = status
       if (status.phase !== 'active') {
@@ -83,7 +84,7 @@ export function createCallTestController(dependencies: Dependencies) {
         pollTimer = setTimeout(() => { void poll(id, token) }, 500)
         return
       }
-      await stop(cause instanceof Error ? cause.message : dependencies.failureMessage())
+      await stop(userErrorMessage(cause, dependencies.failureMessage()))
     }
   }
 
@@ -118,7 +119,7 @@ export function createCallTestController(dependencies: Dependencies) {
         return
       }
       state.session = status
-      if (status.phase !== 'active') throw new Error(dependencies.failureMessage())
+      if (status.phase !== 'active') throw new LocalizedError(dependencies.failureMessage())
       state.status = 'running'
       pollFailures = 0
       limitTimer = setTimeout(() => { void stop() }, 60_000)
@@ -126,7 +127,7 @@ export function createCallTestController(dependencies: Dependencies) {
       void poll(status.id, token)
     } catch (cause) {
       if (token !== generation) return
-      await stop(cause instanceof Error ? cause.message : dependencies.failureMessage())
+      await stop(userErrorMessage(cause, dependencies.failureMessage()))
     }
   }
 

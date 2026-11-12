@@ -7,8 +7,8 @@ import {
   visibleMessageThreadKey
 } from '../router/messageRoute'
 import {
-  contactForNumber,
-  displayPhoneNumber,
+  communicationPeerName,
+  CONTACT_NAME_FIRST,
   lineForKey,
   lineLabel,
   queueIncomingMessageArrival,
@@ -79,11 +79,12 @@ export function incomingMessageRoute(event: IncomingMessageEvent): {
 }
 
 function showIncomingMessageNotification(event: IncomingMessageEvent, router: Router): void {
-  const contact = contactForNumber(event.peer)
   const line = lineForKey(event.line_id)
-  const sender =
-    contact?.display_name ||
-    displayPhoneNumber(event.peer, event.line_id)
+  // The event carries no name of its own, so only the contact's name applies.
+  const sender = communicationPeerName(
+    { number: event.peer, lineID: event.line_id },
+    CONTACT_NAME_FIRST
+  )
   const title = line ? `${sender} · ${lineLabel(line)}` : sender
   showBrowserNotification({
     title,

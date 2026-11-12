@@ -58,6 +58,8 @@ import {
   callsResource,
   callsPagination,
   capabilityReason,
+  communicationPeerAvatar,
+  communicationPeerName,
   contactForNumber,
   defaultLineID,
   deleteCall,
@@ -72,8 +74,10 @@ import {
   loadContacts,
   markMissedCallRead,
   markMissedCallUnread,
+  RECORD_NAME_FIRST,
   refreshCalls,
   refreshContacts,
+  resetMissingLineFilter,
   setCallsFavorite,
   updateMissedCallsReadState
 } from '../state/workspace'
@@ -249,19 +253,14 @@ function setFavoriteFilter(value: boolean): void {
 }
 
 function displayName(call: CallRecord): string {
-  return (
-    call.display_name ||
-    contactForNumber(call.remote_number)?.display_name ||
-    callDisplayNumber(call)
+  return communicationPeerName(
+    { number: call.remote_number, lineID: call.line_id, recordName: call.display_name },
+    RECORD_NAME_FIRST
   )
 }
 
 function callDisplayNumber(call: CallRecord): string {
   return displayPhoneNumber(call.remote_number, call.line_id)
-}
-
-function avatarForCall(call: CallRecord): string {
-  return contactForNumber(call.remote_number)?.avatar || ''
 }
 
 function recordingCount(call: CallRecord): number {
@@ -289,7 +288,7 @@ async function acknowledgeMissedCall(call: CallRecord): Promise<void> {
     await markMissedCallRead(call)
   } catch (error) {
     callMutationError.value = t('calls.markReadFailed', {
-      error: error instanceof Error ? error.message : String(error)
+      error: userErrorMessage(error, t('runtime.requestFailed'))
     })
   }
 }
@@ -303,7 +302,7 @@ async function markMissedCallUnreadInView(call: CallRecord): Promise<void> {
   } catch (error) {
     if (!alreadyManual) manuallyUnreadCallIDs.value.delete(call.id)
     callMutationError.value = t('calls.markUnreadFailed', {
-      error: error instanceof Error ? error.message : String(error)
+      error: userErrorMessage(error, t('runtime.requestFailed'))
     })
   }
 }
@@ -384,10 +383,10 @@ async function batchSetRead(read: boolean): Promise<void> {
     for (const id of insertedManualIDs) manuallyUnreadCallIDs.value.delete(id)
     callMutationError.value = read
       ? t('calls.markReadFailed', {
-          error: error instanceof Error ? error.message : String(error)
+          error: userErrorMessage(error, t('runtime.requestFailed'))
         })
       : t('calls.markUnreadFailed', {
-          error: error instanceof Error ? error.message : String(error)
+          error: userErrorMessage(error, t('runtime.requestFailed'))
         })
   } finally {
     batchBusy.value = false
@@ -486,14 +485,8 @@ function sendMessage(call: CallRecord): void {
   )
 }
 
-watch(lines, availableLines => {
-  if (
-    lineFilterKey.value !== 'all' &&
-    !availableLines.some(line => lineKey(line) === lineFilterKey.value)
-  ) {
-    lineFilterKey.value = 'all'
-  }
-})
+// Selection is cleared by the filter watch below when this resets the filter.
+watch(lines, availableLines => resetMissingLineFilter(lineFilterKey, availableLines))
 
 watch([search, lineFilterKey, favoriteOnly], () => selection.clear())
 
@@ -757,7 +750,7 @@ onBeforeUnmount(() => {
                 :call="call"
                 :name="displayName(call)"
                 :number="callDisplayNumber(call)"
-                :avatar="avatarForCall(call)"
+                :avatar="communicationPeerAvatar(call.remote_number)"
                 :contact-bound="Boolean(
                   call.contact_id || contactForNumber(call.remote_number)
                 )"

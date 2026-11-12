@@ -9,6 +9,7 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { errorResourceStatus, forbiddenOrUserErrorMessage } from '../utils/errorMessage'
 import { isIPAddress, isLoopbackAddress } from '../utils/ipAddress'
 import { proxyCredentialError } from '../utils/proxyCredentials'
 
@@ -41,10 +42,7 @@ let loadGeneration = 0
 let loadRequest: Promise<void> | undefined
 
 function failureMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError && error.status === 403) {
-    return translate('runtime.networkForbidden')
-  }
-  return error instanceof Error ? error.message : fallback
+  return forbiddenOrUserErrorMessage(error, fallback, translate('runtime.networkForbidden'))
 }
 
 function proxyName(draft: ProxyDraft, lineLabel: string): string {
@@ -117,7 +115,7 @@ export function loadNetwork(force = false, silent = false): Promise<void> {
     .catch(error => {
       if (token !== loadGeneration) return
       networkState.status =
-        error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+        errorResourceStatus(error)
       networkState.error = failureMessage(error, translate('runtime.trafficLoadFailed'))
     })
     .finally(() => {

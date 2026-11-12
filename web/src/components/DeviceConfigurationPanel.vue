@@ -108,7 +108,7 @@ import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
 import SectionSkeleton from './skeletons/SectionSkeleton.vue'
 import DeviceWorkspace from './settings/DeviceWorkspace.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
-import { userErrorMessage } from '../utils/errorMessage'
+import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 
 type DeviceTab = 'overview' | 'network' | 'sim' | 'sms' | 'voice' | 'ussd'
 type AsyncStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -258,9 +258,7 @@ const selectedResource = computed(() =>
 )
 const deviceMutation = useSettingsMutation({
   errorMessage: cause =>
-    cause instanceof Error
-      ? cause.message
-      : selectedResource.value?.error || t('runtime.requestFailed')
+    userErrorMessage(cause, selectedResource.value?.error || t('runtime.requestFailed'))
 })
 const selectedNetworkSelection = computed(() =>
   selectedLineID.value ? networkSelectionResource(selectedLineID.value) : null
@@ -309,7 +307,8 @@ async function runDeviceMutation(
   const result = await deviceMutation.run(async () => {
     const saved = await operation()
     if (!saved) {
-      throw new Error(selectedResource.value?.error || t('runtime.requestFailed'))
+      // The resource error is already the localized text for this failure.
+      throw new LocalizedError(selectedResource.value?.error || t('runtime.requestFailed'))
     }
     return true
   })

@@ -65,6 +65,9 @@ import {
   attachedLineForKey,
   bootstrapResource,
   capabilityReason,
+  communicationPeerAvatar,
+  communicationPeerName,
+  CONTACT_NAME_FIRST,
   contactForNumber,
   contactsResource,
   defaultLineID,
@@ -90,6 +93,7 @@ import {
   recentIncomingThreadKeys,
   refreshContacts,
   refreshMessageWorkspace,
+  resetMissingLineFilter,
   resolveLine,
   setThreadsFavorite,
   sendMessage,
@@ -357,15 +361,10 @@ function setFavoriteFilter(value: boolean): void {
   void router.replace({ name: 'messages', params: route.params, query })
 }
 
-function avatarForNumber(number: string): string {
-  return contactForNumber(number)?.avatar || ''
-}
-
 function displayNameForThread(thread: MessageThread): string {
-  return (
-    contactForNumber(thread.peer)?.display_name ||
-    thread.contact_name ||
-    threadDisplayNumber(thread)
+  return communicationPeerName(
+    { number: thread.peer, lineID: thread.line_id, recordName: thread.contact_name },
+    CONTACT_NAME_FIRST
   )
 }
 
@@ -394,10 +393,7 @@ function syncComposeLine(force = false): void {
 watch(
   lines,
   value => {
-    if (
-      lineFilterKey.value !== 'all' &&
-      !value.some(line => lineKey(line) === lineFilterKey.value)
-    ) lineFilterKey.value = 'all'
+    resetMissingLineFilter(lineFilterKey, value)
     syncComposeLine()
   },
   { immediate: true }
@@ -1113,7 +1109,7 @@ onBeforeUnmount(() => {
                 :thread="thread"
                 :name="displayNameForThread(thread)"
                 :peer="threadDisplayNumber(thread)"
-                :avatar="avatarForNumber(thread.peer)"
+                :avatar="communicationPeerAvatar(thread.peer)"
                 :contact-bound="Boolean(thread.contact_id || contactForNumber(thread.peer))"
                 :line="lineTagLine(lineForKey(thread.line_id), thread.line_id)"
                 :line-fallback="lineFallbackFor(thread.line_id)"
@@ -1252,7 +1248,7 @@ onBeforeUnmount(() => {
               channel="message"
               :name="displayNameForThread(selectedThread)"
               :number="threadDisplayNumber(selectedThread)"
-              :avatar="avatarForNumber(selectedThread.peer)"
+              :avatar="communicationPeerAvatar(selectedThread.peer)"
               :contact-bound="Boolean(
                 selectedThread.contact_id || contactForNumber(selectedThread.peer)
               )"

@@ -52,9 +52,8 @@ function validationError(): string {
 }
 
 function apiErrorMessage(cause: unknown): string {
-  if (!(cause instanceof ApiError)) {
-    return userErrorMessage(cause, t('account.passwordChangeFailed'))
-  }
+  const fallback = t('account.passwordChangeFailed')
+  if (!(cause instanceof ApiError)) return userErrorMessage(cause, fallback)
   const messages: Record<string, string> = {
     invalid_current_password: t('account.currentPasswordIncorrect'),
     password_too_short: t('account.passwordTooShort', {
@@ -64,7 +63,7 @@ function apiErrorMessage(cause: unknown): string {
     password_invalid: t('account.passwordInvalid'),
     password_unchanged: t('account.passwordUnchanged')
   }
-  return (cause.code && messages[cause.code]) || cause.message
+  return (cause.code && messages[cause.code]) || userErrorMessage(cause, fallback)
 }
 
 async function submit(): Promise<void> {

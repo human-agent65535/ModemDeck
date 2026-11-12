@@ -18,7 +18,6 @@ import {
   X
 } from '@lucide/vue'
 import type { LineSummary, TelegramUnit, UserAccount } from '../api/types'
-import { ApiError } from '../api/types'
 import { gateway } from '../api/client'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { requestConfirmation } from '../state/confirmation'
@@ -40,7 +39,7 @@ import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
 import SettingsResourceStatus from './settings/SettingsResourceStatus.vue'
-import { userErrorMessage } from '../utils/errorMessage'
+import { forbiddenOrUserErrorMessage } from '../utils/errorMessage'
 
 type TelegramScopeOption = {
   id: string
@@ -409,10 +408,11 @@ async function submit(): Promise<void> {
     })
     showSuccess(t('telegram.saved'))
   } catch (error) {
-    saveError.value =
-      error instanceof ApiError && error.status === 403
-        ? t('telegram.updateForbidden')
-        : userErrorMessage(error, t('telegram.saveFailed'))
+    saveError.value = forbiddenOrUserErrorMessage(
+      error,
+      t('telegram.saveFailed'),
+      t('telegram.updateForbidden')
+    )
     showError(saveError.value)
   } finally {
     saving.value = false
@@ -443,10 +443,11 @@ async function remove(): Promise<void> {
       query: { ...route.query, bot: undefined, newBot: undefined }
     })
   } catch (error) {
-    saveError.value =
-      error instanceof ApiError && error.status === 403
-        ? t('telegram.deleteForbidden')
-        : userErrorMessage(error, t('telegram.deleteFailed'))
+    saveError.value = forbiddenOrUserErrorMessage(
+      error,
+      t('telegram.deleteFailed'),
+      t('telegram.deleteForbidden')
+    )
   } finally {
     deleting.value = false
   }

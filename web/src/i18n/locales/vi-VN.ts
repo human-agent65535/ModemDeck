@@ -12,6 +12,7 @@ export default {
     "username_conflict": "Tên người dùng này đã được sử dụng.",
     "username_invalid": "Không thể dùng tên người dùng này.",
     "revision_conflict": "Nội dung đã được thay đổi ở nơi khác. Hãy tải lại rồi thử lại.",
+    "operation_conflict": "Không thể thực hiện thao tác này ở trạng thái hiện tại. Hãy làm mới rồi thử lại.",
     "call_revocation_failed": "Thay đổi đã được lưu, nhưng chưa thể kết thúc cuộc gọi đang diễn ra của người dùng này. ModemDeck sẽ tiếp tục thử.",
     "not_found": "Mục này không còn tồn tại.",
     "phone_conflict": "Số này đã thuộc về một liên hệ khác.",

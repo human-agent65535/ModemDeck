@@ -37,7 +37,6 @@ import type {
   DiagnosticLineSummary,
   LineSummary
 } from '../api/types'
-import { ApiError } from '../api/types'
 import { useDebouncedCallback } from '../composables/useDebouncedCallback'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { audioState, refreshAudioDevices } from '../state/audio'
@@ -61,7 +60,7 @@ import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SelectControl from './SelectControl.vue'
 import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
 import SectionSkeleton from './skeletons/SectionSkeleton.vue'
-import { userErrorMessage } from '../utils/errorMessage'
+import { errorResourceStatus, userErrorMessage } from '../utils/errorMessage'
 import { callDirectionLabel, formatDateTime } from '../utils/format'
 
 type SnapshotState = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
@@ -645,7 +644,7 @@ function connectLogStream(generation = streamGeneration): void {
     onError(error) {
       if (generation !== streamGeneration || disposed || paused.value) return
       closeLogStream = null
-      logError.value = error?.message || t('diagnostics.logStreamInterrupted')
+      logError.value = userErrorMessage(error, t('diagnostics.logStreamInterrupted'))
       scheduleReconnect(generation)
     }
   })
@@ -666,8 +665,7 @@ async function loadSnapshot(): Promise<void> {
       snapshotState.value = 'ready'
       return
     }
-    snapshotState.value =
-      error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+    snapshotState.value = errorResourceStatus(error)
   }
 }
 

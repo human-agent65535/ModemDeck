@@ -1,4 +1,5 @@
 import { translate } from '../i18n'
+import { LocalizedError } from './errorMessage'
 
 const MAX_SOURCE_BYTES = 10 << 20
 const MAX_AVATAR_BYTES = 256 << 10
@@ -13,7 +14,7 @@ function loadImage(file: File): Promise<{ image: HTMLImageElement; release: () =
     image.onload = () => resolve({ image, release: () => URL.revokeObjectURL(url) })
     image.onerror = () => {
       URL.revokeObjectURL(url)
-      reject(new Error(translate('runtime.imageReadFailed')))
+      reject(new LocalizedError(translate('runtime.imageReadFailed')))
     }
     image.src = url
   })
@@ -24,7 +25,7 @@ function encodeCanvas(canvas: HTMLCanvasElement, quality: number): Promise<Blob>
     canvas.toBlob(
       blob => {
         if (!blob) {
-          reject(new Error(translate('runtime.imageUnsupported')))
+          reject(new LocalizedError(translate('runtime.imageUnsupported')))
           return
         }
         resolve(blob)
@@ -39,21 +40,21 @@ function blobDataURL(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error(translate('runtime.processedAvatarReadFailed')))
+    reader.onerror = () => reject(new LocalizedError(translate('runtime.processedAvatarReadFailed')))
     reader.readAsDataURL(blob)
   })
 }
 
 export async function createContactAvatar(file: File): Promise<string> {
-  if (!file.type.startsWith('image/')) throw new Error(translate('runtime.selectImage'))
-  if (file.size > MAX_SOURCE_BYTES) throw new Error(translate('runtime.imageTooLarge'))
+  if (!file.type.startsWith('image/')) throw new LocalizedError(translate('runtime.selectImage'))
+  if (file.size > MAX_SOURCE_BYTES) throw new LocalizedError(translate('runtime.imageTooLarge'))
 
   const { image, release } = await loadImage(file)
   try {
     const sourceWidth = image.naturalWidth
     const sourceHeight = image.naturalHeight
     if (!sourceWidth || !sourceHeight) {
-      throw new Error(translate('runtime.invalidImageDimensions'))
+      throw new LocalizedError(translate('runtime.invalidImageDimensions'))
     }
 
     const cropSize = Math.min(sourceWidth, sourceHeight)
@@ -61,7 +62,7 @@ export async function createContactAvatar(file: File): Promise<string> {
     const sourceY = Math.floor((sourceHeight - cropSize) / 2)
     const canvas = document.createElement('canvas')
     const context = canvas.getContext('2d')
-    if (!context) throw new Error(translate('runtime.imageUnsupported'))
+    if (!context) throw new LocalizedError(translate('runtime.imageUnsupported'))
 
     for (let index = 0; index < OUTPUT_SIZES.length; index += 1) {
       const size = Math.min(OUTPUT_SIZES[index] || 192, cropSize)
@@ -94,5 +95,5 @@ export async function createContactAvatar(file: File): Promise<string> {
   } finally {
     release()
   }
-  throw new Error(translate('runtime.imageTooComplex'))
+  throw new LocalizedError(translate('runtime.imageTooComplex'))
 }

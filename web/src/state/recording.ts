@@ -10,8 +10,12 @@ import type {
   RecordingSettings,
   ResourceStatus
 } from '../api/types'
-import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import {
+  errorResourceStatus,
+  forbiddenOrUserErrorMessage,
+  LocalizedError
+} from '../utils/errorMessage'
 import {
   acceptFirstPage,
   loadNextPage,
@@ -119,10 +123,7 @@ let recordingListGeneration = 0
 let recordingCatalogGeneration = 0
 
 function failureMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError && error.status === 403) {
-    return translate('runtime.recordingForbidden')
-  }
-  return error instanceof Error ? error.message : fallback
+  return forbiddenOrUserErrorMessage(error, fallback, translate('runtime.recordingForbidden'))
 }
 
 function acceptRecordingSettings(settings: RecordingSettings): void {
@@ -139,7 +140,7 @@ function acceptRecordingSettings(settings: RecordingSettings): void {
 
 function acceptCallRecording(callID: string, state: CallRecordingState): void {
   if (state.call_id !== callID) {
-    throw new Error(translate('runtime.recordingCallMismatch'))
+    throw new LocalizedError(translate('runtime.recordingCallMismatch'))
   }
   callRecordingState.callID = callID
   callRecordingState.status = 'ready'
@@ -187,7 +188,7 @@ export async function loadRecordingSettings(force = false): Promise<RecordingSet
     .catch(error => {
       if (token !== settingsGeneration) return null
       recordingSettingsState.status =
-        error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+        errorResourceStatus(error)
       recordingSettingsState.error = failureMessage(
         error,
         translate('runtime.recordingSettingsLoadFailed')
@@ -329,7 +330,7 @@ async function readActiveCallRecording(callID: string): Promise<void> {
       return
     }
     callRecordingState.segmentsStatus =
-      error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+      errorResourceStatus(error)
     callRecordingState.segmentsError = failureMessage(
       error,
       translate('runtime.callRecordingsLoadFailed')
@@ -524,7 +525,7 @@ export async function loadCallRecordings(callID: string, force = false): Promise
   } catch (error) {
     if (token !== recordingListGeneration) return
     recordingListState.status =
-      error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+      errorResourceStatus(error)
     recordingListState.error = failureMessage(
       error,
       translate('runtime.callRecordingsLoadFailed')
@@ -567,11 +568,12 @@ export async function loadRecordingEntries(
   } catch (error) {
     if (token !== recordingCatalogGeneration) return null
     recordingCatalogState.status =
-      error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
-    recordingCatalogState.error =
-      error instanceof ApiError && error.status === 403
-        ? translate('runtime.callRecordingsForbidden')
-        : failureMessage(error, translate('runtime.callRecordingsLoadFailed'))
+      errorResourceStatus(error)
+    recordingCatalogState.error = forbiddenOrUserErrorMessage(
+      error,
+      translate('runtime.callRecordingsLoadFailed'),
+      translate('runtime.callRecordingsForbidden')
+    )
     return null
   }
 }

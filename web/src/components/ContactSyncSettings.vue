@@ -37,7 +37,7 @@ import {
 } from '../state/workspace'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { requestConfirmation } from '../state/confirmation'
-import { userErrorMessage } from '../utils/errorMessage'
+import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import { showSuccess } from '../state/feedback'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
@@ -84,8 +84,10 @@ const defaultRegion = computed(() => {
   )
 })
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback
+// A network failure here is Google being unreachable, not ModemDeck, so it
+// must not read as "can't reach ModemDeck".
+function googleErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof TypeError ? fallback : userErrorMessage(error, fallback)
 }
 
 function saveGoogleClientID(notify = false): boolean {
@@ -210,11 +212,11 @@ async function syncGoogle(): Promise<void> {
     await loadBootstrap()
     const contacts = await fetchGoogleContacts(token, defaultRegion.value)
     if (contacts.length > MAX_IMPORT_CONTACTS) {
-      throw new Error(t('contactSync.tooManyContacts', { count: MAX_IMPORT_CONTACTS }))
+      throw new LocalizedError(t('contactSync.tooManyContacts', { count: MAX_IMPORT_CONTACTS }))
     }
     reportImport(await importContacts(contacts), googleNotice, googleError)
   } catch (error) {
-    googleError.value = errorMessage(error, t('contactSync.googleSyncFailed'))
+    googleError.value = googleErrorMessage(error, t('contactSync.googleSyncFailed'))
   } finally {
     googleBusy.value = false
   }
@@ -230,7 +232,7 @@ async function disconnectGoogle(): Promise<void> {
     googleToken.value = ''
     googleNotice.value = t('contactSync.googleDisconnected')
   } catch (error) {
-    googleError.value = errorMessage(error, t('contactSync.googleDisconnectFailed'))
+    googleError.value = googleErrorMessage(error, t('contactSync.googleDisconnectFailed'))
   } finally {
     googleBusy.value = false
   }
@@ -258,14 +260,14 @@ async function importVCard(event: Event): Promise<void> {
     await loadBootstrap()
     const transfers = parseVCard(await file.text(), defaultRegion.value)
     if (transfers.length === 0) {
-      throw new Error(t('contactSync.vcardEmpty'))
+      throw new LocalizedError(t('contactSync.vcardEmpty'))
     }
     if (transfers.length > MAX_IMPORT_CONTACTS) {
-      throw new Error(t('contactSync.tooManyContacts', { count: MAX_IMPORT_CONTACTS }))
+      throw new LocalizedError(t('contactSync.tooManyContacts', { count: MAX_IMPORT_CONTACTS }))
     }
     reportImport(await importContacts(transfers), vcardNotice, vcardError)
   } catch (error) {
-    vcardError.value = errorMessage(error, t('contactSync.vcardImportFailed'))
+    vcardError.value = userErrorMessage(error, t('contactSync.vcardImportFailed'))
   } finally {
     vcardBusy.value = false
   }
@@ -279,7 +281,7 @@ async function exportVCard(): Promise<void> {
   try {
     const contacts = await fetchAllContacts()
     if (contacts.length === 0) {
-      throw new Error(t('contactSync.noContactsToExport'))
+      throw new LocalizedError(t('contactSync.noContactsToExport'))
     }
     const blob = new Blob([serializeContactsToVCard(contacts)], {
       type: 'text/vcard;charset=utf-8'
@@ -294,7 +296,7 @@ async function exportVCard(): Promise<void> {
       count: contacts.length
     })
   } catch (error) {
-    vcardError.value = errorMessage(error, t('contactSync.vcardExportFailed'))
+    vcardError.value = userErrorMessage(error, t('contactSync.vcardExportFailed'))
   } finally {
     vcardBusy.value = false
   }

@@ -49,6 +49,8 @@ import {
 } from '../state/recording'
 import {
   bootstrapResource,
+  communicationPeerAvatar,
+  communicationPeerName,
   contactForNumber,
   defaultLineID,
   displayPhoneNumber,
@@ -56,7 +58,9 @@ import {
   lineForKey,
   lineKey,
   loadBootstrap,
-  refreshContacts
+  RECORD_NAME_FIRST,
+  refreshContacts,
+  resetMissingLineFilter
 } from '../state/workspace'
 import {
   callDirectionLabel,
@@ -127,10 +131,13 @@ const batchAllFavorite = computed(
 )
 
 function displayName(recording: RecordingEntry): string {
-  return (
-    recording.call.display_name ||
-    contactForNumber(recording.call.remote_number)?.display_name ||
-    recordingDisplayNumber(recording)
+  return communicationPeerName(
+    {
+      number: recording.call.remote_number,
+      lineID: recording.call.line_id,
+      recordName: recording.call.display_name
+    },
+    RECORD_NAME_FIRST
   )
 }
 
@@ -139,10 +146,6 @@ function recordingDisplayNumber(recording: RecordingEntry): string {
     recording.call.remote_number,
     recording.call.line_id
   )
-}
-
-function avatar(recording: RecordingEntry): string {
-  return contactForNumber(recording.call.remote_number)?.avatar || ''
 }
 
 function unavailableDetail(recording: RecordingEntry): string {
@@ -325,12 +328,7 @@ watch(
 watch(filteredRecordings, recordings => selection.reconcile(recordings))
 
 watch(lines, availableLines => {
-  if (
-    lineFilterKey.value !== 'all' &&
-    !availableLines.some(line => lineKey(line) === lineFilterKey.value)
-  ) {
-    lineFilterKey.value = 'all'
-  }
+  resetMissingLineFilter(lineFilterKey, availableLines)
   selection.clear()
 })
 
@@ -475,7 +473,7 @@ onBeforeUnmount(() => {
                     channel="recording"
                     :name="displayName(recording)"
                     :address="recordingDisplayNumber(recording)"
-                    :src="avatar(recording)"
+                    :src="communicationPeerAvatar(recording.call.remote_number)"
                     :contact-bound="Boolean(
                       recording.call.contact_id ||
                         contactForNumber(recording.call.remote_number)
@@ -589,7 +587,7 @@ onBeforeUnmount(() => {
               channel="recording"
               :name="displayName(selected)"
               :number="recordingDisplayNumber(selected)"
-              :avatar="avatar(selected)"
+              :avatar="communicationPeerAvatar(selected.call.remote_number)"
               :contact-bound="Boolean(selected.call.contact_id || selectedContact)"
               :muted="!selected.playable"
               :line="lineTagLine(lineForKey(selected.call.line_id), selected.call.line_id)"

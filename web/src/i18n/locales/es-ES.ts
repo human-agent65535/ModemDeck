@@ -12,6 +12,7 @@ export default {
     "username_conflict": "Ese nombre de usuario ya está en uso.",
     "username_invalid": "Ese nombre de usuario no se puede usar.",
     "revision_conflict": "Esto se cambió en otro lugar. Recarga e inténtalo de nuevo.",
+    "operation_conflict": "No se puede hacer en el estado actual. Actualiza e inténtalo de nuevo.",
     "call_revocation_failed": "El cambio se guardó, pero la llamada activa de este usuario aún no se pudo finalizar. ModemDeck seguirá intentándolo.",
     "not_found": "Este elemento ya no existe.",
     "phone_conflict": "Este número ya pertenece a otro contacto.",

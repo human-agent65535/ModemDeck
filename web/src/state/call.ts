@@ -10,14 +10,15 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import { showBrowserNotification } from './browserNotifications'
 import { syncCallSounds } from './browserSounds'
 import {
   capabilityReason,
-  contactForNumber,
-  displayPhoneNumber,
+  communicationPeerName,
   lineForKey,
-  lineLabel
+  lineLabel,
+  RECORD_NAME_FIRST
 } from './workspace'
 import { closeDialer, showCallSurface } from './ui'
 import {
@@ -201,7 +202,7 @@ export function showActiveCallForLine(lineID: string): boolean {
 
 function requestError(error: unknown, fallback: string): { message: string; status: number } {
   return {
-    message: error instanceof Error ? error.message : fallback,
+    message: userErrorMessage(error, fallback),
     status: error instanceof ApiError ? error.status : 0
   }
 }
@@ -433,11 +434,10 @@ export function incomingCallRoute(): { name: 'calls' } {
 function showIncomingCallNotification(session: CallSession): void {
   if (!activeRouter || !claimIncomingCallNotification(session, notifiedIncomingCallIDs)) return
 
-  const contact = contactForNumber(session.remote_number)
-  const caller =
-    session.display_name ||
-    contact?.display_name ||
-    displayPhoneNumber(session.remote_number, session.line_id)
+  const caller = communicationPeerName(
+    { number: session.remote_number, lineID: session.line_id, recordName: session.display_name },
+    RECORD_NAME_FIRST
+  )
   const line = lineForKey(session.line_id)
   showBrowserNotification({
     title: caller,
@@ -624,7 +624,7 @@ export async function dial(
     }, CALL_LEASE_HEARTBEAT_MS)
     await prepareOutgoingCallMedia(prepared)
     if (preparation.cancelled || preparation.generation !== outgoingGeneration) return false
-    if (!preparedCallMediaIsReady()) throw new Error(translate('runtime.callAudioFailed'))
+    if (!preparedCallMediaIsReady()) throw new LocalizedError(translate('runtime.callAudioFailed'))
     const session = await gateway.commitCallPreparation(preparation.id)
     if (preparation.cancelled || preparation.generation !== outgoingGeneration) {
       await gateway.cancelCallPreparation(preparation.id)

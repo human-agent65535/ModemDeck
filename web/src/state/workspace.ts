@@ -1,4 +1,4 @@
-import { computed, reactive } from 'vue'
+import { computed, reactive, type Ref } from 'vue'
 import { gateway } from '../api/client'
 import type {
   BootstrapResponse,
@@ -17,7 +17,6 @@ import type {
   MessageThread,
   Page,
   Resource,
-  ResourceStatus,
   RenameDeviceInput,
   RuntimeCommunicationState,
   SendMessageInput,
@@ -27,6 +26,7 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { errorResourceStatus, LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import { formatPhoneNumber } from '../utils/format'
 import { playOutgoingMessageSound } from './browserSounds'
 import { lineTagFallback, normalizedPhoneIdentity } from '../utils/lineIdentity'
@@ -44,7 +44,7 @@ function resource<T>(data: T): Resource<T> {
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : translate('runtime.requestFailed')
+  return userErrorMessage(error, translate('runtime.requestFailed'))
 }
 
 let workspaceGeneration = 0
@@ -61,7 +61,7 @@ async function load<T>(target: Resource<T>, loader: () => Promise<T>): Promise<T
     return data
   } catch (error) {
     if (generation !== workspaceGeneration) return null
-    target.status = error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+    target.status = errorResourceStatus(error)
     target.error = errorText(error)
     return null
   }
@@ -101,10 +101,6 @@ const pendingIncomingThreadMessageIDs = new Map<string, string>()
 const pendingIncomingMessageIDs = new Map<string, Set<string>>()
 let callsQueryFilter: CallFilter = 'all'
 
-function pageErrorStatus(error: unknown): ResourceStatus {
-  return error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
-}
-
 async function loadFirstPage<T>(
   target: Resource<T[]>,
   pagination: PaginationState,
@@ -130,7 +126,7 @@ async function loadFirstPage<T>(
       generation !== workspaceGeneration ||
       pageGeneration !== pagination.generation
     ) return null
-    target.status = pageErrorStatus(error)
+    target.status = errorResourceStatus(error)
     target.error = errorText(error)
     pagination.error = target.error
     return null
@@ -160,7 +156,7 @@ async function refreshFirstPage<T>(
       pageGeneration !== pagination.generation
     ) return null
     target.error = errorText(error)
-    if (target.status === 'idle') target.status = pageErrorStatus(error)
+    if (target.status === 'idle') target.status = errorResourceStatus(error)
     return null
   }
 }
@@ -283,6 +279,11 @@ export function lineForKey(key: string): LineSummary | undefined {
 // Exact match within the given list: the key is not trimmed and nothing else is searched.
 export function lineWithKey(lines: LineSummary[], key: string): LineSummary | undefined {
   return lines.find(line => lineKey(line) === key)
+}
+
+// A line filter falls back to every line once its line is no longer in `lines`.
+export function resetMissingLineFilter(filterKey: Ref<string>, lines: LineSummary[]): void {
+  if (filterKey.value !== 'all' && !lineWithKey(lines, filterKey.value)) filterKey.value = 'all'
 }
 
 // Only lines attached now. Unlike lineForKey it neither trims the key nor falls back to
@@ -456,6 +457,39 @@ export function displayPhoneNumber(number: string, lineReference = ''): string {
   return formatPhoneNumber(number, lineForKey(lineReference)?.home_country_iso)
 }
 
+/** `record` is the name carried on the call or thread; `contact` is the saved contact's. */
+export type PeerNameSource = 'record' | 'contact'
+
+// Pages disagree on whether the record's or the contact's name wins; that waits
+// for a product decision, so each caller names the order it uses.
+export const RECORD_NAME_FIRST: readonly PeerNameSource[] = ['record', 'contact']
+export const CONTACT_NAME_FIRST: readonly PeerNameSource[] = ['contact', 'record']
+/** Search results show the record's name without looking up contacts. */
+export const RECORD_NAME_ONLY: readonly PeerNameSource[] = ['record']
+
+export type CommunicationPeer = {
+  number: string
+  lineID: string
+  recordName?: string
+}
+
+/** The other party of a call or thread: the first name in `sources`, else the number. */
+export function communicationPeerName(
+  peer: CommunicationPeer,
+  sources: readonly PeerNameSource[]
+): string {
+  for (const source of sources) {
+    const name =
+      source === 'record' ? peer.recordName : contactForNumber(peer.number)?.display_name
+    if (name) return name
+  }
+  return displayPhoneNumber(peer.number, peer.lineID)
+}
+
+export function communicationPeerAvatar(number: string): string {
+  return contactForNumber(number)?.avatar || ''
+}
+
 function contactPhoneIdentity(phone: ContactPhone): string {
   const canonical = normalizedPhoneIdentity(phone.normalized_number)
   if (canonical.startsWith('+')) return canonical
@@ -510,11 +544,11 @@ export async function fetchAllContacts(): Promise<Contact[]> {
   let cursor: string | undefined
   do {
     const page = await gateway.listContacts({ limit: 100, ...(cursor ? { cursor } : {}) })
-    if (generation !== workspaceGeneration) throw new Error(translate('auth.sessionExpired'))
+    if (generation !== workspaceGeneration) throw new LocalizedError(translate('auth.sessionExpired'))
     for (const contact of page.items) contacts.set(contact.id, contact)
     if (!page.meta.has_more) return Array.from(contacts.values())
     cursor = page.meta.next_cursor
-    if (!cursor || cursors.has(cursor)) throw new Error(translate('runtime.requestFailed'))
+    if (!cursor || cursors.has(cursor)) throw new LocalizedError(translate('runtime.requestFailed'))
     cursors.add(cursor)
   } while (cursor)
   return Array.from(contacts.values())
@@ -1121,7 +1155,7 @@ export async function deleteMessageThreads(threads: MessageThread[]): Promise<vo
 
 export async function updateDefaultLine(lineID: string): Promise<void> {
   const bootstrap = bootstrapResource.data
-  if (!bootstrap) throw new Error(translate('runtime.lineSettingsNotLoaded'))
+  if (!bootstrap) throw new LocalizedError(translate('runtime.lineSettingsNotLoaded'))
   const settings = await gateway.updateLineSettings({
     default_line_id: lineID,
     expected_revision: bootstrap.line_settings.revision
@@ -1132,10 +1166,10 @@ export async function updateDefaultLine(lineID: string): Promise<void> {
 export async function saveContact(input: ContactInput, id?: string): Promise<Contact> {
   let saved: Contact
   if (id) {
-    if (!gateway.updateContact) throw new Error(translate('runtime.contactWriteUnsupported'))
+    if (!gateway.updateContact) throw new LocalizedError(translate('runtime.contactWriteUnsupported'))
     saved = await gateway.updateContact(id, input)
   } else {
-    if (!gateway.createContact) throw new Error(translate('runtime.contactWriteUnsupported'))
+    if (!gateway.createContact) throw new LocalizedError(translate('runtime.contactWriteUnsupported'))
     saved = await gateway.createContact(input)
   }
   contactsResource.data = contactsResource.data
@@ -1151,7 +1185,7 @@ export async function deleteContact(contact: Contact): Promise<void> {
 }
 
 export async function deleteContacts(contacts: Contact[]): Promise<void> {
-  if (!gateway.deleteContacts) throw new Error(translate('runtime.contactWriteUnsupported'))
+  if (!gateway.deleteContacts) throw new LocalizedError(translate('runtime.contactWriteUnsupported'))
   const unique = Array.from(
     new Map(contacts.map(contact => [contact.id, contact])).values()
   )

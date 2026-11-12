@@ -34,10 +34,12 @@ import type { CallSession } from '../api/types'
 import { playDTMFTone } from '../state/dtmfAudio'
 import {
   bootstrapResource,
+  communicationPeerName,
   contactForNumber,
   displayPhoneNumber,
   lineForKey,
-  lineSupports
+  lineSupports,
+  RECORD_NAME_FIRST
 } from '../state/workspace'
 import { knownCallBearerLabel } from '../callBearer'
 import { formatCallElapsed } from '../utils/format'
@@ -76,12 +78,8 @@ const presentedNumber = computed(() =>
     ? displayPhoneNumber(session.value.remote_number, session.value.line_id)
     : ''
 )
-const contactName = computed(
-  () =>
-    session.value?.display_name ||
-    contact.value?.display_name ||
-    presentedNumber.value ||
-    t('calls.unknownNumber')
+const contactName = computed(() =>
+  (session.value ? callPeerName(session.value) : '') || t('calls.unknownNumber')
 )
 const contactNumber = computed(() => {
   const number = presentedNumber.value
@@ -264,13 +262,14 @@ const statusTone = computed(() => {
 const concurrentCalls = computed(() =>
   isTestCall.value ? [] : callState.sessions.filter(isLiveCallSession)
 )
-function callPeer(call: CallSession): string {
-  return (
-    call.display_name ||
-    contactForNumber(call.remote_number)?.display_name ||
-    displayPhoneNumber(call.remote_number, call.line_id) ||
-    t('calls.unknownNumber')
+function callPeerName(call: CallSession): string {
+  return communicationPeerName(
+    { number: call.remote_number, lineID: call.line_id, recordName: call.display_name },
+    RECORD_NAME_FIRST
   )
+}
+function callPeer(call: CallSession): string {
+  return callPeerName(call) || t('calls.unknownNumber')
 }
 function callLineLabel(call: CallSession): string {
   const callLine = lineForKey(call.line_id)

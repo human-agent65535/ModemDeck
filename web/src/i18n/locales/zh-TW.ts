@@ -12,6 +12,7 @@ export default {
     username_conflict: '該使用者名稱已被使用。',
     username_invalid: '該使用者名稱無法使用。',
     revision_conflict: '內容已在其他地方被修改，請重新整理後重試。',
+    operation_conflict: '目前狀態下無法執行此操作，請重新整理後再試。',
     call_revocation_failed: '變更已儲存，但該使用者進行中的通話暫時無法掛斷，ModemDeck 會繼續嘗試掛斷。',
     not_found: '該項目已不存在。',
     phone_conflict: '該號碼已屬於其他聯絡人。',

@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import { translate } from '../i18n'
+import { LocalizedError } from '../utils/errorMessage'
 
 export type AudioDeviceLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type MicrophoneAccessStatus =
@@ -650,7 +651,7 @@ export async function startMicrophoneTest(): Promise<void> {
 
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error(translate('runtime.microphoneHTTPSRequired'))
+      throw new LocalizedError(translate('runtime.microphoneHTTPSRequired'))
     }
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: selectedAudioInputConstraints(),

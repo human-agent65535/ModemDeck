@@ -35,6 +35,7 @@ import {
   refreshApplication,
   setApplicationUpdateNoticeSuppressed
 } from '../state/staleAssetRecovery'
+import { userErrorMessage } from '../utils/errorMessage'
 import { releaseNoteRemainder, releaseNoteSummary } from '../utils/releaseNotes'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
@@ -260,8 +261,7 @@ async function load(): Promise<void> {
   try {
     about.value = await gateway.getAbout()
   } catch (error) {
-    loadError.value =
-      error instanceof Error && error.message ? error.message : t('about.loadFailed')
+    loadError.value = userErrorMessage(error, t('about.loadFailed'))
   }
 }
 

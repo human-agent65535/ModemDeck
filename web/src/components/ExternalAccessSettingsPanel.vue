@@ -25,6 +25,7 @@ import { ApiError } from '../api/types'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
+import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import { formatDateTime } from '../utils/format'
 import OverlayDialog from './OverlayDialog.vue'
 import SelectControl from './SelectControl.vue'
@@ -263,7 +264,7 @@ function errorMessage(cause: unknown, fallback: string): string {
       return t('iosPairing.selectServer')
     }
   }
-  return cause instanceof Error && cause.message ? cause.message : fallback
+  return userErrorMessage(cause, fallback)
 }
 
 function formatTimestamp(value?: string): string {
@@ -384,7 +385,7 @@ async function createPairing(): Promise<void> {
     const result = await gateway.createIOSPairing(
       selectedServerURL.value || undefined
     )
-    if (!result.payload) throw new Error(t('iosPairing.invalidPayload'))
+    if (!result.payload) throw new LocalizedError(t('iosPairing.invalidPayload'))
     qrCredentialID.value = result.pairing.pending?.id || ''
     applyPairingStatus(result.pairing)
     pairingCode.value = JSON.stringify(result.payload)

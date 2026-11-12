@@ -7,6 +7,7 @@ import type { CloudflareOriginTLSStatus } from '../api/types'
 import { ApiError } from '../api/types'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
+import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import { utf8ByteLength } from '../utils/utf8'
 import CertificateFacts from './CertificateFacts.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
@@ -65,9 +66,7 @@ function originTLSError(cause: unknown): string {
       return t('originTLS.alreadyEnabled')
     }
   }
-  return cause instanceof Error && cause.message
-    ? cause.message
-    : t('originTLS.saveFailed')
+  return userErrorMessage(cause, t('originTLS.saveFailed'))
 }
 
 function handlePEMInput(kind: 'certificate' | 'private-key'): void {
@@ -85,7 +84,7 @@ function validatePEM(
 ): string {
   const text = value.trim()
   if (utf8ByteLength(text) > MAX_PEM_BYTES) {
-    throw new Error(
+    throw new LocalizedError(
       kind === 'certificate'
         ? t('tls.certificateTooLarge')
         : t('tls.privateKeyTooLarge')
@@ -98,7 +97,7 @@ function validatePEM(
           text
         )
   if (!text.trim() || text.includes('\0') || text.includes('\uFFFD') || !valid) {
-    throw new Error(
+    throw new LocalizedError(
       kind === 'certificate'
         ? t('tls.certificateInvalidPEM')
         : t('tls.privateKeyInvalidPEM')

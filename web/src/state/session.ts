@@ -9,6 +9,7 @@ import {
   setClientCSRFToken
 } from '../api/client'
 import { setSystemLanguage, translate } from '../i18n'
+import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import { requestActiveCallRefresh } from './call'
 import { releaseCallMediaForSessionEnd } from './callMedia'
 import { resetDeviceConfigurationState } from './deviceConfiguration'
@@ -170,7 +171,7 @@ export async function ensureSession(): Promise<boolean> {
     .getSession()
     .then(applySession)
     .catch(error => {
-      const message = error instanceof Error ? error.message : translate('auth.checkFailed')
+      const message = userErrorMessage(error, translate('auth.checkFailed'))
       clearSession(message)
       return false
     })
@@ -189,14 +190,10 @@ export async function login(username: string, password: string): Promise<void> {
   try {
     const session = await gateway.login({ username, password })
     if (!(await applySession(session))) {
-      throw new ApiError(
-        translate('auth.invalidCredentials'),
-        401,
-        'authentication_required'
-      )
+      throw new LocalizedError(translate('auth.invalidCredentials'))
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : translate('auth.loginFailed')
+    const message = userErrorMessage(error, translate('auth.loginFailed'))
     clearSession(message)
     throw error
   }
@@ -211,14 +208,10 @@ export async function setup(username: string, password: string): Promise<void> {
   try {
     const session = await gateway.setup({ username, password })
     if (!(await applySession(session))) {
-      throw new ApiError(
-        translate('auth.setupFailed'),
-        409,
-        'setup_complete'
-      )
+      throw new LocalizedError(translate('auth.setupFailed'))
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : translate('auth.setupFailed')
+    const message = userErrorMessage(error, translate('auth.setupFailed'))
     clearSession(message, true)
     throw error
   }

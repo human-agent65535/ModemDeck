@@ -6,9 +6,11 @@ import type { RouteLocationRaw } from 'vue-router'
 import { History, MessageSquareText, Phone, UsersRound } from '@lucide/vue'
 import {
   callsResource,
+  communicationPeerName,
   contactsResource,
   displayPhoneNumber,
   ensureSearchData,
+  RECORD_NAME_ONLY,
   threadsResource
 } from '../state/workspace'
 import { formatRelativeDate, primaryPhone } from '../utils/format'
@@ -176,7 +178,12 @@ onBeforeUnmount(() => {
           type="button"
           @click="go(messageThreadRoute(thread.key))"
         >
-          <span>{{ thread.contact_name || displayPhoneNumber(thread.peer, thread.line_id) }}</span>
+          <span>{{
+            communicationPeerName(
+              { number: thread.peer, lineID: thread.line_id, recordName: thread.contact_name },
+              RECORD_NAME_ONLY
+            )
+          }}</span>
           <small>{{ thread.last_content || displayPhoneNumber(thread.peer, thread.line_id) }}</small>
         </button>
       </template>
@@ -194,7 +201,14 @@ onBeforeUnmount(() => {
         >
           <span>
             <Phone :size="14" />{{
-              call.display_name || displayPhoneNumber(call.remote_number, call.line_id)
+              communicationPeerName(
+                {
+                  number: call.remote_number,
+                  lineID: call.line_id,
+                  recordName: call.display_name
+                },
+                RECORD_NAME_ONLY
+              )
             }}
           </span>
           <small>{{ formatRelativeDate(call.started_at) }}</small>

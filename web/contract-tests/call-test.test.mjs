@@ -181,7 +181,8 @@ test('transient poll failures retry while repeated failures release audio', asyn
   }
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(controller.state.status, 'error')
-  assert.equal(controller.state.error, 'Connection lost')
+  // Server and transport text is not shown; the controller's localized failure is.
+  assert.equal(controller.state.error, 'Failed')
   assert.deepEqual(controller.events.slice(-2), [['stop', 'test-a'], ['end', 'test-a']])
 })
 
@@ -191,7 +192,7 @@ test('malformed status responses are not retried as network failures', async t =
     await controller.start('en-US')
     await new Promise(resolve => setImmediate(resolve))
     assert.equal(controller.state.status, 'error')
-    assert.equal(controller.state.error, failure.message)
+    assert.equal(controller.state.error, 'Failed')
   }
 })
 
@@ -202,7 +203,7 @@ test('definitive poll errors stop at once and late responses cannot revive a sto
   pending.reject(new ApiError('The test call has ended', 410, 'test_call_ended'))
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(controller.state.status, 'error')
-  assert.equal(controller.state.error, 'The test call has ended')
+  assert.equal(controller.state.error, 'Failed')
   assert.deepEqual(controller.events.slice(-2), [['stop', 'test-a'], ['end', 'test-a']])
 
   const next = deferred()

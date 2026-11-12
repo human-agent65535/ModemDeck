@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { Eye, EyeOff, LoaderCircle, LogIn, UserRoundPlus } from '@lucide/vue'
 import { login, sessionState, setup as setupAdministrator } from '../state/session'
+import { userErrorMessage } from '../utils/errorMessage'
 import {
   minimumPasswordCharacters,
   passwordCharacterCount
@@ -71,12 +72,10 @@ async function submit(): Promise<void> {
     }
     await router.replace(destination())
   } catch (error) {
-    submitError.value =
-      error instanceof Error
-        ? error.message
-        : isSetup.value
-          ? t('auth.setupFailed')
-          : t('auth.loginFailed')
+    submitError.value = userErrorMessage(
+      error,
+      isSetup.value ? t('auth.setupFailed') : t('auth.loginFailed')
+    )
   } finally {
     submitting.value = false
   }

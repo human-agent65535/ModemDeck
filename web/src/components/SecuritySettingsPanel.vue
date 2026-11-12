@@ -60,7 +60,7 @@ async function revokeSession(target: AccountSession, label: string): Promise<voi
     showSuccess(pairing ? t('account.pairingRevoked') : t('account.sessionLoggedOut'))
   } catch (cause) {
     const fallback = pairing ? t('iosPairing.revokeFailed') : t('account.sessionLogoutFailed')
-    showError(cause instanceof Error ? cause.message : fallback)
+    showError(userErrorMessage(cause, fallback))
   } finally {
     revokingID.value = ''
   }

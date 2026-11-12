@@ -7,8 +7,8 @@ import type {
   NetworkSelectionPolicy,
   ResourceStatus
 } from '../api/types'
-import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { errorResourceStatus, LocalizedError, userErrorMessage } from '../utils/errorMessage'
 
 type ScanStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -42,11 +42,7 @@ type PendingNetworkScan = {
 const pendingNetworkScans = new Map<string, PendingNetworkScan>()
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : translate('runtime.requestFailed')
-}
-
-function errorStatus(error: unknown): ResourceStatus {
-  return error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+  return userErrorMessage(error, translate('runtime.requestFailed'))
 }
 
 function resourceFor(lineID: string): NetworkSelectionResource {
@@ -114,7 +110,7 @@ export async function loadNetworkSelection(lineID: string, force = false): Promi
     const policy = await gateway.getNetworkSelection(normalizedLineID)
     if (!isCurrentPolicyRequest(normalizedLineID, requestSequence)) return false
     if (policy.line_id !== normalizedLineID) {
-      throw new Error(translate('runtime.invalidNetworkLine'))
+      throw new LocalizedError(translate('runtime.invalidNetworkLine'))
     }
     target.policy = policy
     target.mode = policy.mode
@@ -123,7 +119,7 @@ export async function loadNetworkSelection(lineID: string, force = false): Promi
     return true
   } catch (error) {
     if (!isCurrentPolicyRequest(normalizedLineID, requestSequence)) return false
-    target.policyStatus = errorStatus(error)
+    target.policyStatus = errorResourceStatus(error)
     target.policyError = errorText(error)
     return false
   }
@@ -147,7 +143,7 @@ export function scanMobileNetworks(lineID: string): Promise<boolean> {
       const scan = await gateway.scanMobileNetworks(normalizedLineID, controller.signal)
       if (!isCurrentScanRequest(normalizedLineID, requestSequence)) return false
       if (scan.line_id !== normalizedLineID) {
-        throw new Error(translate('runtime.invalidNetworkScanLine'))
+        throw new LocalizedError(translate('runtime.invalidNetworkScanLine'))
       }
       target.scan = scan
       target.scanStatus = 'ready'
@@ -215,7 +211,7 @@ async function saveNetworkSelection(
     })
     if (!isCurrentPolicyRequest(normalizedLineID, requestSequence)) return false
     if (updated.line_id !== normalizedLineID) {
-      throw new Error(translate('runtime.invalidNetworkLine'))
+      throw new LocalizedError(translate('runtime.invalidNetworkLine'))
     }
     target.policy = updated
     target.mode = updated.mode
@@ -229,7 +225,7 @@ async function saveNetworkSelection(
       const latest = await gateway.getNetworkSelection(normalizedLineID)
       if (!isCurrentPolicyRequest(normalizedLineID, requestSequence)) return false
       if (latest.line_id !== normalizedLineID) {
-        throw new Error(translate('runtime.invalidNetworkLine'), { cause: error })
+        throw new LocalizedError(translate('runtime.invalidNetworkLine'), { cause: error })
       }
       target.policy = latest
       target.mode = latest.mode

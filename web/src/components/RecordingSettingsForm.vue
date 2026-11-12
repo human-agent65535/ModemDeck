@@ -8,15 +8,17 @@ import {
   recordingSettingsState,
   updateDefaultRecording
 } from '../state/recording'
+import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
 
 const { t } = useI18n()
 const pendingEnabled = ref(false)
 const saveMutation = useSettingsMutation({
   errorMessage: cause =>
-    cause instanceof Error
-      ? cause.message
-      : recordingSettingsState.error || t('runtime.recordingSettingsSaveFailed')
+    userErrorMessage(
+      cause,
+      recordingSettingsState.error || t('runtime.recordingSettingsSaveFailed')
+    )
 })
 const displayedEnabled = computed(() =>
   recordingSettingsState.saving
@@ -29,7 +31,8 @@ async function changeDefault(event: Event): Promise<void> {
   const result = await saveMutation.run(async () => {
     const updated = await updateDefaultRecording(pendingEnabled.value)
     if (!updated) {
-      throw new Error(
+      // The state error is already the localized text for this failure.
+      throw new LocalizedError(
         recordingSettingsState.error || t('runtime.recordingSettingsSaveFailed')
       )
     }

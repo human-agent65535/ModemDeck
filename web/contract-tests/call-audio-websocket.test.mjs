@@ -142,6 +142,7 @@ test('repeated ready then early transport failures cannot restart the recovery d
     MEDIA_HEALTH_INTERVAL_MS: 1000, MEDIA_WRITE_TIMEOUT_MS: 2000,
     CALL_AUDIO_FORMAT: { version: 1 }, callMediaState: { status: 'connecting', error: '' },
     isCallAudioReady, isRecoverableCallAudioError, callAudioWebSocketURL, translate: key => key,
+    LocalizedError: class LocalizedError extends Error {},
     playRemoteAudio: async () => {},
     WebSocket: class { bufferedAmount = 0; constructor() { connection = this } send() {} },
     window: { location: { href: 'https://calls.example.test/' },
