@@ -69,17 +69,26 @@ func TestUpdaterHTTPApplyRejectsUnknownInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/v1/updates/apply",
-		strings.NewReader(`{"version":"v1.9.3","unexpected":true}`),
-	)
-	request = request.WithContext(context.Background())
-	request.Header.Set("Authorization", "Bearer test-token")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	for _, test := range []struct{ name, contentType, body string }{
+		{"unknown field", "application/json", `{"version":"v1.9.3","unexpected":true}`},
+		{"second value", "application/json", `{"version":"v1.9.3"}{"version":"v1.9.4"}`},
+		{"not declared as JSON", "", `{"version":"v1.9.3"}`},
+	} {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/updates/apply",
+			strings.NewReader(test.body),
+		)
+		request = request.WithContext(context.Background())
+		request.Header.Set("Authorization", "Bearer test-token")
+		if test.contentType != "" {
+			request.Header.Set("Content-Type", test.contentType)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d; body = %s", test.name, response.Code, response.Body.String())
+		}
 	}
 }
 

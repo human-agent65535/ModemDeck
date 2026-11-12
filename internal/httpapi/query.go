@@ -1,15 +1,13 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
-	"mime"
 	"net/http"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/human-agent65535/modemdeck/internal/jsonrequest"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -80,32 +78,19 @@ func decodeJSONBodyWithLimit(
 	destination any,
 	maximumBytes int64,
 ) bool {
-	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" {
+	switch err := jsonrequest.Decode(response, request, destination, maximumBytes); {
+	case err == nil:
+		return true
+	case errors.Is(err, jsonrequest.ErrMediaType):
 		writeError(response, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json", "")
-		return false
-	}
-	request.Body = http.MaxBytesReader(response, request.Body, maximumBytes)
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
-		writeJSONDecodeError(response, err)
-		return false
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		writeError(response, http.StatusBadRequest, "invalid_json", "Request body must contain one JSON object", "")
-		return false
-	}
-	return true
-}
-
-func writeJSONDecodeError(response http.ResponseWriter, err error) {
-	var maximum *http.MaxBytesError
-	if errors.As(err, &maximum) {
+	case errors.Is(err, jsonrequest.ErrTooLarge):
 		writeError(response, http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large", "")
-		return
+	case errors.Is(err, jsonrequest.ErrTrailingData):
+		writeError(response, http.StatusBadRequest, "invalid_json", "Request body must contain one JSON object", "")
+	default:
+		writeError(response, http.StatusBadRequest, "invalid_json", "Request body must be a valid JSON object", "")
 	}
-	writeError(response, http.StatusBadRequest, "invalid_json", "Request body must be a valid JSON object", "")
+	return false
 }
 
 func requiredPositiveInt64(response http.ResponseWriter, request *http.Request, field string) (int64, bool) {

@@ -4,10 +4,10 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 
+	"github.com/human-agent65535/modemdeck/internal/jsonrequest"
 	"github.com/human-agent65535/modemdeck/internal/updatecheck"
 )
 
@@ -72,9 +72,7 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		var input updatecheck.ApplyRequest
-		decoder := json.NewDecoder(io.LimitReader(request.Body, maximumRequestBytes))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&input); err != nil {
+		if err := jsonrequest.Decode(response, request, &input, maximumRequestBytes); err != nil {
 			writeError(response, http.StatusBadRequest, "invalid_request")
 			return
 		}
