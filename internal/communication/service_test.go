@@ -2535,3 +2535,87 @@ func TestDuplicateSIMQuarantineIsReportedWhenItChanges(t *testing.T) {
 		t.Fatalf("the end of the quarantine was not reported: %s", output.String())
 	}
 }
+
+func TestRepeatedSendMessageRequestReachesTheModemOnce(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.November, 12, 12, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	agent.messageResult = agentclient.CommandReceipt{
+		RequestID:  "request-message-replay",
+		ResourceID: "message-endpoint-replay",
+	}
+	repository := &fakeRepository{
+		message: store.Message{ID: 7, Content: "once"},
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	service.now = func() time.Time { return now }
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	input := SendMessageInput{
+		RequestID: "request-message-replay",
+		LineID:    "line-stable",
+		Number:    "+818012345678",
+		Text:      "once",
+	}
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		if _, err := service.SendMessage(context.Background(), input); err != nil {
+			t.Fatalf("attempt %d: SendMessage() error = %v", attempt, err)
+		}
+		if len(agent.messageRequests) != 1 {
+			t.Fatalf("attempt %d: messages sent to the modem = %d, want 1", attempt, len(agent.messageRequests))
+		}
+	}
+
+	changed := input
+	changed.Text = "a different text under the same request id"
+	if _, err := service.SendMessage(context.Background(), changed); !errors.Is(err, ErrConflict) {
+		t.Fatalf("SendMessage() with changed text error = %v, want ErrConflict", err)
+	}
+	if len(agent.messageRequests) != 1 {
+		t.Fatalf("the conflicting request reached the modem: %d sends", len(agent.messageRequests))
+	}
+}
+
+func TestIncompatibleAgentReceivesNoDialOrMessage(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.November, 12, 12, 30, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	agent.health.APIVersion = "v0-incompatible"
+	service, err := New(agent, &fakeRepository{}, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	service.now = func() time.Time { return now }
+	_, _ = service.Refresh(context.Background())
+
+	if _, err := service.SendMessage(context.Background(), SendMessageInput{
+		RequestID: "request-incompatible-message",
+		LineID:    "line-1",
+		Number:    "+818012345678",
+		Text:      "must not be sent",
+	}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("SendMessage() error = %v, want ErrUnavailable", err)
+	}
+	if _, err := service.StartCall(context.Background(), StartCallInput{
+		RequestID: "request-incompatible-call",
+		LineID:    "line-1",
+		Number:    "+818012345678",
+	}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("StartCall() error = %v, want ErrUnavailable", err)
+	}
+	if len(agent.messageRequests) != 0 || len(agent.startRequests) != 0 {
+		t.Fatalf(
+			"an incompatible Agent received commands: messages = %+v, calls = %+v",
+			agent.messageRequests,
+			agent.startRequests,
+		)
+	}
+}
