@@ -858,6 +858,10 @@ test('unresolved native writes retain one operation identity across ambiguous re
   // text: a retry repeats it, while the same words sent later are a new SMS.
   assert.match(session, /@Published var text = "" \{\s*didSet \{\s*revision \+= 1[\s\S]*?if text != oldValue \{ sendAttempt = ModemDeckOutgoingMessage\.newAttempt\(\) \}/)
   assert.match(communication, /let attempt = draft\.sendAttempt[\s\S]*store\.send\(value, attempt: attempt\)/)
+  // A selection larger than the server's batch limit is split in the API, not in a view.
+  assert.match(api, /static let batchLimit = 100/)
+  assert.equal(api.match(/try await inBatches\(/g)?.length, 4)
+  assert.doesNotMatch(communication, /stride\(from: 0, to: threads\.count/)
   // Every screen sends through the outbox; nothing calls the request directly.
   assert.equal(communication.match(/api\.sendMessage\(/g), null)
   assert.equal(communication.match(/[pP]endingSends\.deliver\(/g)?.length, 2)

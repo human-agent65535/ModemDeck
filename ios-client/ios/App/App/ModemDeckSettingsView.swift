@@ -1492,7 +1492,7 @@ private struct ModemDeckDevicesSettingsView: View {
                             icon: "simcard",
                             title: line.displayName,
                             detail: lineDetail(line),
-                            active: line.state != "disconnected" && line.registrationState != "unregistered"
+                            active: line.registered
                         )
                     }
                 }
@@ -1906,7 +1906,7 @@ private struct ModemDeckDiagnosticsSettingsView: View {
                                 detail: [line.networkName, line.registrationState]
                                     .filter { !$0.isEmpty }
                                     .joined(separator: " · "),
-                                active: line.state != "disconnected"
+                                active: line.registered
                             )
                         }
                     }

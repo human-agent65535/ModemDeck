@@ -293,6 +293,20 @@ struct ModemDeckLineCapabilities: Codable, Hashable {
     var message: Bool? { sendMessage }
 }
 
+extension ModemDeckLine {
+    /// Registered for ordinary service, by the server's own rule (a connected or registered
+    /// modem, or a home or roaming registration), so every screen agrees about a line.
+    var registered: Bool {
+        let modem = (state ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if modem == "connected" || modem == "registered" { return true }
+        let registration = registrationState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return [
+            "home", "home-sms-only", "home-csfb-not-preferred",
+            "roaming", "roaming-sms-only", "roaming-csfb-not-preferred"
+        ].contains(registration)
+    }
+}
+
 struct ModemDeckLine: Codable, Identifiable, Hashable {
     let id: String
     let phoneNumber: String
@@ -1270,21 +1284,27 @@ final class ModemDeckAPIClient {
             let action: ModemDeckMessageThreadAction
             let threads: [Identity]
         }
-        let summary = try await decode(
-            ModemDeckUnreadSummary.self,
-            path: "/api/v1/messages/threads/state",
-            method: "PATCH",
-            body: try encoder.encode(Payload(
-                action: action,
-                threads: threads.map {
-                    Identity(
-                        lineId: $0.lineId,
-                        peer: $0.peer,
-                        throughMessageId: action == .read ? $0.lastMessageId : 0
-                    )
-                }
-            ))
-        )
+        // Each answer is the unread summary after that batch; the last one is current.
+        var latest: ModemDeckUnreadSummary?
+        try await inBatches(threads) { batch in
+            latest = try await decode(
+                ModemDeckUnreadSummary.self,
+                path: "/api/v1/messages/threads/state",
+                method: "PATCH",
+                body: try encoder.encode(Payload(
+                    action: action,
+                    threads: batch.map {
+                        Identity(
+                            lineId: $0.lineId,
+                            peer: $0.peer,
+                            throughMessageId: action == .read ? $0.lastMessageId : 0
+                        )
+                    }
+                ))
+            )
+        }
+        // Nothing to change leaves the summary as it was.
+        guard let summary = latest else { return cachedUnreadSummary() }
         cacheUnreadSummary(summary)
         return summary
     }
@@ -1356,11 +1376,24 @@ final class ModemDeckAPIClient {
             let action: ModemDeckCallBatchAction
             let ids: [String]
         }
-        _ = try await data(
-            path: "/api/v1/calls/batch",
-            method: "PATCH",
-            body: try encoder.encode(Payload(action: action, ids: ids))
-        )
+        try await inBatches(ids) { batch in
+            _ = try await data(
+                path: "/api/v1/calls/batch",
+                method: "PATCH",
+                body: try encoder.encode(Payload(action: action, ids: batch))
+            )
+        }
+    }
+
+    /// The server accepts at most this many items in one batch request.
+    static let batchLimit = 100
+
+    /// Sends a selection of any size as requests the server accepts, in order. A failure
+    /// stops there: the batches already sent stay applied on the server.
+    private func inBatches<Item>(_ items: [Item], _ send: ([Item]) async throws -> Void) async throws {
+        for start in stride(from: 0, to: items.count, by: Self.batchLimit) {
+            try await send(Array(items[start..<min(start + Self.batchLimit, items.count)]))
+        }
     }
 
     func deleteCall(id: String) async throws {
@@ -1380,14 +1413,16 @@ final class ModemDeckAPIClient {
             let action: ModemDeckRecordingBatchAction
             let recordings: [Identity]
         }
-        _ = try await data(
-            path: "/api/v1/recordings/batch",
-            method: "PATCH",
-            body: try encoder.encode(Payload(
-                action: action,
-                recordings: recordings.map { Identity(callId: $0.call.id, id: $0.id) }
-            ))
-        )
+        try await inBatches(recordings) { batch in
+            _ = try await data(
+                path: "/api/v1/recordings/batch",
+                method: "PATCH",
+                body: try encoder.encode(Payload(
+                    action: action,
+                    recordings: batch.map { Identity(callId: $0.call.id, id: $0.id) }
+                ))
+            )
+        }
     }
 
     func deleteRecording(callID: String, recordingID: String) async throws {
@@ -1699,11 +1734,13 @@ final class ModemDeckAPIClient {
             }
             return Identity(id: contact.id, revision: revision)
         }
-        _ = try await data(
-            path: "/api/v1/contacts/batch",
-            method: "PATCH",
-            body: try encoder.encode(Payload(action: "delete", contacts: identities))
-        )
+        try await inBatches(identities) { batch in
+            _ = try await data(
+                path: "/api/v1/contacts/batch",
+                method: "PATCH",
+                body: try encoder.encode(Payload(action: "delete", contacts: batch))
+            )
+        }
     }
 
     func revokePairing() async throws {

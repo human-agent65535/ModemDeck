@@ -1408,17 +1408,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let displayName = stringValue(call["display_name"]) ?? number
         let isTestCall = booleanValue(call["test_call"])
         let isAudioTest = isTestCall && booleanValue(call["test_audio"])
-        let update = CXCallUpdate()
-        update.remoteHandle = CXHandle(
-            type: isTestCall ? .generic : .phoneNumber,
-            value: number
-        )
-        update.localizedCallerName = displayName
-        update.hasVideo = false
-        update.supportsHolding = false
-        update.supportsGrouping = false
-        update.supportsUngrouping = false
-        update.supportsDTMF = !isTestCall
+        let update = Self.callUpdate(number: number, displayName: displayName, testCall: isTestCall)
 
         // A late push for an ended call, or a duplicate for one already shown,
         // starts nothing new but must still be reported to CallKit.
@@ -1614,18 +1604,22 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             stringValue(call["number"]) ??
             ModemDeckErrorLanguage.text("未知号码", "Unknown number")
         let displayName = stringValue(call["display_name"]) ?? number
-        let isTestCall = booleanValue(call["test_call"])
-        let update = CXCallUpdate()
-        update.remoteHandle = CXHandle(
-            type: isTestCall ? .generic : .phoneNumber,
-            value: number
+        return Self.callUpdate(
+            number: number, displayName: displayName, testCall: booleanValue(call["test_call"])
         )
+    }
+
+    /// What every call shows and allows in the system call screen, however it started: one
+    /// audio call that cannot be held or merged; a test call has no keypad and no phone number.
+    private static func callUpdate(number: String, displayName: String, testCall: Bool) -> CXCallUpdate {
+        let update = CXCallUpdate()
+        update.remoteHandle = CXHandle(type: testCall ? .generic : .phoneNumber, value: number)
         update.localizedCallerName = displayName
         update.hasVideo = false
         update.supportsHolding = false
         update.supportsGrouping = false
         update.supportsUngrouping = false
-        update.supportsDTMF = !isTestCall
+        update.supportsDTMF = !testCall
         return update
     }
 
@@ -2124,14 +2118,9 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         testCallUUIDs.remove(uuid)
         mutedCallUUIDs.remove(uuid)
 
-        let update = CXCallUpdate()
-        update.remoteHandle = CXHandle(type: .phoneNumber, value: pending.remoteNumber)
-        update.localizedCallerName = pending.displayName
-        update.hasVideo = false
-        update.supportsHolding = false
-        update.supportsGrouping = false
-        update.supportsUngrouping = false
-        update.supportsDTMF = true
+        let update = Self.callUpdate(
+            number: pending.remoteNumber, displayName: pending.displayName, testCall: false
+        )
         callProvider.reportCall(with: uuid, updated: update)
 
         let audioSession = installAudioSession(

@@ -1470,7 +1470,6 @@ private struct ModemDeckHomeLineCard: View {
     @ObservedObject var controller: ModemDeckSessionController
     let line: ModemDeckLine
 
-    private let onlineStates = Set(["active", "connected", "online", "ready", "registered"])
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1516,16 +1515,7 @@ private struct ModemDeckHomeLineCard: View {
         ])
     }
 
-    private var isOnline: Bool {
-        onlineStates.contains(normalizedState) ||
-            onlineStates.contains(line.registrationState.lowercased())
-    }
-
-    private var normalizedState: String {
-        (line.state ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
+    private var isOnline: Bool { line.registered }
 
     private var statusText: String {
         guard controller.isOnline else { return controller.text("待同步", "Not synced") }

@@ -2092,11 +2092,7 @@ struct ModemDeckMessagesView: View {
         Task {
             do {
                 if narrowed {
-                    // The thread state endpoint accepts at most 100 threads per request.
-                    for start in stride(from: 0, to: threads.count, by: 100) {
-                        let batch = Array(threads[start..<min(start + 100, threads.count)])
-                        try await store.mutate(.read, threads: batch)
-                    }
+                    try await store.mutate(.read, threads: threads)
                 } else {
                     try await store.markAllRead(lineID: lineFilter)
                 }
