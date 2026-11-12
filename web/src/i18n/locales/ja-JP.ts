@@ -1149,7 +1149,8 @@ export default {
     "lineScope": "回線スコープ",
     "allAssignedLines": "割り当て済みの全回線",
     "allAssignedLinesDescription": "今後の回線割り当ても自動的に含めます",
-    "confirmDelete": "削除の確認",
+    "deleteConfirmTitle": "ボットを削除しますか？",
+    "deleteConfirmMessage": "「{name}」を削除すると、通知は送信されなくなります。",
     "saved": "保存されました",
     "saveBot": "Botを保存"
   },

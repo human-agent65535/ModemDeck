@@ -21,6 +21,7 @@ import type { LineSummary, TelegramUnit, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
 import { gateway } from '../api/client'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
 import { sessionState } from '../state/session'
 import {
@@ -66,7 +67,6 @@ const missedCalls = ref(true)
 const botToken = ref('')
 const saving = ref(false)
 const deleting = ref(false)
-const deleteConfirm = ref(false)
 const saveError = ref('')
 const searchQuery = ref('')
 const users = ref<UserAccount[]>([])
@@ -249,7 +249,6 @@ function applyUnit(unit?: TelegramUnit): void {
   missedCalls.value = unit?.missed_calls ?? true
   botToken.value = ''
   saveError.value = ''
-  deleteConfirm.value = false
 }
 
 watch(
@@ -286,7 +285,6 @@ watch(
   ],
   () => {
     saveError.value = ''
-    deleteConfirm.value = false
   },
   { deep: true }
 )
@@ -424,10 +422,13 @@ async function submit(): Promise<void> {
 async function remove(): Promise<void> {
   const unit = selectedUnit.value
   if (!unit || deleting.value || saving.value) return
-  if (!deleteConfirm.value) {
-    deleteConfirm.value = true
-    return
-  }
+  const confirmed = await requestConfirmation({
+    title: t('telegram.deleteConfirmTitle'),
+    message: t('telegram.deleteConfirmMessage', { name: unit.display_name }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
 
   deleting.value = true
   saveError.value = ''
@@ -448,7 +449,6 @@ async function remove(): Promise<void> {
         : userErrorMessage(error, t('telegram.deleteFailed'))
   } finally {
     deleting.value = false
-    deleteConfirm.value = false
   }
 }
 
@@ -786,7 +786,7 @@ onMounted(() => {
           >
             <LoaderCircle v-if="deleting" class="spin" :size="16" />
             <Trash2 v-else :size="16" />
-            <span>{{ deleteConfirm ? t('telegram.confirmDelete') : t('common.delete') }}</span>
+            <span>{{ t('common.delete') }}</span>
           </button>
           <span v-else />
 

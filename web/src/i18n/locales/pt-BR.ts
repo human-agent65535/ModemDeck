@@ -1149,7 +1149,8 @@ export default {
     "lineScope": "Escopo de linha",
     "allAssignedLines": "Todas as linhas atribuídas",
     "allAssignedLinesDescription": "Inclui automaticamente futuras atribuições",
-    "confirmDelete": "Confirmar exclusão",
+    "deleteConfirmTitle": "Excluir o bot?",
+    "deleteConfirmMessage": "“{name}” será excluído e deixará de enviar notificações.",
     "saved": "Salvo",
     "saveBot": "Salvar bot"
   },

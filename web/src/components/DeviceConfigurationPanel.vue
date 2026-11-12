@@ -255,7 +255,6 @@ const currentSIMIdentity = computed(() => {
 const selectedResource = computed(() =>
   selectedLineID.value ? deviceConfigurationResource(selectedLineID.value) : null
 )
-const activeDeviceMutation = ref('')
 const deviceMutation = useSettingsMutation({
   errorMessage: cause =>
     cause instanceof Error
@@ -304,10 +303,8 @@ function lineRecovering(line: LineSummary): boolean {
 }
 
 async function runDeviceMutation(
-  key: string,
   operation: () => Promise<boolean>
 ): Promise<boolean> {
-  activeDeviceMutation.value = key
   const result = await deviceMutation.run(async () => {
     const saved = await operation()
     if (!saved) {
@@ -1035,7 +1032,7 @@ async function changeRadio(event: Event): Promise<void> {
     control.checked = Boolean(hardware.value?.flight_mode)
     return
   }
-  const saved = await runDeviceMutation('radio', () =>
+  const saved = await runDeviceMutation(() =>
     setRadioEnabled(selectedLineID.value, !flightModeEnabled)
   )
   if (!saved) control.checked = Boolean(hardware.value?.flight_mode)
@@ -1043,7 +1040,7 @@ async function changeRadio(event: Event): Promise<void> {
 
 async function applyDataConnection(): Promise<boolean> {
   if (!selectedLineID.value || !dataConnectionWritable.value) return false
-  return runDeviceMutation('data', () =>
+  return runDeviceMutation(() =>
     connectData(selectedLineID.value, apn.value, ipFamily.value)
   )
 }
@@ -1056,7 +1053,7 @@ async function stopDataConnection(): Promise<boolean> {
     confirmLabel: t('device.turnOff')
   })
   if (!confirmed) return false
-  return runDeviceMutation('data', () =>
+  return runDeviceMutation(() =>
     disconnectData(selectedLineID.value)
   )
 }
@@ -1089,7 +1086,7 @@ async function applyVoLTE(event: Event): Promise<void> {
     voltePolicyDraft.value = previousPolicy
     return
   }
-  const saved = await runDeviceMutation('volte', () =>
+  const saved = await runDeviceMutation(() =>
     setVoLTEPolicy(selectedLineID.value, nextPolicy)
   )
   if (!saved) {
@@ -1117,7 +1114,7 @@ async function applyModemRestart(): Promise<void> {
 
 async function applyIncomingPolicy(): Promise<void> {
   if (selectedLineID.value) {
-    const saved = await runDeviceMutation('incoming-policy', () =>
+    const saved = await runDeviceMutation(() =>
       setIncomingCallPolicy(selectedLineID.value, incomingPolicyDraft.value)
     )
     if (!saved) {
@@ -1130,7 +1127,7 @@ async function applyDeliveryReports(event: Event): Promise<void> {
   if (!selectedLineID.value || !messaging.value) return
   const control = event.target as HTMLInputElement
   const previous = messaging.value.delivery_reports_enabled
-  const saved = await runDeviceMutation('delivery-reports', () =>
+  const saved = await runDeviceMutation(() =>
     setDeliveryReportsEnabled(
       selectedLineID.value,
       control.checked

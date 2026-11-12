@@ -1149,7 +1149,8 @@ export default {
     "lineScope": "Leitungenbereich",
     "allAssignedLines": "Alle zugewiesenen Leitungen",
     "allAssignedLinesDescription": "Künftige Zuweisungen werden automatisch einbezogen",
-    "confirmDelete": "Bestätigen Sie das Löschen",
+    "deleteConfirmTitle": "Bot löschen?",
+    "deleteConfirmMessage": "„{name}“ wird gelöscht und sendet keine Benachrichtigungen mehr.",
     "saved": "Gespeichert",
     "saveBot": "Bot speichern"
   },

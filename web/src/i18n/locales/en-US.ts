@@ -1195,7 +1195,8 @@ export default {
     lineScope: 'Line scope',
     allAssignedLines: 'All assigned lines',
     allAssignedLinesDescription: 'Automatically includes future line assignments',
-    confirmDelete: 'Confirm delete',
+    deleteConfirmTitle: 'Delete bot?',
+    deleteConfirmMessage: '“{name}” will be deleted and its notifications will stop.',
     saved: 'Saved',
     saveBot: 'Save bot'
   },

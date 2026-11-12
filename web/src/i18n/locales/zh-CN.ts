@@ -1167,7 +1167,8 @@ export default {
     lineScope: '线路范围',
     allAssignedLines: '该用户全部线路',
     allAssignedLinesDescription: '以后分配给该用户的线路也会自动加入',
-    confirmDelete: '确认删除',
+    deleteConfirmTitle: '删除 Bot？',
+    deleteConfirmMessage: '“{name}”将被删除，它的通知会停止发送。',
     saved: '已保存',
     saveBot: '保存 Bot'
   },

@@ -1149,7 +1149,8 @@ export default {
     "lineScope": "Phạm vi đường dây",
     "allAssignedLines": "Tất cả đường dây được phân",
     "allAssignedLinesDescription": "Tự động gồm cả các đường dây được phân sau này",
-    "confirmDelete": "Xác nhận xóa",
+    "deleteConfirmTitle": "Xóa bot?",
+    "deleteConfirmMessage": "“{name}” sẽ bị xóa và ngừng gửi thông báo.",
     "saved": "Đã lưu",
     "saveBot": "Lưu bot"
   },

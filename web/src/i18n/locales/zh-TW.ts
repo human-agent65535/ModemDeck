@@ -1167,7 +1167,8 @@ export default {
     lineScope: '線路範圍',
     allAssignedLines: '該使用者全部線路',
     allAssignedLinesDescription: '日後分配給該使用者的線路也會自動加入',
-    confirmDelete: '確認刪除',
+    deleteConfirmTitle: '刪除 Bot？',
+    deleteConfirmMessage: '「{name}」將被刪除，它的通知會停止傳送。',
     saved: '已儲存',
     saveBot: '儲存 Bot'
   },
