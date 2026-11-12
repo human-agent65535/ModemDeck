@@ -1837,3 +1837,55 @@ func assertOperationError(t *testing.T, err error, code domain.ErrorCode, operat
 		t.Fatalf("unexpected OperationError: %+v", operationError)
 	}
 }
+
+func TestRefusedExtendedSignalSetupIsRetriedAndUnsupportedIsNot(t *testing.T) {
+	for _, test := range []struct {
+		name, dbusError string
+		retried         bool
+	}{
+		{"refused by the host", dbusErrorPrefix + "AccessDenied", true},
+		{"unsupported by the modem", modemManagerCoreErrorPrefix + "Unsupported", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			objects := emptyLineObjects(true, true)
+			objects[testModemPath][signalInterface] = Properties{
+				"Rate": dbus.MakeVariant(uint32(0)),
+			}
+			caller := newFakeCaller(objects)
+			caller.errors[signalInterface+".Setup"] = dbus.NewError(test.dbusError, []any{"setup failed"})
+			provider := newTestProvider(caller)
+			now := time.Date(2026, 11, 12, 1, 2, 3, 0, time.UTC)
+			provider.now = func() time.Time { return now }
+
+			setups := func() int {
+				caller.resetInvocations()
+				if _, err := provider.Snapshot(context.Background()); err != nil {
+					t.Fatalf("Snapshot() error = %v", err)
+				}
+				count := 0
+				for _, invocation := range caller.invocations() {
+					if invocation.Method == signalInterface+".Setup" {
+						count++
+					}
+				}
+				return count
+			}
+
+			if got := setups(); got != 1 {
+				t.Fatalf("first snapshot Setup calls = %d, want 1", got)
+			}
+			now = now.Add(signalSetupRetryDelay)
+			if got := setups(); got != 0 {
+				t.Fatalf("Setup calls after the ordinary retry delay = %d, want 0", got)
+			}
+			now = now.Add(signalSetupDeniedRetryDelay)
+			want := 0
+			if test.retried {
+				want = 1
+			}
+			if got := setups(); got != want {
+				t.Fatalf("Setup calls after the refusal retry delay = %d, want %d", got, want)
+			}
+		})
+	}
+}

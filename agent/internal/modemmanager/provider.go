@@ -33,6 +33,9 @@ const (
 	terminalCallRetention   = 30 * time.Second
 	signalRefreshInterval   = uint32(10)
 	signalSetupRetryDelay   = 30 * time.Second
+	// A refused Setup is tried again, but rarely: it only succeeds after the
+	// host's authorization policy is changed.
+	signalSetupDeniedRetryDelay = 5 * time.Minute
 )
 
 type Provider struct {
@@ -78,6 +81,9 @@ type Provider struct {
 type signalSetupState struct {
 	complete    bool
 	nextAttempt time.Time
+	// denied is set while ModemManager refuses Setup, so the refusal is
+	// reported once and its end is reported too.
+	denied bool
 }
 
 type providerEpochResolver interface {
@@ -1229,17 +1235,56 @@ func (p *Provider) prepareExtendedSignal(
 			signalRefreshInterval,
 		)
 		if err == nil {
-			p.completeSignalSetup(key)
+			if p.completeSignalSetup(key) {
+				slog.Info(
+					"extended signal polling is permitted again",
+					"component", "modemmanager",
+					"modem_path", string(path),
+				)
+			}
 			started = true
 			continue
 		}
-		if operationError, ok := domain.AsOperationError(err); ok &&
-			(operationError.Code == domain.ErrorNotSupported ||
-				operationError.Code == domain.ErrorPermissionDenied) {
+		operationError, ok := domain.AsOperationError(err)
+		if !ok {
+			continue
+		}
+		switch operationError.Code {
+		case domain.ErrorNotSupported:
+			// The modem will never report extended signal; stop asking.
 			p.completeSignalSetup(key)
+		case domain.ErrorPermissionDenied:
+			// Not a property of the modem: the host refused the Agent. Keep the
+			// setup open so it starts by itself once the policy is fixed.
+			if p.deferDeniedSignalSetup(key) {
+				slog.Warn(
+					"ModemManager refused extended signal polling; signal metrics stay unavailable until the Agent is authorized",
+					"component", "modemmanager",
+					"modem_path", string(path),
+					"retry_after", signalSetupDeniedRetryDelay.String(),
+					"error", err,
+				)
+			}
 		}
 	}
 	return started
+}
+
+// deferDeniedSignalSetup schedules the next attempt after a refusal and reports
+// whether this is the first refusal since the setup last worked.
+func (p *Provider) deferDeniedSignalSetup(key string) bool {
+	p.telemetryMu.Lock()
+	defer p.telemetryMu.Unlock()
+	now := time.Now()
+	if p.now != nil {
+		now = p.now()
+	}
+	state := p.signalSetupStates[key]
+	first := !state.denied
+	state.denied = true
+	state.nextAttempt = now.Add(signalSetupDeniedRetryDelay)
+	p.signalSetupStates[key] = state
+	return first
 }
 
 func (p *Provider) claimSignalSetup(key string) bool {
@@ -1258,12 +1303,17 @@ func (p *Provider) claimSignalSetup(key string) bool {
 	return true
 }
 
-func (p *Provider) completeSignalSetup(key string) {
+// completeSignalSetup ends the setup for a modem and reports whether it had
+// been refused before.
+func (p *Provider) completeSignalSetup(key string) bool {
 	p.telemetryMu.Lock()
 	defer p.telemetryMu.Unlock()
 	state := p.signalSetupStates[key]
+	wasDenied := state.denied
 	state.complete = true
+	state.denied = false
 	p.signalSetupStates[key] = state
+	return wasDenied
 }
 
 func signalSetupKey(path dbus.ObjectPath, modemProperties Properties) string {
