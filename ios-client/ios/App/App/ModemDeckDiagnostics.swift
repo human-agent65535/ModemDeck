@@ -194,16 +194,41 @@ final class ModemDeckDiagnostics: @unchecked Sendable {
         queue.asyncAfter(deadline: .now() + (delay ?? uploadDelay), execute: work)
     }
 
+    private static let maximumBatchEvents = 24
+    private static let maximumBatchBytes = 32_768
+
     private func upload() {
         guard enabled, !blocked, !sending, let transport, journal.scope != nil,
               !journal.pending.isEmpty, network != "offline" else { return }
-        let events = Array(journal.pending.prefix(24))
-        let dropped = journal.dropped
         let os = ProcessInfo.processInfo.operatingSystemVersion
-        let batch = Batch(appVersion: Self.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String),
-                          appBuild: Self.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String),
-                          osVersion: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)", dropped: dropped, events: events)
-        guard let data = try? JSONEncoder().encode(batch), data.count <= 32_768 else { return }
+        // A batch the server would refuse for its size must not stay at the head of the
+        // queue, or nothing behind it is ever uploaded. Send fewer events; an event too
+        // large to send alone is dropped and counted.
+        var events: [Event] = []
+        var dropped = journal.dropped
+        var encoded: Data?
+        var size = min(Self.maximumBatchEvents, journal.pending.count)
+        while size > 0 {
+            let candidate = Array(journal.pending.prefix(size))
+            let batch = Batch(appVersion: Self.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String),
+                              appBuild: Self.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String),
+                              osVersion: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)", dropped: dropped, events: candidate)
+            if let data = try? JSONEncoder().encode(batch), data.count <= Self.maximumBatchBytes {
+                events = candidate
+                encoded = data
+                break
+            }
+            if size > 1 {
+                size /= 2
+                continue
+            }
+            journal.pending.removeFirst()
+            journal.dropped += 1
+            dropped = journal.dropped
+            persist()
+            size = min(Self.maximumBatchEvents, journal.pending.count)
+        }
+        guard let data = encoded else { return }
         sending = true
         let current = generation
         cancelUpload = transport(data) { [weak self] status in
