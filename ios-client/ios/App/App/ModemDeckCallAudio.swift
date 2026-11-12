@@ -1154,7 +1154,14 @@ final class ModemDeckCallAudioSession: NSObject {
     }
 
     private func cancelPreparation(_ id: String) {
-        guard let request = try? authorizedRequest(credential: credential, path: preparationPath(id), method: "DELETE", timeout: 8) else { return }
+        let request: URLRequest
+        do {
+            request = try authorizedRequest(credential: credential, path: preparationPath(id), method: "DELETE", timeout: 8)
+        } catch {
+            // The server still expires the reservation with its lease.
+            ModemDeckDiagnostics.shared.record(.audio, "preparation_cancel_failed", callID: callID, error: error)
+            return
+        }
         let session = ModemDeckDiagnostics.urlSession(configuration: .ephemeral)
         session.diagnosticDataTask(with: request) { _, _, _ in session.finishTasksAndInvalidate() }.resume()
     }

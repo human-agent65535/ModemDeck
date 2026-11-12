@@ -142,15 +142,21 @@ private final class ModemDeckOfflineCache {
     ) {
         self.credentialStore = credentialStore
         self.fileManager = fileManager
-        rootURL = try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        .appendingPathComponent("ModemDeck", isDirectory: true)
-        .appendingPathComponent("OfflineCache", isDirectory: true)
-        .appendingPathComponent("v1", isDirectory: true)
+        do {
+            rootURL = try fileManager.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            .appendingPathComponent("ModemDeck", isDirectory: true)
+            .appendingPathComponent("OfflineCache", isDirectory: true)
+            .appendingPathComponent("v1", isDirectory: true)
+        } catch {
+            // Without it nothing is cached and every write is skipped.
+            rootURL = nil
+            ModemDeckDiagnostics.shared.record(.storage, "cache_unavailable", error: error)
+        }
     }
 
     func read<T: Decodable>(_ type: T.Type, key: String) -> T? {
@@ -191,7 +197,8 @@ private final class ModemDeckOfflineCache {
             var directoryValues = URLResourceValues()
             directoryValues.isExcludedFromBackup = true
             var protectedDirectory = directory
-            try? protectedDirectory.setResourceValues(directoryValues)
+            // Messages and contacts must not reach a backup: no exclusion, no file.
+            try protectedDirectory.setResourceValues(directoryValues)
             try data.write(
                 to: fileURL,
                 options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]

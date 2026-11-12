@@ -2059,7 +2059,11 @@ private final class ModemDeckRecordingPlayer: NSObject, ObservableObject, AVAudi
 
     private nonisolated static func releasePlaybackSession() {
         guard !ModemDeckCallAudioSession.callAudioActive else { return }
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            ModemDeckDiagnostics.shared.record(.audio, "playback_session_release_failed", error: error)
+        }
     }
 }
 

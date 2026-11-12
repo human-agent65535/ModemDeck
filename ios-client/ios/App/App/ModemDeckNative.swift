@@ -23,6 +23,17 @@ private struct ModemDeckCallEndIntent: Codable {
     let callID: String
     let verb: String
     let scope: String
+    /// Absent on intents stored by earlier builds, which are kept until they complete.
+    var createdAt: TimeInterval? = nil
+
+    /// The server ends a call nobody owns long before this; after it the intent can only
+    /// refer to a call that no longer exists, possibly under a pairing that is gone.
+    static let retention: TimeInterval = 24 * 60 * 60
+
+    var expired: Bool {
+        guard let createdAt else { return false }
+        return Date().timeIntervalSince1970 - createdAt > Self.retention
+    }
 }
 
 // Owns only the remote termination transaction, which outlives CallKit's UI.
@@ -615,10 +626,11 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             ModemDeckDiagnostics.shared.record(.storage, "pending_call_ends_unreadable")
             return [:]
         }
-        let intents = entries.compactMap(\.intent)
-        if intents.count != entries.count {
+        let readable = entries.compactMap(\.intent)
+        if readable.count != entries.count {
             ModemDeckDiagnostics.shared.record(.storage, "pending_call_ends_unreadable")
         }
+        let intents = readable.filter { !$0.expired }
         return Dictionary(intents.map { ($0.uuid, $0) }, uniquingKeysWith: { _, latest in latest })
     }()
     private var testCallUUIDs: Set<UUID> = []
@@ -1943,7 +1955,8 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         guard !testCallUUIDs.contains(callUUID), pendingCallEnds[callUUID] == nil,
               let callID = callIDsByUUID[callUUID], let credential = loadCredential() else { return }
         let intent = ModemDeckCallEndIntent(uuid: callUUID, callID: callID,
-                                           verb: verb, scope: credential.callControlScope)
+                                           verb: verb, scope: credential.callControlScope,
+                                           createdAt: Date().timeIntervalSince1970)
         pendingEndIntents[callUUID] = intent
         savePendingEndIntents()
         installPendingCallEnd(intent, credential: credential, reconcileFirst: reconcileFirst)
