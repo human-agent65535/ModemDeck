@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
@@ -56,8 +55,7 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
-	_, _ = fmt.Fprint(w, "event: ready\ndata: {}\n\n")
-	flusher.Flush()
+	_ = writeSSE(w, flusher, "ready", struct{}{})
 
 	heartbeat := time.NewTicker(eventHeartbeatInterval)
 	defer heartbeat.Stop()
@@ -69,15 +67,13 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 			if !open {
 				return
 			}
-			if _, err := fmt.Fprint(w, "event: change\ndata: {}\n\n"); err != nil {
+			if !writeSSE(w, flusher, "change", struct{}{}) {
 				return
 			}
-			flusher.Flush()
 		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+			if !writeSSEKeepalive(w, flusher) {
 				return
 			}
-			flusher.Flush()
 		}
 	}
 }

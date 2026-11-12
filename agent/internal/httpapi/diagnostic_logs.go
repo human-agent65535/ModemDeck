@@ -1,8 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -51,17 +49,17 @@ func (h *handler) diagnosticLogStream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	controller := http.NewResponseController(w)
 	_ = controller.SetWriteDeadline(time.Time{})
-	if _, err := fmt.Fprint(w, "retry: 2000\n\n"); err != nil {
+	if !startSSE(w) {
 		return
 	}
-	if window.Truncated && !writeAgentLogSSE(w, flusher, "reset", map[string]uint64{
+	if window.Truncated && !writeSSE(w, flusher, "reset", map[string]uint64{
 		"oldest_id": window.OldestID,
 		"newest_id": window.NewestID,
 	}) {
 		return
 	}
 	for _, entry := range window.Entries {
-		if !writeAgentLogSSE(w, flusher, "log", entry) {
+		if !writeSSE(w, flusher, "log", entry) {
 			return
 		}
 	}
@@ -74,14 +72,13 @@ func (h *handler) diagnosticLogStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case entry, open := <-updates:
-			if !open || !writeAgentLogSSE(w, flusher, "log", entry) {
+			if !open || !writeSSE(w, flusher, "log", entry) {
 				return
 			}
 		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+			if !writeSSEKeepalive(w, flusher) {
 				return
 			}
-			flusher.Flush()
 		}
 	}
 }
@@ -107,16 +104,4 @@ func (h *handler) diagnosticLogCursor(w http.ResponseWriter, r *http.Request) (u
 		return 0, false
 	}
 	return after, true
-}
-
-func writeAgentLogSSE(w http.ResponseWriter, flusher http.Flusher, event string, value any) bool {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return false
-	}
-	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
-		return false
-	}
-	flusher.Flush()
-	return true
 }
