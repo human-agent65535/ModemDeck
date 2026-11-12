@@ -6,6 +6,7 @@ import { gateway } from '../api/client'
 import type { CloudflareOriginTLSStatus } from '../api/types'
 import { ApiError } from '../api/types'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
+import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { requestConfirmation } from '../state/confirmation'
 import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 import { utf8ByteLength } from '../utils/utf8'
@@ -36,6 +37,11 @@ const privateKeyError = ref('')
 const hasPEMInput = computed(
   () => Boolean(certificatePEM.value.trim()) && Boolean(privateKeyPEM.value.trim())
 )
+// A pasted certificate or key that has not been installed is lost on leaving.
+const pemDraftDirty = computed(
+  () => Boolean(certificatePEM.value.trim()) || Boolean(privateKeyPEM.value.trim())
+)
+useUnsavedChangesGuard(pemDraftDirty)
 const contentHeadingTag = computed(() => `h${props.headingLevel + 1}`)
 
 const certificateHealthy = computed(

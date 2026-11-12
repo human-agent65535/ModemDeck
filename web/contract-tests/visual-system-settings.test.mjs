@@ -97,6 +97,21 @@ test('every explicit-save settings panel with drafts is guarded by the shared ch
   // Contact sync: the Google Client ID is saved explicitly.
   assert.match(contactSync, /const clientIDDirty = computed\(\(\) => clientID\.value\.trim\(\) !== savedClientID\.value\)/)
   assert.match(contactSync, /useUnsavedChangesGuard\(clientIDDirty\)/)
+  // A pasted certificate or key, or chosen certificate files, are drafts too.
+  const [originTLS, webCertificate] = await Promise.all([
+    source('../src/components/CloudflareOriginTLSSettings.vue'),
+    source('../src/components/WebCertificateSettingsPanel.vue')
+  ])
+  assert.match(
+    originTLS,
+    /const pemDraftDirty = computed\(\s*\(\) => Boolean\(certificatePEM\.value\.trim\(\)\) \|\| Boolean\(privateKeyPEM\.value\.trim\(\)\)\s*\)/
+  )
+  assert.match(originTLS, /useUnsavedChangesGuard\(pemDraftDirty\)/)
+  assert.match(
+    webCertificate,
+    /const selectedFilesDirty = computed\(\s*\(\) => certificateFile\.value !== null \|\| privateKeyFile\.value !== null\s*\)/
+  )
+  assert.match(webCertificate, /useUnsavedChangesGuard\(selectedFilesDirty\)/)
 })
 
 test('the unsaved-changes guard asks before leaving, switching entries or closing the tab', async t => {

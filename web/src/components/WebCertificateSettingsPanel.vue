@@ -12,6 +12,7 @@ import {
   Upload
 } from '@lucide/vue'
 import { gateway } from '../api/client'
+import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { tlsCAPath } from '../api/contract'
 import type { TLSSettings } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
@@ -37,6 +38,11 @@ const operationError = ref('')
 
 const certificateFile = ref<File | null>(null)
 const privateKeyFile = ref<File | null>(null)
+// Chosen files that have not been installed are lost on leaving.
+const selectedFilesDirty = computed(
+  () => certificateFile.value !== null || privateKeyFile.value !== null
+)
+useUnsavedChangesGuard(selectedFilesDirty)
 const certificateError = ref('')
 const privateKeyError = ref('')
 
