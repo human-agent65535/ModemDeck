@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 	"strings"
 	"sync"
@@ -13,6 +11,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/identity"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -188,12 +187,11 @@ func (api *API) prepareOutgoingCall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "media_unavailable", "Too many call preparations", "")
 		return
 	}
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
+	id, err := identity.New("prepare_")
+	if err != nil {
 		writeError(w, 503, "media_unavailable", "Call preparation is unavailable", "")
 		return
 	}
-	id := "prepare_" + hex.EncodeToString(random[:])
 	if requestID == "" {
 		requestID = id
 	}

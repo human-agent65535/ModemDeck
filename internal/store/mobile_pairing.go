@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"slices"
@@ -12,6 +10,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/identity"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/timeutil"
 )
@@ -575,7 +574,7 @@ func (s *Store) CreateIOSPairingCredential(
 	digest mobilepairing.TokenDigest,
 ) (IOSPairingStatus, error) {
 	userID = strings.TrimSpace(userID)
-	credentialID, err := newIOSPairingCredentialID()
+	credentialID, err := identity.New("ios-")
 	if err != nil {
 		return IOSPairingStatus{}, fmt.Errorf("generate iOS pairing credential id: %w", err)
 	}
@@ -755,14 +754,6 @@ func (s *Store) RevokeAllIOSPairingCredentials(
 		return nil, fmt.Errorf("iterate revoked iOS pairing credentials: %w", err)
 	}
 	return digests, nil
-}
-
-func newIOSPairingCredentialID() (string, error) {
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return "", err
-	}
-	return "ios-" + base64.RawURLEncoding.EncodeToString(random[:]), nil
 }
 
 func iosPairingTimestamp(value string) string {

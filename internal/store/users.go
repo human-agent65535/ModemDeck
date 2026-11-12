@@ -2,13 +2,13 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/identity"
 )
 
 var (
@@ -174,7 +174,7 @@ func (s *Store) CreateMember(ctx context.Context, input CreateMemberInput) (User
 	if err != nil {
 		return User{}, err
 	}
-	userID, err := newUserIdentifier()
+	userID, err := identity.New("user_")
 	if err != nil {
 		return User{}, fmt.Errorf("generate user id: %w", err)
 	}
@@ -623,21 +623,4 @@ func firstString(values []string) string {
 		return ""
 	}
 	return values[0]
-}
-
-func newUserIdentifier() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	value[6] = (value[6] & 0x0f) | 0x40
-	value[8] = (value[8] & 0x3f) | 0x80
-	return fmt.Sprintf(
-		"user_%x%x%x%x%x",
-		value[0:4],
-		value[4:6],
-		value[6:8],
-		value[8:10],
-		value[10:16],
-	), nil
 }

@@ -3,7 +3,6 @@ package networkruntime
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -16,21 +15,21 @@ import (
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/identity"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 const (
-	DefaultInterval       = 5 * time.Second
-	DefaultApplyAttempts  = 3
-	maxProxyCount         = 64
-	maxProxyIDLength      = 64
-	maxProxyNameRunes     = 100
-	maxLineIDLength       = 128
-	maxUsernameBytes      = 128
-	maxPasswordBytes      = 512
-	maxSOCKS5SecretBytes  = 255
-	generatedProxyIDBytes = 16
+	DefaultInterval      = 5 * time.Second
+	DefaultApplyAttempts = 3
+	maxProxyCount        = 64
+	maxProxyIDLength     = 64
+	maxProxyNameRunes    = 100
+	maxLineIDLength      = 128
+	maxUsernameBytes     = 128
+	maxPasswordBytes     = 512
+	maxSOCKS5SecretBytes = 255
 )
 
 type Repository interface {
@@ -1245,11 +1244,7 @@ func (s *Service) shouldApply() bool {
 func (s *Service) newProxyID() (string, error) {
 	s.randomMu.Lock()
 	defer s.randomMu.Unlock()
-	random := make([]byte, generatedProxyIDBytes)
-	if _, err := io.ReadFull(s.random, random); err != nil {
-		return "", err
-	}
-	return "proxy_" + hex.EncodeToString(random), nil
+	return identity.NewFrom(s.random, "proxy_")
 }
 
 func publicProxy(record store.ProxyInstanceRecord) Proxy {

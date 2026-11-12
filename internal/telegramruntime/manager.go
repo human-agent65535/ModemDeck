@@ -2,9 +2,7 @@ package telegramruntime
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +13,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/identity"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegram"
@@ -580,7 +579,7 @@ func (m *Manager) dispatchNotifications(
 		if !ok || runtime.service == nil {
 			continue
 		}
-		attemptToken, err := newAttemptToken()
+		attemptToken, err := identity.New("")
 		if err != nil {
 			return err
 		}
@@ -691,12 +690,4 @@ func notificationFailureStatus(err error) string {
 	default:
 		return store.NotificationIndeterminate
 	}
-}
-
-func newAttemptToken() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", fmt.Errorf("generate Telegram notification attempt: %w", err)
-	}
-	return hex.EncodeToString(value[:]), nil
 }

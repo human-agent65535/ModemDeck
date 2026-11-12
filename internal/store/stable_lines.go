@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -12,6 +10,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/identity"
 	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
@@ -67,7 +66,7 @@ func resolveOrCreateStableLine(
 		if iccid == "" && imsi == "" && number == "" {
 			return "", ErrLineNotFound
 		}
-		lineID, err = newStoreLineID()
+		lineID, err = identity.NewLineID()
 		if err != nil {
 			return "", err
 		}
@@ -992,12 +991,4 @@ func stableLinePhonesMatch(left, right string) bool {
 
 func stableLinePhoneIdentity(value string) string {
 	return storedStableLinePhone(value)
-}
-
-func newStoreLineID() (string, error) {
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return "", fmt.Errorf("generate stable line ID: %w", err)
-	}
-	return "line_" + hex.EncodeToString(random[:]), nil
 }

@@ -2,15 +2,14 @@ package database
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/identity"
 	"github.com/human-agent65535/modemdeck/internal/phone"
 	"github.com/human-agent65535/modemdeck/internal/timeutil"
 )
@@ -346,7 +345,7 @@ func buildStableLineMigration(
 			lineID = endpointID
 		} else {
 			var err error
-			lineID, err = newStableLineID()
+			lineID, err = identity.NewLineID()
 			if err != nil {
 				return nil, err
 			}
@@ -979,7 +978,7 @@ func lookupMigratedLine(
 	}
 	endpointID = strings.TrimSpace(endpointID)
 	if len(identities) == 0 && endpointID == "" {
-		lineID, err := newStableLineID()
+		lineID, err := identity.NewLineID()
 		if err != nil {
 			return "", err
 		}
@@ -1324,12 +1323,4 @@ func nullableMigrationTime(value time.Time) any {
 		return nil
 	}
 	return value.UTC()
-}
-
-func newStableLineID() (string, error) {
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return "", fmt.Errorf("generate stable line ID: %w", err)
-	}
-	return "line_" + hex.EncodeToString(random[:]), nil
 }

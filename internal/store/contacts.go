@@ -3,7 +3,6 @@ package store
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"errors"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/identity"
 	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
@@ -140,12 +140,12 @@ func (s *Store) CreateContact(ctx context.Context, input ContactInput) (Contact,
 		return Contact{}, err
 	}
 	for index := range normalized.phones {
-		normalized.phones[index].id, err = newContactIdentifier()
+		normalized.phones[index].id, err = identity.NewUUID()
 		if err != nil {
 			return Contact{}, fmt.Errorf("generate contact phone id: %w", err)
 		}
 	}
-	contactID, err := newContactIdentifier()
+	contactID, err := identity.NewUUID()
 	if err != nil {
 		return Contact{}, fmt.Errorf("generate contact id: %w", err)
 	}
@@ -714,7 +714,7 @@ func resolveUpdatedPhoneIDs(
 		case currentByCanonical[phone.canonicalE164].ID != "":
 			phone.id = currentByCanonical[phone.canonicalE164].ID
 		default:
-			id, err := newContactIdentifier()
+			id, err := identity.NewUUID()
 			if err != nil {
 				return fmt.Errorf("generate contact phone id: %w", err)
 			}
@@ -1003,21 +1003,4 @@ func (s *Store) classifyContactWriteError(
 
 func contactValidation(field, code string) error {
 	return &ContactValidationError{Field: field, Code: code}
-}
-
-func newContactIdentifier() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	value[6] = (value[6] & 0x0f) | 0x40
-	value[8] = (value[8] & 0x3f) | 0x80
-	return fmt.Sprintf(
-		"%x-%x-%x-%x-%x",
-		value[0:4],
-		value[4:6],
-		value[6:8],
-		value[8:10],
-		value[10:16],
-	), nil
 }

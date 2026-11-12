@@ -2,14 +2,13 @@ package networkruntime
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/identity"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -513,11 +512,7 @@ func (s *Service) currentBootEpoch() string {
 func (s *Service) newNetworkRequestID(kind string) (string, error) {
 	s.randomMu.Lock()
 	defer s.randomMu.Unlock()
-	random := make([]byte, generatedProxyIDBytes)
-	if _, err := io.ReadFull(s.random, random); err != nil {
-		return "", err
-	}
-	return "network_" + kind + "_" + hex.EncodeToString(random), nil
+	return identity.NewFrom(s.random, "network_"+kind+"_")
 }
 
 func (s *Service) recordNetworkSelectionFailure(

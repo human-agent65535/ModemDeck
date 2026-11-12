@@ -4,11 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/human-agent65535/modemdeck/internal/identity"
 	"io"
 	"net"
 	"net/http"
@@ -326,7 +325,7 @@ func New(socketPath string, timeout time.Duration) (*Client, error) {
 		MaxIdleConnsPerHost: 2,
 		IdleConnTimeout:     30 * time.Second,
 	}
-	controllerID, err := newControllerID()
+	controllerID, err := identity.New("app-")
 	if err != nil {
 		return nil, err
 	}
@@ -722,14 +721,6 @@ func (client *Client) doJSON(
 		return fmt.Errorf("%w: response contains multiple JSON values", ErrProtocol)
 	}
 	return nil
-}
-
-func newControllerID() (string, error) {
-	random := make([]byte, 16)
-	if _, err := rand.Read(random); err != nil {
-		return "", fmt.Errorf("generate host agent controller id: %w", err)
-	}
-	return "app-" + hex.EncodeToString(random), nil
 }
 
 func resetTimer(timer *time.Timer, duration time.Duration) {
