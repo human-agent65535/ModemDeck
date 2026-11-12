@@ -88,7 +88,7 @@ func (a adapters) lineSummaries(ctx context.Context) ([]store.LineSummary, error
 		return nil, err
 	}
 	if persisted, persistedErr := a.repository.Lines(ctx); persistedErr == nil {
-		status.Lines = mergePersistedLineMetadata(status.Lines, persisted)
+		status.Lines = store.MergeLineMetadata(status.Lines, persisted)
 	}
 	return status.Lines, nil
 }
@@ -307,45 +307,6 @@ func storedTime(kind, value string) time.Time {
 		return time.Time{}
 	}
 	return parsed.UTC()
-}
-
-func mergePersistedLineMetadata(
-	liveLines []store.LineSummary,
-	persistedLines []store.LineSummary,
-) []store.LineSummary {
-	byID := make(map[string]store.LineSummary, len(persistedLines))
-	namesByIMEI := make(map[string]string, len(persistedLines))
-	for _, line := range persistedLines {
-		if lineID := strings.TrimSpace(line.ID); lineID != "" {
-			byID[lineID] = line
-		}
-		if imei := strings.TrimSpace(line.DeviceIMEI); imei != "" {
-			namesByIMEI[imei] = strings.TrimSpace(line.DeviceName)
-		}
-	}
-	merged := make([]store.LineSummary, len(liveLines))
-	for index, live := range liveLines {
-		line := live
-		if line.DeviceName == "" {
-			line.DeviceName = namesByIMEI[strings.TrimSpace(line.DeviceIMEI)]
-		}
-		persisted, found := byID[strings.TrimSpace(line.ID)]
-		if found {
-			line.LineLabel = persisted.LineLabel
-			line.LineColor = persisted.LineColor
-			if line.PhoneNumber == "" {
-				line.PhoneNumber = persisted.PhoneNumber
-			}
-			if line.HomeOperatorName == "" {
-				line.HomeOperatorName = persisted.HomeOperatorName
-			}
-			if line.Operator == "" {
-				line.Operator = persisted.Operator
-			}
-		}
-		merged[index] = line
-	}
-	return merged
 }
 
 func currentOperator(line store.LineSummary) string {

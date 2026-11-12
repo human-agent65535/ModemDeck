@@ -723,7 +723,7 @@ func (api *API) loadCommunicationProjection(
 		} else {
 			deviceLines = status.Lines
 			connected = status.Connected
-			lines = mergePersistedLineMetadata(status.Lines, persistedLines)
+			lines = store.MergeLineMetadata(status.Lines, persistedLines)
 			capabilities = capabilitiesForLines(status.Lines)
 			capabilities.WSSAudio = capabilities.WSSAudio &&
 				status.Capabilities.Media && api.callMedia != nil
@@ -798,51 +798,6 @@ func attachedPersistedLines(lines []store.LineSummary) []store.LineSummary {
 		attached = append(attached, line)
 	}
 	return attached
-}
-
-func mergePersistedLineMetadata(
-	liveLines []store.LineSummary,
-	persistedLines []store.LineSummary,
-) []store.LineSummary {
-	byLineID := make(map[string]store.LineSummary, len(persistedLines))
-	for _, line := range persistedLines {
-		if lineID := strings.TrimSpace(line.ID); lineID != "" {
-			byLineID[lineID] = line
-		}
-	}
-
-	merged := make([]store.LineSummary, len(liveLines))
-	for index, live := range liveLines {
-		line := live
-		persisted, found := byLineID[strings.TrimSpace(line.ID)]
-		if found {
-			line.LineLabel = persisted.LineLabel
-			line.LineColor = persisted.LineColor
-			if line.PhoneNumber == "" {
-				line.PhoneNumber = persisted.PhoneNumber
-			}
-			if line.Operator == "" {
-				line.Operator = persisted.Operator
-			}
-			if line.HomeOperatorCode == "" {
-				line.HomeOperatorCode = persisted.HomeOperatorCode
-			}
-			if line.HomeOperatorName == "" {
-				line.HomeOperatorName = persisted.HomeOperatorName
-			}
-			if line.HomeOperatorName == "" {
-				line.HomeOperatorName = line.Operator
-			}
-			if line.DeviceIMEI == "" {
-				line.DeviceIMEI = persisted.DeviceIMEI
-			}
-			if line.DeviceName == "" {
-				line.DeviceName = persisted.DeviceName
-			}
-		}
-		merged[index] = line
-	}
-	return merged
 }
 
 func gateCapabilities(capabilities Capabilities) Capabilities {

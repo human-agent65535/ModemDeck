@@ -42,7 +42,7 @@ func TestMergePersistedLineMetadataUsesStableLineID(t *testing.T) {
 		},
 	}
 
-	merged := mergePersistedLineMetadata(live, persisted)
+	merged := store.MergeLineMetadata(live, persisted)
 	if len(merged) != 1 {
 		t.Fatalf("merged lines = %+v", merged)
 	}
