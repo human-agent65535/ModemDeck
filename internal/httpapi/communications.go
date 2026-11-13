@@ -726,7 +726,7 @@ func (api *API) projectActiveCallSnapshot(
 			err:       err,
 		}
 	}
-	projection, err := api.callLeases.ProjectActive(calls, owner.HolderID)
+	projection, err := api.callLeases.ProjectActive(offeredCalls(calls), owner.HolderID)
 	if err != nil {
 		return activeCallsResponse{}, &activeCallSnapshotError{
 			operation: "project active browser calls",
@@ -941,6 +941,18 @@ func commandRequestID(response http.ResponseWriter, request *http.Request, bodyV
 		return "", false
 	}
 	return value, true
+}
+
+// offeredCalls drops the incoming calls do-not-disturb is holding back, so no
+// client rings, shows, or can answer one. They reach clients only as history.
+func offeredCalls(calls []store.Call) []store.Call {
+	offered := make([]store.Call, 0, len(calls))
+	for _, call := range calls {
+		if !call.ScreenedWhileRinging() {
+			offered = append(offered, call)
+		}
+	}
+	return offered
 }
 
 func callSession(

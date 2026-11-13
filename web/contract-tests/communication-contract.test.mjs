@@ -580,6 +580,8 @@ test('recording aggregation preserves call metadata and only exposes ready downl
       ended_at: '2026-07-23T12:02:00Z',
       duration_seconds: 120,
       missed: false,
+      // Older servers omit do_not_disturb; it reads as not screened.
+      do_not_disturb: false,
       read: false,
       favorite: false,
       failure_reason: undefined

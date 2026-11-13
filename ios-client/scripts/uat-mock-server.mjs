@@ -179,8 +179,37 @@ const calls = [
     remote_number: '+1 202 555 0103', started_at: '2026-08-09T07:40:00Z',
     ended_at: '2026-08-09T07:40:30Z', duration_seconds: 0,
     missed: true, read: false, favorite: false
+  },
+  {
+    id: 'uat-call-screened', line_id: 'uat-line-a', direction: 'incoming',
+    remote_number: '+1 202 555 0104', started_at: '2026-08-09T07:30:00Z',
+    ended_at: '2026-08-09T07:30:02Z', duration_seconds: 0,
+    missed: false, do_not_disturb: true, read: true, favorite: false
   }
 ]
+
+// Incoming-call policy: the account-wide mode and each line's own choice.
+const callSettings = { receive_calls: true, revision: 1 }
+const linePolicies = new Map()
+function lineIncomingCalls(lineID) {
+  if (!linePolicies.has(lineID)) linePolicies.set(lineID, { policy: 'follow_global', revision: 1 })
+  const line = linePolicies.get(lineID)
+  const doNotDisturb = line.policy === 'do_not_disturb' ||
+    (line.policy === 'follow_global' && !callSettings.receive_calls)
+  return {
+    incoming_calls: {
+      policy: line.policy,
+      revision: line.revision,
+      effective_policy: doNotDisturb ? 'do_not_disturb' : 'receive',
+      global_receive_calls: callSettings.receive_calls,
+      global_revision: callSettings.revision,
+      updated_at: '2026-08-09T08:00:00Z',
+      // The first line can reject a call; any other only stays silent.
+      enforcement: { mode: 'one_shot_reject', available: lineID === 'uat-line-a', config_only: lineID !== 'uat-line-a' }
+    }
+  }
+}
+const lineConfigurationPath = /^\/api\/v1\/devices\/([^/]+)\/configuration$/
 
 const recordings = [
   {
@@ -330,6 +359,8 @@ function readOnlyBody(pathname) {
       segments: []
     }
   }
+  const lineConfiguration = lineConfigurationPath.exec(pathname)
+  if (lineConfiguration) return lineIncomingCalls(decodeURIComponent(lineConfiguration[1]))
   switch (pathname) {
   case '/api/v1/mobile/session':
     return {
@@ -407,7 +438,7 @@ function readOnlyBody(pathname) {
   case '/api/v1/settings/telegram':
     return { units: telegramUnits }
   case '/api/v1/settings/calls':
-    return { receive_calls: true, revision: 1 }
+    return callSettings
   case '/api/v1/settings/recording':
     return { settings: { default_enabled: false, revision: 1 } }
   case '/api/v1/diagnostics':
@@ -484,7 +515,24 @@ let historyReadsCompleted = 0
 
 async function fixtureWrite(request, response, pathname) {
   const body = await readJSON(request)
+  if (pathname === '/api/v1/settings/calls' && request.method === 'PATCH') {
+    if (body.expected_revision !== callSettings.revision) return send(response, 409, { code: 'revision_conflict' })
+    callSettings.receive_calls = body.receive_calls === true
+    callSettings.revision += 1
+    return send(response, 200, callSettings)
+  }
+  const lineConfiguration = lineConfigurationPath.exec(pathname)
+  if (lineConfiguration && request.method === 'PATCH') {
+    const lineID = decodeURIComponent(lineConfiguration[1])
+    const line = lineIncomingCalls(lineID) && linePolicies.get(lineID)
+    if (body.expected_policy_revision !== line.revision) return send(response, 409, { code: 'revision_conflict' })
+    line.policy = body.incoming_call_policy
+    line.revision += 1
+    return send(response, 200, lineIncomingCalls(lineID))
+  }
   if (pathname === '/__uat/reset') {
+    callSettings.receive_calls = true
+    linePolicies.clear()
     for (const [name, items] of Object.entries({ contacts, threads, messages, calls, recordings })) {
       items.splice(0, items.length, ...structuredClone(initial[name]))
     }

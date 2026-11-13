@@ -972,6 +972,7 @@ export default {
     callDetails: '通话详情',
     direction: '方向',
     missedCall: '未接来电',
+    blockedByDoNotDisturb: '免打扰已拦截',
     incoming: '呼入',
     outgoing: '呼出',
     time: '时间',

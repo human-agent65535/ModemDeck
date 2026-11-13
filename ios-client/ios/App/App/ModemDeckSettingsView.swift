@@ -482,6 +482,8 @@ private struct ModemDeckSettingsMenuRow: View {
     let icon: String
     let value: String
     let choices: [ModemDeckSettingsChoice]
+    /// The chosen item, when the row's value says more than that item's title.
+    var selectedID: String?
     var disabled = false
     let select: (String) -> Void
 
@@ -491,7 +493,7 @@ private struct ModemDeckSettingsMenuRow: View {
                 Button {
                     select(choice.id)
                 } label: {
-                    if choice.title == value {
+                    if selectedID.map({ $0 == choice.id }) ?? (choice.title == value) {
                         Label(choice.title, systemImage: "checkmark")
                     } else {
                         Text(choice.title)
@@ -1221,9 +1223,8 @@ private struct ModemDeckNotificationSettingsView: View {
 private struct ModemDeckCallSettingsView: View {
     @ObservedObject var controller: ModemDeckSessionController
     @ObservedObject private var callController: ModemDeckCallController
-    @State private var callSettings: ModemDeckGlobalCallSettings?
+    @ObservedObject private var incomingCallMode: ModemDeckIncomingCallModeStore
     @State private var recordingSettings: ModemDeckRecordingSettings?
-    @State private var callSettingsBusy = false
     @State private var recordingBusy = false
     @State private var testCallBusy = false
     @State private var statusMessage = ""
@@ -1231,6 +1232,22 @@ private struct ModemDeckCallSettingsView: View {
     init(controller: ModemDeckSessionController) {
         self.controller = controller
         _callController = ObservedObject(wrappedValue: controller.callController)
+        _incomingCallMode = ObservedObject(wrappedValue: controller.incomingCallMode)
+    }
+
+    /// Only an administrator may read or change the account-wide call mode.
+    private var managesIncomingCallMode: Bool { controller.session?.role == "admin" }
+
+    private var callBehaviorFooter: String {
+        let audio = controller.text(
+            "接听后由 CallKit 管理系统音频；App 内保留静音、键盘和录音控制。",
+            "CallKit owns system audio after answering. Mute, keypad, and recording remain in the app."
+        )
+        guard managesIncomingCallMode else { return audio }
+        return controller.text(
+            "免打扰时来电不响铃，并自动拒接；线路不支持拒接时只静默。也可在首页切换。",
+            "Do Not Disturb rings nobody and rejects the call; a line that cannot reject only stays silent. Also on Recents."
+        ) + "\n" + audio
     }
 
     var body: some View {
@@ -1240,25 +1257,21 @@ private struct ModemDeckCallSettingsView: View {
         ) {
             ModemDeckSettingsModule(
                 title: controller.text("通话行为", "Call Behavior"),
-                footer: controller.text(
-                    "接听后由 CallKit 管理系统音频；App 内保留静音、键盘和录音控制。",
-                    "CallKit owns system audio after answering. Mute, keypad, and recording remain in the app."
-                )
+                footer: callBehaviorFooter
             ) {
-                Toggle(
-                    controller.text("接收来电", "Receive Calls"),
-                    isOn: Binding(
-                        get: { callSettings?.receiveCalls ?? false },
-                        set: { updateReceiveCalls($0) }
-                    )
-                )
-                .font(.subheadline)
-                .foregroundColor(.mdText)
-                .tint(.mdAccent)
-                .padding(.horizontal, 14)
-                .frame(minHeight: ModemDeckLayout.compactRowHeight)
-                .disabled(callSettings == nil || callSettingsBusy)
-                ModemDeckRowDivider()
+                if managesIncomingCallMode {
+                    ModemDeckSettingsMenuRow(
+                        title: controller.text("来电模式", "Incoming Calls"),
+                        icon: incomingCallMode.doNotDisturb == true ? "moon.fill" : "moon",
+                        value: incomingCallModeText(incomingCallMode.doNotDisturb),
+                        choices: [false, true].map {
+                            ModemDeckSettingsChoice(id: $0 ? "do_not_disturb" : "receive", title: incomingCallModeText($0))
+                        },
+                        disabled: incomingCallMode.settings == nil || incomingCallMode.saving
+                    ) { updateDoNotDisturb($0 == "do_not_disturb") }
+                    .accessibilityIdentifier("settings-incoming-call-mode")
+                    ModemDeckRowDivider()
+                }
                 Toggle(
                     controller.text("默认录制通话", "Record Calls by Default"),
                     isOn: Binding(
@@ -1333,7 +1346,7 @@ private struct ModemDeckCallSettingsView: View {
         }
         .task {
             controller.refreshMicrophoneStatus()
-            await loadCallSettings()
+            if managesIncomingCallMode { await loadCallSettings() }
             await loadRecordingSettings()
         }
     }
@@ -1366,35 +1379,31 @@ private struct ModemDeckCallSettingsView: View {
         }
     }
 
+    private func incomingCallModeText(_ doNotDisturb: Bool?) -> String {
+        guard let doNotDisturb else { return "—" }
+        return doNotDisturb
+            ? controller.text("免打扰", "Do Not Disturb")
+            : controller.text("接听来电", "Receive Calls")
+    }
+
     private func loadCallSettings() async {
         do {
-            callSettings = try await controller.api.callSettings()
+            try await incomingCallMode.load()
         } catch {
             ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             controller.errorMessage = error.localizedDescription
         }
     }
 
-    private func updateReceiveCalls(_ enabled: Bool) {
-        guard let current = callSettings, !callSettingsBusy else { return }
-        callSettings = ModemDeckGlobalCallSettings(
-            receiveCalls: enabled,
-            revision: current.revision
-        )
-        callSettingsBusy = true
+    private func updateDoNotDisturb(_ enabled: Bool) {
         Task {
             do {
-                callSettings = try await controller.api.updateCallSettings(
-                    receiveCalls: enabled,
-                    revision: current.revision
-                )
+                try await incomingCallMode.setDoNotDisturb(enabled)
                 controller.errorMessage = ""
             } catch {
-                callSettings = current
                 ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 controller.errorMessage = error.localizedDescription
             }
-            callSettingsBusy = false
         }
     }
 
@@ -1471,12 +1480,66 @@ private struct ModemDeckCallSettingsView: View {
 
 private struct ModemDeckDevicesSettingsView: View {
     @ObservedObject var controller: ModemDeckSessionController
+    @ObservedObject private var incomingCallMode: ModemDeckIncomingCallModeStore
     @State private var devices: [ModemDeckManagedDevice] = []
     @State private var loading = true
     @State private var errorMessage = ""
+    /// Each line's own incoming-call policy, by line ID. A line whose policy could
+    /// not be read has no entry and shows as unavailable.
+    @State private var linePolicies: [String: ModemDeckLineIncomingCalls] = [:]
+    @State private var linePoliciesLoaded = false
+    @State private var savingLineID: String?
+    @State private var policyError = ""
+
+    init(controller: ModemDeckSessionController) {
+        self.controller = controller
+        _incomingCallMode = ObservedObject(wrappedValue: controller.incomingCallMode)
+    }
 
     private var lines: [ModemDeckLine] {
         controller.bootstrap?.lineCatalog ?? []
+    }
+
+    /// The home bar may change the account-wide mode while this page is open, and
+    /// a line that follows it must show the new value. An administrator's page
+    /// reads it from the shared owner; anyone else has the value read with the line.
+    private func effectiveDoNotDisturb(_ incoming: ModemDeckLineIncomingCalls) -> Bool {
+        switch incoming.policy {
+        case "do_not_disturb": return true
+        case "receive": return false
+        default: return incomingCallMode.doNotDisturb ?? !incoming.globalReceiveCalls
+        }
+    }
+
+    private func policyTitle(_ policy: String) -> String {
+        switch policy {
+        case "receive": return controller.text("接听来电", "Receive Calls")
+        case "do_not_disturb": return controller.text("免打扰", "Do Not Disturb")
+        default: return controller.text("跟随全局", "Follow Global")
+        }
+    }
+
+    private func policyValue(_ incoming: ModemDeckLineIncomingCalls?) -> String {
+        guard let incoming else {
+            return linePoliciesLoaded ? controller.text("不可用", "Unavailable") : "—"
+        }
+        guard incoming.policy == "follow_global" else { return policyTitle(incoming.policy) }
+        return policyTitle("follow_global") + " · " + policyTitle(effectiveDoNotDisturb(incoming) ? "do_not_disturb" : "receive")
+    }
+
+    private var policyFooter: String {
+        var text = controller.text(
+            "跟随全局的线路使用首页的来电模式。免打扰时来电不响铃，并自动拒接。",
+            "A line that follows global uses the mode set on Recents. Do Not Disturb rings nobody and rejects the call."
+        )
+        let silentOnly = lines.filter { linePolicies[$0.id]?.enforcement.available == false }.map(\.displayName)
+        if !silentOnly.isEmpty {
+            text += "\n" + controller.text(
+                "不支持拒接、只会静默的线路：",
+                "Cannot reject, so only stays silent: "
+            ) + silentOnly.joined(separator: controller.text("、", ", "))
+        }
+        return text
     }
 
     var body: some View {
@@ -1501,6 +1564,36 @@ private struct ModemDeckDevicesSettingsView: View {
                             active: line.registered
                         )
                     }
+                }
+            }
+
+            if !lines.isEmpty {
+                ModemDeckSettingsModule(
+                    title: controller.text("来电策略", "Incoming Call Policy"),
+                    footer: policyFooter
+                ) {
+                    ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
+                        if index > 0 { ModemDeckRowDivider() }
+                        let incoming = linePolicies[line.id]
+                        ModemDeckSettingsMenuRow(
+                            title: line.displayName,
+                            icon: incoming.map(effectiveDoNotDisturb) == true ? "moon.fill" : "moon",
+                            value: policyValue(incoming),
+                            choices: ["follow_global", "receive", "do_not_disturb"].map {
+                                ModemDeckSettingsChoice(id: $0, title: policyTitle($0))
+                            },
+                            selectedID: incoming?.policy,
+                            disabled: incoming == nil || savingLineID != nil || !controller.isOnline
+                        ) { setPolicy($0, line: line) }
+                        .accessibilityIdentifier("line-incoming-policy-" + line.id)
+                    }
+                }
+                if !policyError.isEmpty {
+                    Text(policyError)
+                        .font(.footnote)
+                        .foregroundColor(.mdDanger)
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, ModemDeckSpacing.lg)
                 }
             }
 
@@ -1531,6 +1624,48 @@ private struct ModemDeckDevicesSettingsView: View {
             }
         }
         .task { await load() }
+        .task(id: lines.map(\.id)) { await loadLinePolicies() }
+    }
+
+    private func loadLinePolicies() async {
+        let lineIDs = lines.map(\.id)
+        guard !lineIDs.isEmpty else { return }
+        if controller.session?.role == "admin" {
+            // Failure is not shown: each line still carries the global value it was read with.
+            do { try await incomingCallMode.load() } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+            }
+        }
+        var loaded: [String: ModemDeckLineIncomingCalls] = [:]
+        for lineID in lineIDs {
+            do { loaded[lineID] = try await controller.api.lineIncomingCalls(lineID: lineID) } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+            }
+        }
+        guard !Task.isCancelled else { return }
+        linePolicies = loaded
+        linePoliciesLoaded = true
+    }
+
+    private func setPolicy(_ policy: String, line: ModemDeckLine) {
+        guard let current = linePolicies[line.id], current.policy != policy, savingLineID == nil else { return }
+        savingLineID = line.id
+        Task {
+            do {
+                linePolicies[line.id] = try await controller.api.updateLineIncomingCallPolicy(
+                    lineID: line.id, policy: policy, revision: current.revision
+                )
+                policyError = ""
+            } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+                policyError = error.localizedDescription
+                // A refusal usually means another client changed it first: show theirs.
+                if let latest = try? await controller.api.lineIncomingCalls(lineID: line.id) {
+                    linePolicies[line.id] = latest
+                }
+            }
+            savingLineID = nil
+        }
     }
 
     private func lineDetail(_ line: ModemDeckLine) -> String {

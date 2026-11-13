@@ -10,7 +10,7 @@ import {
 } from '@lucide/vue'
 import type { CallRecord } from '../api/types'
 import type { LineTagLine } from '../utils/lineIdentity'
-import { callDirectionLabel, formatRelativeDate } from '../utils/format'
+import { callOutcomeLabel, callScreenedByDoNotDisturb, formatRelativeDate } from '../utils/format'
 import CommunicationAvatar from './CommunicationAvatar.vue'
 import LineTag from './LineTag.vue'
 import ListItemAvatarStatus from './ListItemAvatarStatus.vue'
@@ -42,9 +42,7 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 
-const directionLabel = computed(() =>
-  callDirectionLabel(props.call.direction, { missed: props.call.missed })
-)
+const directionLabel = computed(() => callOutcomeLabel(props.call))
 const showNumber = computed(
   () => props.number.trim().toLocaleLowerCase() !== props.name.trim().toLocaleLowerCase()
 )
@@ -90,7 +88,12 @@ const showNumber = computed(
       <span class="call-list-item__meta">
         <LineTag :line="line" :fallback="lineFallback" variant="dot" />
         <!-- Direction reads at a glance, as the arrows in iOS and Android call logs. -->
-        <PhoneMissed v-if="call.missed" class="call-list-item__direction" :size="13" aria-hidden="true" />
+        <PhoneMissed
+          v-if="call.missed || callScreenedByDoNotDisturb(call)"
+          class="call-list-item__direction"
+          :size="13"
+          aria-hidden="true"
+        />
         <PhoneIncoming
           v-else-if="call.direction === 'incoming'"
           class="call-list-item__direction"

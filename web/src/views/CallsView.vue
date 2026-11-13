@@ -81,7 +81,7 @@ import {
   setCallsFavorite,
   updateMissedCallsReadState
 } from '../state/workspace'
-import { callDirectionLabel, formatCompletedDuration, formatDateTime } from '../utils/format'
+import { callOutcomeLabel, formatCompletedDuration, formatDateTime } from '../utils/format'
 import { isContactPhoneCandidate } from '../utils/communicationAddress'
 import { lineTagLine } from '../utils/lineIdentity'
 import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
@@ -916,7 +916,7 @@ onBeforeUnmount(() => {
             <dl>
               <div>
                 <dt>{{ t('dashboard.direction') }}</dt>
-                <dd>{{ callDirectionLabel(selected.direction, { missed: selected.missed }) }}</dd>
+                <dd>{{ callOutcomeLabel(selected) }}</dd>
               </div>
               <div>
                 <dt>{{ t('dashboard.time') }}</dt>

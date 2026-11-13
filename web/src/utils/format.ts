@@ -195,6 +195,32 @@ export function callDirectionLabel(
     : translate('dashboard.outgoing')
 }
 
+type CallOutcomeRecord = {
+  direction: string
+  missed: boolean
+  do_not_disturb?: boolean
+  duration_seconds: number
+}
+
+/**
+ * An incoming call that do-not-disturb screened on arrival and nobody answered:
+ * the line rejected it (not missed, no duration) or let it ring out (missed).
+ * Display only; which calls count as missed stays with `missed`.
+ */
+export function callScreenedByDoNotDisturb(call: CallOutcomeRecord): boolean {
+  return (
+    call.direction === 'incoming' &&
+    call.do_not_disturb === true &&
+    (call.missed || call.duration_seconds === 0)
+  )
+}
+
+/** The history wording for one call record; a screened call reads as blocked before missed. */
+export function callOutcomeLabel(call: CallOutcomeRecord): string {
+  if (callScreenedByDoNotDisturb(call)) return translate('dashboard.blockedByDoNotDisturb')
+  return callDirectionLabel(call.direction, { missed: call.missed })
+}
+
 /**
  * Recording status. The catalog knows whether a recording can play: pass `playable`
  * and it wins, and an unrecognised status reads as unavailable. The per-call list only

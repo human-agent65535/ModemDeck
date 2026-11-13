@@ -289,7 +289,8 @@ func (s *Store) ActiveCalls(ctx context.Context) ([]Call, error) {
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
 			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
 			state_reason_code, multiparty, audio_port, audio_encoding,
-			audio_resolution, audio_rate, media_available
+			audio_resolution, audio_rate, media_available, `+
+			fmt.Sprintf(callDoNotDisturbSQL, "call_history")+`
 		 FROM call_history
 		 WHERE phase NOT IN ('ended', 'failed') AND COALESCE(ended_at, '') = ''
 		 ORDER BY created_at ASC, id ASC`,
@@ -1879,7 +1880,8 @@ func callByID(ctx context.Context, queryer interface {
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
 			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
 			state_reason_code, multiparty, audio_port, audio_encoding,
-			audio_resolution, audio_rate, media_available
+			audio_resolution, audio_rate, media_available, `+
+			fmt.Sprintf(callDoNotDisturbSQL, "call_history")+`
 		 FROM call_history WHERE id = ?`,
 		id,
 	)
@@ -1902,6 +1904,7 @@ func scanCallRow(scanner callScanner) (Call, error) {
 		phase, createdAt, updatedAt, activeAt, endedAt, endReason                 sql.NullString
 		failure, bearer, stateReason, audioPort, audioEncoding, audioResolution   sql.NullString
 		revision, stateReasonCode, multiparty, audioRate, mediaAvailable          sql.NullInt64
+		doNotDisturb                                                              sql.NullInt64
 	)
 	if err := scanner.Scan(
 		&call.ID,
@@ -1933,6 +1936,7 @@ func scanCallRow(scanner callScanner) (Call, error) {
 		&audioResolution,
 		&audioRate,
 		&mediaAvailable,
+		&doNotDisturb,
 	); err != nil {
 		return Call{}, err
 	}
@@ -1967,6 +1971,7 @@ func scanCallRow(scanner callScanner) (Call, error) {
 		call.AudioRate = uint32(audioRate.Int64)
 	}
 	call.MediaAvailable = boolValue(mediaAvailable)
+	call.DoNotDisturb = boolValue(doNotDisturb)
 	if call.ActiveAt != nil {
 		call.DurationSeconds = durationSeconds(*call.ActiveAt, call.EndedAt)
 	}

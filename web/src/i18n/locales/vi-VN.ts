@@ -956,6 +956,7 @@ export default {
     "callDetails": "Chi tiết cuộc gọi",
     "direction": "Hướng",
     "missedCall": "Cuộc gọi nhỡ",
+    "blockedByDoNotDisturb": "Bị chặn bởi Đừng làm phiền",
     "incoming": "Đang đến",
     "outgoing": "Đi",
     "time": "thời gian",

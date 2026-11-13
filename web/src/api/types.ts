@@ -750,6 +750,8 @@ export type CallRecord = {
   ended_at?: string
   duration_seconds: number
   missed: boolean
+  /** True when do-not-disturb screened this incoming call on arrival. */
+  do_not_disturb: boolean
   read: boolean
   favorite: boolean
   failure_reason?: string

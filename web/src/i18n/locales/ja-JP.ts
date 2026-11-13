@@ -956,6 +956,7 @@ export default {
     "callDetails": "通話詳細",
     "direction": "方向",
     "missedCall": "不在着信",
+    "blockedByDoNotDisturb": "邪魔しないでくださいによりブロック",
     "incoming": "着信",
     "outgoing": "発信",
     "time": "時間",

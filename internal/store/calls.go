@@ -71,12 +71,13 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			%s, %s, ch.end_reason, ch.failure_code, ch.bearer, ch.state_reason,
 			ch.state_reason_code, ch.multiparty, ch.audio_port,
 			ch.audio_encoding, ch.audio_resolution, ch.audio_rate,
-			ch.media_available, COALESCE(CAST(ch.ended_at AS TEXT), '')
+			ch.media_available, COALESCE(CAST(ch.ended_at AS TEXT), ''), %s
 		FROM call_history ch%s`,
 		fmt.Sprintf(contactIDForNumberSQL, "ch.remote_number", contactOwner),
 		fmt.Sprintf(contactNameForNumberSQL, "ch.remote_number", contactOwner),
 		readExpression,
 		favoriteExpression,
+		fmt.Sprintf(callDoNotDisturbSQL, "ch"),
 		stateJoin,
 	)
 	conditions := make([]string, 0, 3)
@@ -155,6 +156,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			stateReason, audioPort, audioEncoding, audioResolution             sql.NullString
 			sortEndedAt                                                        sql.NullString
 			stateReasonCode, multiparty, audioRate, mediaAvailable             sql.NullInt64
+			doNotDisturb                                                       sql.NullInt64
 		)
 		if err := rows.Scan(
 			&call.ID, &requestID, &lineID, &endpointLineID, &localPhone, &lineIMSI, &lineICCID,
@@ -163,7 +165,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			&revision, &createdAt, &updatedAt, &activeAt, &endedAt, &readAt, &favorite,
 			&endReason, &failureCode, &bearer, &stateReason, &stateReasonCode,
 			&multiparty, &audioPort, &audioEncoding, &audioResolution,
-			&audioRate, &mediaAvailable, &sortEndedAt,
+			&audioRate, &mediaAvailable, &sortEndedAt, &doNotDisturb,
 		); err != nil {
 			return nil, fmt.Errorf("scan call: %w", err)
 		}
@@ -200,6 +202,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			call.AudioRate = uint32(audioRate.Int64)
 		}
 		call.MediaAvailable = boolValue(mediaAvailable)
+		call.DoNotDisturb = boolValue(doNotDisturb)
 		if call.ActiveAt != nil {
 			call.DurationSeconds = durationSeconds(*call.ActiveAt, call.EndedAt)
 		}

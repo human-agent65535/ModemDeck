@@ -956,6 +956,7 @@ export default {
     "callDetails": "Détails de l'appel",
     "direction": "Direction",
     "missedCall": "Appel manqué",
+    "blockedByDoNotDisturb": "Bloqué par Ne pas déranger",
     "incoming": "Entrant",
     "outgoing": "Sortant",
     "time": "Temps",

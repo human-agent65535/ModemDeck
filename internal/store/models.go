@@ -239,9 +239,12 @@ type Call struct {
 	MediaAvailable       bool    `json:"media_available"`
 	DurationSeconds      int64   `json:"duration_seconds"`
 	Missed               bool    `json:"missed"`
-	Read                 bool    `json:"read"`
-	Favorite             bool    `json:"favorite"`
-	SortEndedAt          string  `json:"-"`
+	// DoNotDisturb is true when the do-not-disturb policy screened this incoming
+	// call on arrival: nobody was rung, and the line rejected it if it could.
+	DoNotDisturb bool   `json:"do_not_disturb"`
+	Read         bool   `json:"read"`
+	Favorite     bool   `json:"favorite"`
+	SortEndedAt  string `json:"-"`
 }
 
 type Device struct {

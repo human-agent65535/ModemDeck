@@ -41,6 +41,7 @@ import {
 import { contactInputFromContact, contactPhoneInputs } from '../src/utils/contactInput.ts'
 import {
   callDirectionLabel,
+  callOutcomeLabel,
   formatBytes,
   formatCallClock,
   formatCallElapsed,
@@ -378,6 +379,18 @@ test('call direction keeps the history and diagnostic wordings', () => {
   assert.equal(callDirectionLabel('outgoing', { style: 'diagnostic' }), 'Outgoing')
   assert.equal(callDirectionLabel('sideways', { style: 'diagnostic' }), 'sideways')
   assert.equal(callDirectionLabel('', { style: 'diagnostic' }), 'Direction unknown')
+})
+
+test('a call do-not-disturb screened reads as blocked before missed or declined', () => {
+  const incoming = { direction: 'incoming', missed: false, duration_seconds: 0 }
+  // Rejected by the line (not missed) or left to ring out (missed): both read as blocked.
+  assert.equal(callOutcomeLabel({ ...incoming, do_not_disturb: true }), 'Blocked by Do Not Disturb')
+  assert.equal(callOutcomeLabel({ ...incoming, missed: true, do_not_disturb: true }), 'Blocked by Do Not Disturb')
+  // Older servers omit the field.
+  assert.equal(callOutcomeLabel({ ...incoming, missed: true }), 'Missed call')
+  // Only an unanswered incoming call is screened.
+  assert.equal(callOutcomeLabel({ ...incoming, duration_seconds: 42, do_not_disturb: true }), 'Incoming')
+  assert.equal(callOutcomeLabel({ ...incoming, direction: 'outgoing', do_not_disturb: true }), 'Outgoing')
 })
 
 test('recording status keeps the catalog and per-call list rules', () => {

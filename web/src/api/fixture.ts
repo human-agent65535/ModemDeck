@@ -277,6 +277,7 @@ const calls: CallRecord[] = [
     ended_at: '2026-07-23T08:57:12Z',
     duration_seconds: 312,
     missed: false,
+    do_not_disturb: false,
     read: false,
     favorite: true
   },
@@ -289,6 +290,7 @@ const calls: CallRecord[] = [
     ended_at: '2026-07-22T11:14:31Z',
     duration_seconds: 0,
     missed: true,
+    do_not_disturb: false,
     read: false,
     favorite: false
   },
@@ -303,6 +305,20 @@ const calls: CallRecord[] = [
     ended_at: '2026-07-22T07:33:46Z',
     duration_seconds: 226,
     missed: false,
+    do_not_disturb: false,
+    read: false,
+    favorite: false
+  },
+  {
+    id: 'call-4',
+    line_id: 'line-fixture-main',
+    direction: 'incoming',
+    remote_number: UNKNOWN_CALLER_PHONE,
+    started_at: '2026-07-21T23:42:00Z',
+    ended_at: '2026-07-21T23:42:01Z',
+    duration_seconds: 0,
+    missed: false,
+    do_not_disturb: true,
     read: false,
     favorite: false
   }

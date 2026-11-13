@@ -6,7 +6,8 @@ import { communicationActivities, type CommunicationActivity } from '../composab
 import { messageThreadRoute } from '../router/messageRoute'
 import { callsResource, ensureSearchData, threadsResource } from '../state/workspace'
 import {
-  callDirectionLabel,
+  callOutcomeLabel,
+  callScreenedByDoNotDisturb,
   formatCompletedDuration,
   formatRelativeDate
 } from '../utils/format'
@@ -40,7 +41,7 @@ const activities = computed(() => {
 
 function title(activity: CommunicationActivity): string {
   if (activity.kind === 'message') return t('dashboard.message')
-  return callDirectionLabel(activity.call.direction, { missed: activity.call.missed })
+  return callOutcomeLabel(activity.call)
 }
 
 function detail(activity: CommunicationActivity): string {
@@ -67,7 +68,10 @@ function destination(activity: CommunicationActivity) {
             aria-hidden="true"
           >
             <MessageSquareText v-if="activity.kind === 'message'" :size="16" />
-            <PhoneMissed v-else-if="activity.call.missed" :size="16" />
+            <PhoneMissed
+              v-else-if="activity.call.missed || callScreenedByDoNotDisturb(activity.call)"
+              :size="16"
+            />
             <PhoneIncoming v-else-if="activity.call.direction === 'incoming'" :size="16" />
             <PhoneOutgoing v-else :size="16" />
           </span>

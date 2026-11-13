@@ -1169,17 +1169,9 @@ struct ModemDeckCallRecordRow: View {
         ], actions: contextActions)
     }
 
-    private var directionIcon: String {
-        if call.missed { return "phone.arrow.down.left" }
-        return call.direction == "incoming" ? "arrow.down.left" : "arrow.up.right"
-    }
+    private var directionIcon: String { call.outcomeIcon }
 
-    private var directionText: String {
-        if call.missed { return controller.text("未接来电", "Missed") }
-        return call.direction == "incoming"
-            ? controller.text("呼入", "Incoming")
-            : controller.text("呼出", "Outgoing")
-    }
+    private var directionText: String { call.outcomeText(controller.text) }
 }
 
 struct ModemDeckRecordingsView: View {
@@ -1892,17 +1884,9 @@ struct ModemDeckCallDetailView: View {
         return items
     }
 
-    private var directionText: String {
-        if call.missed { return controller.text("未接来电", "Missed") }
-        return call.direction == "incoming"
-            ? controller.text("呼入", "Incoming")
-            : controller.text("呼出", "Outgoing")
-    }
+    private var directionText: String { call.outcomeText(controller.text) }
 
-    private var directionIcon: String {
-        if call.missed { return "phone.arrow.down.left" }
-        return call.direction == "incoming" ? "arrow.down.left" : "arrow.up.right"
-    }
+    private var directionIcon: String { call.outcomeIcon }
 
     private func startCall() {
         guard controller.isOnline, let dialLine else { return }

@@ -74,6 +74,66 @@ private struct ModemDeckActivitySnapshot {
 
 /// Home is a quick view of the shared communication stores. Search, filters
 /// and bulk management belong to the dedicated pages; row actions stay shared.
+/// The account-wide incoming-call mode, one tap from the home page. The moon is
+/// filled and coloured while do-not-disturb is on, so the state shows unopened.
+struct ModemDeckIncomingCallModeMenu: View {
+    @ObservedObject var controller: ModemDeckSessionController
+    @ObservedObject private var store: ModemDeckIncomingCallModeStore
+    @State private var failure = ""
+
+    init(controller: ModemDeckSessionController) {
+        self.controller = controller
+        store = controller.incomingCallMode
+    }
+
+    private var doNotDisturb: Bool { store.doNotDisturb ?? false }
+
+    var body: some View {
+        Menu {
+            Picker(
+                controller.text("来电模式", "Incoming Calls"),
+                selection: Binding(get: { doNotDisturb }, set: { choose($0) })
+            ) {
+                Label(controller.text("接听来电", "Receive Calls"), systemImage: "phone").tag(false)
+                Label(controller.text("免打扰", "Do Not Disturb"), systemImage: "moon").tag(true)
+            }
+        } label: {
+            Image(systemName: doNotDisturb ? "moon.fill" : "moon")
+                .foregroundColor(doNotDisturb ? .mdWarning : nil)
+        }
+        .disabled(store.settings == nil || store.saving || !controller.isOnline)
+        .accessibilityLabel(controller.text("来电模式", "Incoming Calls"))
+        .accessibilityValue(doNotDisturb
+            ? controller.text("免打扰", "Do Not Disturb")
+            : controller.text("接听来电", "Receive Calls"))
+        .accessibilityIdentifier("incoming-call-mode")
+        .task(id: controller.isOnline) {
+            guard controller.isOnline else { return }
+            // A failed read leaves the button disabled; the next connection retries it.
+            do { try await store.load() } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+            }
+        }
+        .alert(
+            controller.text("无法更改来电模式", "Couldn’t Change Incoming Calls"),
+            isPresented: Binding(get: { !failure.isEmpty }, set: { if !$0 { failure = "" } })
+        ) {
+            Button(controller.text("好", "OK"), role: .cancel) {}
+        } message: {
+            Text(failure)
+        }
+    }
+
+    private func choose(_ enabled: Bool) {
+        Task {
+            do { try await store.setDoNotDisturb(enabled) } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+                failure = error.localizedDescription
+            }
+        }
+    }
+}
+
 struct ModemDeckHomeView: View {
     @ObservedObject var controller: ModemDeckSessionController
     @ObservedObject private var messages: ModemDeckMessagesStore
@@ -140,6 +200,13 @@ struct ModemDeckHomeView: View {
         VStack(spacing: 0) {
             ModemDeckPageHeader(title: controller.text("最近", "Recents"), controller: controller)
             activityList
+        }
+        .toolbar {
+            if controller.session?.role == "admin" {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ModemDeckIncomingCallModeMenu(controller: controller)
+                }
+            }
         }
     }
 

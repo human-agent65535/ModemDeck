@@ -73,7 +73,10 @@ test('unread rows carry weight, counts follow filters and empty results can be c
 
   assert.match(thread, /'is-unread': thread\.unread_count > 0 \|\| thread\.marked_unread/)
   assert.match(styles, /:is\(\.list-item--thread, \.call-list-item\)\.is-unread \.list-item__content strong \{\s*font-weight: var\(--weight-strong\);/)
-  assert.match(callRow, /<PhoneMissed v-if="call\.missed" class="call-list-item__direction"/)
+  assert.match(
+    callRow,
+    /<PhoneMissed\s+v-if="call\.missed \|\| callScreenedByDoNotDisturb\(call\)"\s+class="call-list-item__direction"/
+  )
   assert.match(calls, /\? filteredCalls\.length/)
   assert.match(messages, /\? filteredThreads\.length/)
   assert.match(recordings, /\? filteredRecordings\.length/)

@@ -790,7 +790,8 @@ test('native settings expose the full personal and management directory', async 
   assert.deepEqual(managementOrder, [...managementOrder].sort((left, right) => left - right))
   assert.doesNotMatch(settings, /controller\.text\("信息", "Information"\)/)
 
-  assert.match(settings, /controller\.text\("接收来电", "Receive Calls"\)/)
+  assert.match(settings, /controller\.text\("来电模式", "Incoming Calls"\)/)
+  assert.match(settings, /controller\.text\("来电策略", "Incoming Call Policy"\)/)
   assert.match(settings, /Apple 设备 \\\(user\.iosPairingDeviceCount\)\/3/)
   assert.doesNotMatch(settings, /profileName!/)
   assert.match(api, /func accountSessions\(/)

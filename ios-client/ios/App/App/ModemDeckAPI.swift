@@ -617,10 +617,29 @@ struct ModemDeckCallRecord: Codable, Identifiable, Hashable {
     let read: Bool
     let favorite: Bool
     let failureCode: String?
+    /// True when do-not-disturb held this incoming call back on arrival. Absent
+    /// from servers and cached records that predate the field.
+    var doNotDisturb: Bool? = nil
 
     var displayName: String {
         let name = contactName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return name.isEmpty ? remoteNumber : name
+    }
+
+    /// An incoming call nobody was rung for because do-not-disturb applied.
+    var screened: Bool { doNotDisturb == true && direction == "incoming" && durationSeconds == 0 }
+
+    /// The one description of how a call went, shared by every list and detail.
+    var outcomeIcon: String {
+        if screened { return "moon.fill" }
+        if missed { return "phone.arrow.down.left" }
+        return direction == "incoming" ? "arrow.down.left" : "arrow.up.right"
+    }
+
+    func outcomeText(_ text: (String, String) -> String) -> String {
+        if screened { return text("免打扰已拦截", "Blocked by Do Not Disturb") }
+        if missed { return text("未接来电", "Missed") }
+        return direction == "incoming" ? text("呼入", "Incoming") : text("呼出", "Outgoing")
     }
 }
 
@@ -704,6 +723,22 @@ struct ModemDeckRecordingSettings: Decodable, Equatable {
 struct ModemDeckGlobalCallSettings: Decodable, Equatable {
     let receiveCalls: Bool
     let revision: Int
+}
+
+/// A line's own incoming-call policy and what it resolves to right now.
+struct ModemDeckLineIncomingCalls: Decodable, Equatable {
+    struct Enforcement: Decodable, Equatable {
+        /// False when the line cannot reject a call: do-not-disturb then only silences it.
+        let available: Bool
+    }
+
+    /// `follow_global`, `receive` or `do_not_disturb`.
+    let policy: String
+    let revision: Int
+    /// `receive` or `do_not_disturb`, after resolving `follow_global`.
+    let effectivePolicy: String
+    let globalReceiveCalls: Bool
+    let enforcement: Enforcement
 }
 
 struct ModemDeckAccountSessionDevice: Decodable, Equatable {
@@ -944,7 +979,8 @@ extension ModemDeckCallRecord {
             missed: missed,
             read: action == .read ? true : (action == .unread ? false : read),
             favorite: action == .favorite ? true : (action == .unfavorite ? false : favorite),
-            failureCode: failureCode
+            failureCode: failureCode,
+            doNotDisturb: doNotDisturb
         )
     }
 }
@@ -1548,6 +1584,46 @@ final class ModemDeckAPIClient {
                 expectedRevision: revision
             ))
         )
+    }
+
+    func lineIncomingCalls(lineID: String) async throws -> ModemDeckLineIncomingCalls {
+        try await lineIncomingCalls(lineID: lineID, method: "GET", body: nil)
+    }
+
+    func updateLineIncomingCallPolicy(
+        lineID: String,
+        policy: String,
+        revision: Int
+    ) async throws -> ModemDeckLineIncomingCalls {
+        struct Payload: Encodable {
+            let operation = "set_incoming_call_policy"
+            let incomingCallPolicy: String
+            let expectedPolicyRevision: Int
+        }
+        return try await lineIncomingCalls(
+            lineID: lineID,
+            method: "PATCH",
+            body: try encoder.encode(Payload(
+                incomingCallPolicy: policy,
+                expectedPolicyRevision: revision
+            ))
+        )
+    }
+
+    private func lineIncomingCalls(
+        lineID: String,
+        method: String,
+        body: Data?
+    ) async throws -> ModemDeckLineIncomingCalls {
+        struct Response: Decodable { let incomingCalls: ModemDeckLineIncomingCalls? }
+        let response = try await decode(
+            Response.self,
+            path: "/api/v1/devices/\(modemDeckPathSegment(lineID))/configuration",
+            method: method,
+            body: body
+        )
+        guard let incomingCalls = response.incomingCalls else { throw ModemDeckAPIError.invalidResponse }
+        return incomingCalls
     }
 
     func updateLineSettings(

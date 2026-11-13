@@ -743,6 +743,43 @@ func TestActiveCallReportsOccupiedToAnotherBrowser(t *testing.T) {
 	}
 }
 
+func TestActiveCallsOmitRingingCallHeldByDoNotDisturb(t *testing.T) {
+	t.Parallel()
+
+	screened := store.Call{
+		ID:           "call-screened",
+		LineID:       "line-stable",
+		Direction:    "incoming",
+		RemoteNumber: "+818012345678",
+		Phase:        "ringing",
+		DoNotDisturb: true,
+	}
+	offered := screened
+	offered.ID = "call-offered"
+	offered.DoNotDisturb = false
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        &fakeCommunications{active: []store.Call{screened, offered}},
+		CallLeases:            &fakeCallLeases{control: calllease.ControlAvailable},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/calls/active", nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var body activeCallsResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Calls) != 1 || body.Calls[0].ID != offered.ID {
+		t.Fatalf("active calls = %+v; want only %q", body.Calls, offered.ID)
+	}
+}
+
 func TestActiveCallsIncludeOutgoingLineReservations(t *testing.T) {
 	t.Parallel()
 

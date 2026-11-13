@@ -140,6 +140,14 @@ func TestDNDEnqueuesEachNewRingingIncomingCallOnlyOnce(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ringing ApplyHardwareSnapshot() error = %v", err)
 	}
+	active, err := repository.ActiveCalls(ctx)
+	if err != nil || len(active) != 1 || !active[0].ScreenedWhileRinging() {
+		t.Fatalf("active calls = %+v, error = %v; want one screened ringing call", active, err)
+	}
+	history, err := repository.Calls(ctx, CallQuery{Kind: CallKindAll, Limit: 10})
+	if err != nil || len(history) != 1 || !history[0].DoNotDisturb {
+		t.Fatalf("call history = %+v, error = %v; want the do-not-disturb mark", history, err)
+	}
 	claimed, err := repository.ClaimIncomingCallActions(ctx, 10)
 	if err != nil {
 		t.Fatalf("ClaimIncomingCallActions() error = %v", err)

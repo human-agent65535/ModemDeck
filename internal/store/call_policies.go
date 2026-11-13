@@ -16,6 +16,23 @@ var (
 	ErrIncomingCallActionState = errors.New("incoming call action is not sending")
 )
 
+// callDoNotDisturbSQL selects whether the do-not-disturb policy screened a call.
+// An action row exists only for a call that arrived while the policy applied,
+// so it stays true after the policy changes. The verb is the call_history alias.
+const callDoNotDisturbSQL = `EXISTS (
+	SELECT 1 FROM modemdeck_incoming_call_actions AS screening
+	WHERE screening.call_id = %s.id
+		AND screening.effective_policy = 'do_not_disturb'
+)`
+
+// ScreenedWhileRinging reports whether the call is an unanswered incoming call
+// that do-not-disturb is holding back. Such a call must not be offered to any
+// client: the line may be unable to reject it, and it then rings out unseen.
+func (call Call) ScreenedWhileRinging() bool {
+	return call.DoNotDisturb && call.Direction == string(CallKindIncoming) &&
+		call.ActiveAt == nil && call.Phase == "ringing"
+}
+
 func (s *Store) GlobalCallSettings(ctx context.Context) (GlobalCallSettings, error) {
 	return globalCallSettings(ctx, s.database)
 }

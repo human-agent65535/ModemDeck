@@ -87,6 +87,7 @@ final class ModemDeckSessionController: ObservableObject {
     let contactsStore: ModemDeckContactsStore
     let messagesStore: ModemDeckMessagesStore
     let callsStore: ModemDeckCallsStore
+    let incomingCallMode: ModemDeckIncomingCallModeStore
     private var refreshGeneration = 0
     private var transportFailureRevision = 0
     private let networkMonitor = NWPathMonitor()
@@ -142,6 +143,7 @@ final class ModemDeckSessionController: ObservableObject {
         self.contactsStore = contactsStore
         messagesStore = ModemDeckMessagesStore(api: api, contactsStore: contactsStore)
         callsStore = ModemDeckCallsStore(api: api, contactsStore: contactsStore)
+        incomingCallMode = ModemDeckIncomingCallModeStore(api: api)
         protectedDataObserver = NotificationCenter.default
             .publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)
             .sink { [weak self] _ in
@@ -592,6 +594,7 @@ final class ModemDeckSessionController: ObservableObject {
             stopRuntimeEvents(resetWatermark: true)
             stopMessageEvents()
             callsStore.clear()
+            incomingCallMode.clear()
             api.clearCachedData()
             try credentialStore.save(credential)
             ModemDeckPushCoordinator.shared.configure(store: credentialStore)
@@ -762,6 +765,7 @@ final class ModemDeckSessionController: ObservableObject {
         contactsStore.clear()
         messagesStore.clear()
         callsStore.clear()
+        incomingCallMode.clear()
         ModemDeckPushCoordinator.shared.clearConfiguration()
         api.clearCachedData()
         do {
@@ -1441,6 +1445,57 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
         }
     }
     #endif
+}
+
+/// The account-wide incoming-call mode: ring, or do not disturb. One owner, so the
+/// home bar and Settings show and change the same value. The server lets only an
+/// administrator read or change it.
+@MainActor
+final class ModemDeckIncomingCallModeStore: ObservableObject {
+    @Published private(set) var settings: ModemDeckGlobalCallSettings?
+    @Published private(set) var saving = false
+
+    private let api: ModemDeckAPIClient
+    private var scope = 0
+
+    init(api: ModemDeckAPIClient) {
+        self.api = api
+    }
+
+    var doNotDisturb: Bool? { settings.map { !$0.receiveCalls } }
+
+    func load() async throws {
+        let scope = scope
+        let loaded = try await api.callSettings()
+        // A save in flight already shows the user's choice; its answer is newer.
+        guard scope == self.scope, !saving else { return }
+        settings = loaded
+    }
+
+    /// Shows the choice at once. If the server refuses it, the server's own value
+    /// is read again, because a refusal usually means another client changed it.
+    func setDoNotDisturb(_ enabled: Bool) async throws {
+        guard let current = settings, !saving, current.receiveCalls == enabled else { return }
+        let scope = scope
+        settings = ModemDeckGlobalCallSettings(receiveCalls: !enabled, revision: current.revision)
+        saving = true
+        defer { if scope == self.scope { saving = false } }
+        do {
+            let saved = try await api.updateCallSettings(receiveCalls: !enabled, revision: current.revision)
+            guard scope == self.scope else { return }
+            settings = saved
+        } catch {
+            guard scope == self.scope else { throw error }
+            settings = (try? await api.callSettings()) ?? current
+            throw error
+        }
+    }
+
+    func clear() {
+        scope += 1
+        settings = nil
+        saving = false
+    }
 }
 
 @MainActor

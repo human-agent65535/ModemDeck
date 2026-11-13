@@ -998,6 +998,7 @@ export default {
     callDetails: 'Call details',
     direction: 'Direction',
     missedCall: 'Missed call',
+    blockedByDoNotDisturb: 'Blocked by Do Not Disturb',
     incoming: 'Incoming',
     outgoing: 'Outgoing',
     time: 'Time',

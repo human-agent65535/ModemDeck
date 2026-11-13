@@ -83,11 +83,13 @@ test('call parsing preserves stable historical line identities', () => {
     started_at: '2026-07-24T12:00:00Z',
     duration_seconds: 4,
     missed: false,
+    do_not_disturb: true,
     read: true,
     favorite: true
   })
 
   assert.equal(call.line_id, 'line-history')
+  assert.equal(call.do_not_disturb, true)
   assert.equal(call.read, true)
   assert.equal(call.favorite, true)
   assert.equal('local_phone' in call, false)

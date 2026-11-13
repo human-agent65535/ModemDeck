@@ -296,6 +296,7 @@ export function parseCallRecord(value: unknown): CallRecord {
     ended_at: optionalTimestamp(source, 'ended_at'),
     duration_seconds: Math.max(0, numberValue(source, 'duration_seconds')),
     missed: source.missed === true,
+    do_not_disturb: source.do_not_disturb === true,
     read: source.read === true,
     favorite: source.favorite === true,
     failure_reason: stringValue(source, 'failure_code') || undefined
