@@ -115,16 +115,9 @@ func (service *fakeCallPolicies) UpdateLineCallPolicy(
 	service.lineRevisionUpdate = revision
 	service.line.Policy = policy
 	service.line.Revision++
-	switch policy {
-	case store.LineCallPolicyReceive:
-		service.effective.Policy = store.EffectiveCallPolicyReceive
-	case store.LineCallPolicyDND:
+	service.effective.Policy = store.EffectiveCallPolicyReceive
+	if policy == store.LineCallPolicyDND || !service.global.ReceiveCalls {
 		service.effective.Policy = store.EffectiveCallPolicyDND
-	case store.LineCallPolicyFollowGlobal:
-		service.effective.Policy = store.EffectiveCallPolicyReceive
-		if !service.global.ReceiveCalls {
-			service.effective.Policy = store.EffectiveCallPolicyDND
-		}
 	}
 	return service.line, nil
 }

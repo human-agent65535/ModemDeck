@@ -445,13 +445,15 @@ func callPolicyConfiguration(
 	if err != nil {
 		return CallPolicyConfiguration{}, err
 	}
+	// The account-wide do-not-disturb covers every line; a line's own policy
+	// only adds do-not-disturb for that line while the account receives calls.
+	// It is kept either way, so it applies again once the account-wide mode is
+	// off. follow_global is the stored default and means the same as receive.
 	effective := EffectiveCallPolicyReceive
 	switch line.Policy {
-	case LineCallPolicyReceive:
-		effective = EffectiveCallPolicyReceive
 	case LineCallPolicyDND:
 		effective = EffectiveCallPolicyDND
-	case LineCallPolicyFollowGlobal:
+	case LineCallPolicyReceive, LineCallPolicyFollowGlobal:
 		if !global.ReceiveCalls {
 			effective = EffectiveCallPolicyDND
 		}

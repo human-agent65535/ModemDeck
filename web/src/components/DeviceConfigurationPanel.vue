@@ -112,6 +112,7 @@ import { LocalizedError, userErrorMessage } from '../utils/errorMessage'
 
 type DeviceTab = 'overview' | 'network' | 'sim' | 'sms' | 'voice' | 'ussd'
 type AsyncStatus = 'idle' | 'loading' | 'ready' | 'error'
+type LineIncomingCallChoice = Extract<IncomingCallPolicy, 'receive' | 'do_not_disturb'>
 
 const { t } = useI18n()
 const route = useRoute()
@@ -137,7 +138,7 @@ const requestedDeviceLineID = computed(() =>
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 const apn = ref('')
 const ipFamily = ref<IPFamily>('ipv4v6')
-const incomingPolicyDraft = ref<IncomingCallPolicy>('follow_global')
+const incomingPolicyDraft = ref<LineIncomingCallChoice>('receive')
 const voltePolicyDraft = ref<'enabled' | 'disabled' | ''>('')
 
 const moduleError = ref('')
@@ -677,7 +678,7 @@ watch(selectedLineID, lineID => activateNetworkSelection(lineID), { immediate: t
 watch(
   () => incomingCalls.value?.revision,
   () => {
-    incomingPolicyDraft.value = incomingCalls.value?.policy || 'follow_global'
+    incomingPolicyDraft.value = lineIncomingCallChoice(incomingCalls.value?.policy)
   }
 )
 
@@ -886,10 +887,16 @@ function capabilityStatus(capability: DeviceFeatureCapability, id = ''): string 
   return t('device.unsupported')
 }
 
+// A line stores follow_global, receive or do_not_disturb; follow_global now
+// means receive, so the line choice is do-not-disturb or receive.
+function lineIncomingCallChoice(policy: IncomingCallPolicy | undefined): LineIncomingCallChoice {
+  return policy === 'do_not_disturb' ? 'do_not_disturb' : 'receive'
+}
+
 function policyLabel(policy: IncomingCallPolicy): string {
-  if (policy === 'follow_global') return t('device.followGlobal')
-  if (policy === 'receive') return t('device.receiveCalls')
-  return t('device.doNotDisturb')
+  return lineIncomingCallChoice(policy) === 'do_not_disturb'
+    ? t('device.doNotDisturb')
+    : t('device.receiveCalls')
 }
 
 async function makeDefault(line: LineSummary): Promise<void> {
@@ -1113,7 +1120,7 @@ async function applyIncomingPolicy(): Promise<void> {
       setIncomingCallPolicy(selectedLineID.value, incomingPolicyDraft.value)
     )
     if (!saved) {
-      incomingPolicyDraft.value = incomingCalls.value?.policy || 'follow_global'
+      incomingPolicyDraft.value = lineIncomingCallChoice(incomingCalls.value?.policy)
     }
   }
 }
@@ -2450,16 +2457,6 @@ onMounted(() => {
                     class="ui-choice-input--hidden"
                     v-model="incomingPolicyDraft"
                     type="radio"
-                    value="follow_global"
-                    @change="applyIncomingPolicy"
-                  />
-                  <span>{{ t('device.followGlobal') }}</span>
-                </label>
-                <label>
-                  <input
-                    class="ui-choice-input--hidden"
-                    v-model="incomingPolicyDraft"
-                    type="radio"
                     value="receive"
                     @change="applyIncomingPolicy"
                   />
@@ -2481,14 +2478,8 @@ onMounted(() => {
             <div v-if="!incomingCallControlUnavailable" class="incoming-policy__status">
               <span>{{ t('device.current') }}</span>
               <strong>{{ policyLabel(incomingCalls.effective_policy) }}</strong>
-              <small v-if="incomingPolicyDraft === 'follow_global'">
-                {{
-                  t('device.globalPolicy', {
-                    policy: incomingCalls.global_receive_calls
-                      ? t('device.receiveCalls')
-                      : t('device.doNotDisturb')
-                  })
-                }}
+              <small v-if="!incomingCalls.global_receive_calls">
+                {{ t('device.globalDoNotDisturbNote') }}
               </small>
             </div>
             <p
@@ -3835,7 +3826,7 @@ onMounted(() => {
 .incoming-policy__options {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0;
   padding: 3px;
   overflow: hidden;
@@ -3851,7 +3842,7 @@ onMounted(() => {
   top: 3px;
   bottom: 3px;
   left: 3px;
-  width: calc((100% - 6px) / 3);
+  width: calc((100% - 6px) / 2);
   pointer-events: none;
   background: var(--surface);
   border-radius: var(--radius-xs);
@@ -3860,12 +3851,8 @@ onMounted(() => {
   transition: transform var(--motion-base) var(--ease-standard);
 }
 
-.incoming-policy__options[data-selection='receive'] .incoming-policy__slider {
-  transform: translateX(100%);
-}
-
 .incoming-policy__options[data-selection='do_not_disturb'] .incoming-policy__slider {
-  transform: translateX(200%);
+  transform: translateX(100%);
 }
 
 .incoming-policy__options label {
@@ -3914,6 +3901,7 @@ onMounted(() => {
 .incoming-policy__status {
   display: flex;
   min-height: 28px;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   color: var(--muted);

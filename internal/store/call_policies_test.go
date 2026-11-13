@@ -75,8 +75,20 @@ func TestCallPolicyDefaultsOverridesAndOptimisticLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EffectiveCallPolicy() error = %v", err)
 	}
-	if effective.Policy != EffectiveCallPolicyReceive {
-		t.Fatalf("line receive override effective policy = %+v", effective)
+	if effective.Policy != EffectiveCallPolicyDND {
+		t.Fatalf("account-wide do-not-disturb must cover a line set to receive: %+v", effective)
+	}
+	global, err = repository.UpdateGlobalCallSettings(ctx, true, global.Revision)
+	if err != nil {
+		t.Fatalf("UpdateGlobalCallSettings() error = %v", err)
+	}
+	configuration, err = repository.CallPolicyConfiguration(ctx, stableLineID)
+	if err != nil {
+		t.Fatalf("CallPolicyConfiguration() error = %v", err)
+	}
+	if configuration.Line.Policy != LineCallPolicyReceive ||
+		configuration.Effective.Policy != EffectiveCallPolicyReceive {
+		t.Fatalf("the line's own policy must apply again: %+v", configuration)
 	}
 	if _, err := repository.UpdateLineCallPolicy(
 		ctx,

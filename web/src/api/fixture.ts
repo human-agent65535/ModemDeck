@@ -1526,12 +1526,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       throw new ApiError('线路不存在', 404, 'not_found')
     }
     const rejectAvailable = line.capabilities?.reject === true
-    const effectivePolicy =
-      policy.policy === 'follow_global'
-        ? globalCallSettings.receive_calls
-          ? 'receive'
-          : 'do_not_disturb'
-        : policy.policy
+    // Account-wide do-not-disturb covers every line; otherwise only a line set
+    // to do_not_disturb is quiet (follow_global and receive both ring).
+    const effectivePolicy: IncomingCallPolicy =
+      !globalCallSettings.receive_calls || policy.policy === 'do_not_disturb'
+        ? 'do_not_disturb'
+        : 'receive'
     return {
       hardware: clone(hardware),
       incoming_calls: {

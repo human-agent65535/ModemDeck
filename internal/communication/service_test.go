@@ -481,8 +481,7 @@ func (repository *fakeRepository) EffectiveCallPolicy(
 	global, _ := repository.GlobalCallSettings(context.Background())
 	line, _ := repository.LineCallPolicy(context.Background(), lineID)
 	effective := store.EffectiveCallPolicyReceive
-	if line.Policy == store.LineCallPolicyDND ||
-		(line.Policy == store.LineCallPolicyFollowGlobal && !global.ReceiveCalls) {
+	if line.Policy == store.LineCallPolicyDND || !global.ReceiveCalls {
 		effective = store.EffectiveCallPolicyDND
 	}
 	return store.EffectiveCallPolicy{

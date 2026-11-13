@@ -174,7 +174,7 @@ test('VoWiFi is status-only while VoLTE uses the shared binary switch', () => {
   assert.doesNotMatch(volteSection, /<select/)
 })
 
-test('incoming call override uses a compact three-state segmented control', () => {
+test('incoming call override uses a compact two-state segmented control', () => {
   const voiceStart = source.indexOf("<template v-else-if=\"activeTab === 'voice'\">")
   const voiceEnd = source.indexOf('<template v-else>', voiceStart)
   const voiceSection = source.slice(voiceStart, voiceEnd)
@@ -183,7 +183,7 @@ test('incoming call override uses a compact three-state segmented control', () =
   const incomingSection = voiceSection.slice(incomingStart, incomingEnd)
 
   assert.match(incomingSection, /class="incoming-policy"/)
-  assert.match(incomingSection, /type="radio"\s+value="follow_global"/)
+  assert.doesNotMatch(incomingSection, /value="follow_global"/)
   assert.match(incomingSection, /type="radio"\s+value="receive"/)
   assert.match(incomingSection, /type="radio"\s+value="do_not_disturb"/)
   assert.match(
@@ -221,19 +221,16 @@ test('incoming call override uses a compact three-state segmented control', () =
   assert.doesNotMatch(incomingSection, />保存</)
   assert.match(
     source,
-    /\.incoming-policy__options\s*\{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)[^}]*gap: 0/s
+    /\.incoming-policy__options\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)[^}]*gap: 0/s
   )
   assert.match(
     source,
-    /\.incoming-policy__slider\s*\{[^}]*width: calc\(\(100% - 6px\) \/ 3\)[^}]*transition: transform var\(--motion-base\) var\(--ease-standard\)/s
+    /\.incoming-policy__slider\s*\{[^}]*width: calc\(\(100% - 6px\) \/ 2\)[^}]*transition: transform var\(--motion-base\) var\(--ease-standard\)/s
   )
+  assert.doesNotMatch(source, /\[data-selection='receive'\] \.incoming-policy__slider/)
   assert.match(
     source,
-    /\[data-selection='receive'\] \.incoming-policy__slider\s*\{[^}]*transform: translateX\(100%\)/s
-  )
-  assert.match(
-    source,
-    /\[data-selection='do_not_disturb'\] \.incoming-policy__slider\s*\{[^}]*transform: translateX\(200%\)/s
+    /\[data-selection='do_not_disturb'\] \.incoming-policy__slider\s*\{[^}]*transform: translateX\(100%\)/s
   )
   assert.match(
     source,

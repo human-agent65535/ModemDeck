@@ -645,6 +645,22 @@ test('fixture applies successful revisioned updates and rejects stale revisions'
   })
   assert.equal(updatedPolicy.incoming_calls?.policy, 'do_not_disturb')
   assert.equal(updatedPolicy.incoming_calls?.effective_policy, 'do_not_disturb')
+
+  const receivePolicy = await gateway.updateDeviceConfiguration('line-fixture-main', {
+    operation: 'set_incoming_call_policy',
+    expected_policy_revision: updatedPolicy.incoming_calls.revision,
+    incoming_call_policy: 'receive'
+  })
+  assert.equal(receivePolicy.incoming_calls?.policy, 'receive')
+  assert.equal(receivePolicy.incoming_calls?.global_receive_calls, false)
+  assert.equal(receivePolicy.incoming_calls?.effective_policy, 'do_not_disturb')
+  await gateway.updateGlobalCallSettings({
+    receive_calls: true,
+    expected_revision: updatedGlobal.revision
+  })
+  const restored = (await gateway.getDeviceConfiguration('line-fixture-main')).incoming_calls
+  assert.equal(restored.policy, 'receive')
+  assert.equal(restored.effective_policy, 'receive')
 })
 
 test('SMS delivery reports are an opt-in revisioned device setting', async () => {
