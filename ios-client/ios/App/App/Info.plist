@@ -32,6 +32,11 @@
 	<string>ModemDeck reads the contacts on this device and, after you confirm, imports them into your paired server.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ModemDeck uses the microphone for calls you place or answer.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INStartCallIntent</string>
+		<string>INStartAudioCallIntent</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

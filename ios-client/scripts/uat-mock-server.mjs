@@ -194,8 +194,8 @@ const linePolicies = new Map()
 function lineIncomingCalls(lineID) {
   if (!linePolicies.has(lineID)) linePolicies.set(lineID, { policy: 'follow_global', revision: 1 })
   const line = linePolicies.get(lineID)
-  const doNotDisturb = line.policy === 'do_not_disturb' ||
-    (line.policy === 'follow_global' && !callSettings.receive_calls)
+  // The account-wide do-not-disturb covers every line; a line's own policy adds to it.
+  const doNotDisturb = line.policy === 'do_not_disturb' || !callSettings.receive_calls
   return {
     incoming_calls: {
       policy: line.policy,

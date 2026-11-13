@@ -75,6 +75,8 @@ final class ModemDeckSessionController: ObservableObject {
     @Published var callsFilter = "all"
     @Published private(set) var callsNavigationRevision = 0
     @Published private(set) var requestedMessageThreadKey: String?
+    /// Changes each time the system asks for the dialer; the shell opens it once per change.
+    @Published private(set) var dialRequestRevision = 0
     @Published private(set) var connectionState: ModemDeckConnectionState = .checking {
         didSet { if connectionState != oldValue { ModemDeckDiagnostics.shared.record(.network, "connection_state_changed", fields: ["status": String(describing: connectionState)]) } }
     }
@@ -638,6 +640,16 @@ final class ModemDeckSessionController: ObservableObject {
     func removeLocalPairing() async {
         ModemDeckDiagnostics.shared.record(.pairing, "pairing_removed_locally")
         await resetAfterRevocation()
+    }
+
+    /// Puts a number the system asked this app to call into the dialer and asks the
+    /// shell to show it. The user still picks the line and starts the call, because
+    /// the system request names no line. Ignored while a call is in progress.
+    func requestDial(number: String) {
+        let number = String(number.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
+        guard !number.isEmpty, callController.call == nil else { return }
+        dialDraft.number = number
+        dialRequestRevision &+= 1
     }
 
     func openMessage(threadKey: String) {
@@ -1455,6 +1467,12 @@ final class ModemDeckIncomingCallModeStore: ObservableObject {
     @Published private(set) var settings: ModemDeckGlobalCallSettings?
     @Published private(set) var saving = false
 
+    /// Each line's own policy, by line ID. A line whose policy could not be read
+    /// has no entry; `linePoliciesLoaded` tells that apart from not read yet.
+    @Published private(set) var linePolicies: [String: ModemDeckLineIncomingCalls] = [:]
+    @Published private(set) var linePoliciesLoaded = false
+    @Published private(set) var savingLineID: String?
+
     private let api: ModemDeckAPIClient
     private var scope = 0
 
@@ -1463,6 +1481,52 @@ final class ModemDeckIncomingCallModeStore: ObservableObject {
     }
 
     var doNotDisturb: Bool? { settings.map { !$0.receiveCalls } }
+
+    /// Whether the account-wide do-not-disturb is on, as the server reported with the line.
+    func accountDoNotDisturb(_ line: ModemDeckLineIncomingCalls) -> Bool {
+        !line.globalReceiveCalls
+    }
+
+    /// Whether do-not-disturb applies to a line right now. The server resolves this;
+    /// the app does not work it out from the two settings.
+    func doNotDisturb(_ line: ModemDeckLineIncomingCalls) -> Bool {
+        line.effectivePolicy == "do_not_disturb"
+    }
+
+    func loadLinePolicies(lineIDs: [String]) async {
+        let scope = scope
+        var loaded: [String: ModemDeckLineIncomingCalls] = [:]
+        for lineID in lineIDs {
+            do { loaded[lineID] = try await api.lineIncomingCalls(lineID: lineID) } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+            }
+        }
+        guard scope == self.scope, !Task.isCancelled else { return }
+        // A save in flight owns its line: its answer is newer than this read.
+        if let savingLineID, let current = linePolicies[savingLineID] { loaded[savingLineID] = current }
+        linePolicies = loaded
+        linePoliciesLoaded = true
+    }
+
+    /// If the server refuses the change, its own value is read again, because a
+    /// refusal usually means another client changed the policy first.
+    func setLinePolicy(_ policy: String, lineID: String) async throws {
+        guard let current = linePolicies[lineID], savingLineID == nil,
+              ModemDeckIncomingCallPolicyText.choice(current.policy) != policy else { return }
+        let scope = scope
+        savingLineID = lineID
+        defer { if scope == self.scope { savingLineID = nil } }
+        do {
+            let saved = try await api.updateLineIncomingCallPolicy(lineID: lineID, policy: policy, revision: current.revision)
+            guard scope == self.scope else { return }
+            linePolicies[lineID] = saved
+        } catch {
+            if scope == self.scope, let latest = try? await api.lineIncomingCalls(lineID: lineID), scope == self.scope {
+                linePolicies[lineID] = latest
+            }
+            throw error
+        }
+    }
 
     func load() async throws {
         let scope = scope
@@ -1484,6 +1548,8 @@ final class ModemDeckIncomingCallModeStore: ObservableObject {
             let saved = try await api.updateCallSettings(receiveCalls: !enabled, revision: current.revision)
             guard scope == self.scope else { return }
             settings = saved
+            // The account-wide mode changes what every line resolves to.
+            if !linePolicies.isEmpty { await loadLinePolicies(lineIDs: Array(linePolicies.keys)) }
         } catch {
             guard scope == self.scope else { throw error }
             settings = (try? await api.callSettings()) ?? current
@@ -1495,6 +1561,29 @@ final class ModemDeckIncomingCallModeStore: ObservableObject {
         scope += 1
         settings = nil
         saving = false
+        linePolicies = [:]
+        linePoliciesLoaded = false
+        savingLineID = nil
+    }
+}
+
+/// A line's own incoming-call choice and its words, the same wherever one is shown
+/// or chosen. The server also stores `follow_global`, the default for a line never
+/// changed; it means the same as `receive` and is never offered or written.
+enum ModemDeckIncomingCallPolicyText {
+    static let choices = ["receive", "do_not_disturb"]
+
+    static func choice(_ policy: String) -> String {
+        policy == "do_not_disturb" ? "do_not_disturb" : "receive"
+    }
+
+    static func title(_ policy: String, _ text: (String, String) -> String) -> String {
+        choice(policy) == "do_not_disturb" ? text("免打扰", "Do Not Disturb") : text("接听来电", "Receive Calls")
+    }
+
+    /// Said beside a line's own choice while the account-wide mode overrides it.
+    static func accountNote(_ text: (String, String) -> String) -> String {
+        text("全局免打扰已开启，关闭后恢复此线路的设置", "Do Not Disturb is on for all lines. This line’s setting returns when it is off.")
     }
 }
 

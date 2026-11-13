@@ -1093,6 +1093,7 @@ private struct ModemDeckWorkspaceShell: View {
     @Binding var callExpanded: Bool
     @StateObject private var navigation = ModemDeckShellNavigation()
     @State private var showingDialer: Bool
+    @State private var shownDialRequest = 0
     @State private var showingSettings = false
     private let badges: ModemDeckSectionBadgeSource
 
@@ -1120,7 +1121,9 @@ private struct ModemDeckWorkspaceShell: View {
         .onAppear {
             navigation.shownSection = tabSection(controller.selectedSection)
             presentRequestedSettings()
+            presentRequestedDialer()
         }
+        .onChange(of: controller.dialRequestRevision) { _ in presentRequestedDialer() }
         .onChange(of: controller.selectedSection) { section in
             presentRequestedSettings()
             UIApplication.shared.sendAction(
@@ -1235,6 +1238,15 @@ private struct ModemDeckWorkspaceShell: View {
 
     private func openDialer() {
         if callController.call != nil { callExpanded = true } else { showingDialer = true }
+    }
+
+    /// A request made before this shell existed (a cold launch from Phone Recents) is
+    /// still pending when it appears; each request opens the dialer once.
+    private func presentRequestedDialer() {
+        guard controller.dialRequestRevision != shownDialRequest else { return }
+        shownDialRequest = controller.dialRequestRevision
+        showingSettings = false
+        openDialer()
     }
 }
 
@@ -1454,7 +1466,10 @@ struct ModemDeckHomeLineGrid: View {
                 VStack(spacing: 0) {
                     ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
                         if index > 0 { Divider().padding(.leading, 62) }
-                        ModemDeckHomeLineCard(controller: controller, line: line)
+                        HStack(spacing: 0) {
+                            ModemDeckHomeLineCard(controller: controller, line: line)
+                            ModemDeckLineIncomingPolicyMenu(controller: controller, line: line)
+                        }
                     }
                 }
                 .padding(ModemDeckSpacing.xxs)
@@ -1463,6 +1478,91 @@ struct ModemDeckHomeLineGrid: View {
             }
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .task(id: ModemDeckLinePolicyLoad(lineIDs: lines.map(\.id), online: controller.isOnline)) {
+            guard controller.isOnline, !lines.isEmpty else { return }
+            await controller.incomingCallMode.loadLinePolicies(lineIDs: lines.map(\.id))
+        }
+    }
+}
+
+/// Line policies are read again when the set of lines changes or the connection returns.
+private struct ModemDeckLinePolicyLoad: Equatable {
+    let lineIDs: [String]
+    let online: Bool
+}
+
+/// One line's own incoming-call policy, on its home card. The moon is filled and
+/// coloured while do-not-disturb applies to the line, whether by its own choice
+/// or because the account-wide mode covers it. Nothing shows until the policy is known.
+private struct ModemDeckLineIncomingPolicyMenu: View {
+    @ObservedObject var controller: ModemDeckSessionController
+    @ObservedObject private var store: ModemDeckIncomingCallModeStore
+    let line: ModemDeckLine
+    @State private var failure = ""
+
+    init(controller: ModemDeckSessionController, line: ModemDeckLine) {
+        self.controller = controller
+        self.line = line
+        store = controller.incomingCallMode
+    }
+
+    var body: some View {
+        if let incoming = store.linePolicies[line.id] {
+            let doNotDisturb = store.doNotDisturb(incoming)
+            Menu {
+                if store.accountDoNotDisturb(incoming) {
+                    // A disabled row is the one way a menu shows explanatory text reliably.
+                    Section {
+                        Button(ModemDeckIncomingCallPolicyText.accountNote(controller.text)) {}
+                            .disabled(true)
+                    }
+                }
+                Picker(
+                    controller.text("来电策略", "Incoming Call Policy"),
+                    selection: Binding(
+                        get: { ModemDeckIncomingCallPolicyText.choice(incoming.policy) },
+                        set: { choose($0) }
+                    )
+                ) {
+                    ForEach(ModemDeckIncomingCallPolicyText.choices, id: \.self) { policy in
+                        Text(ModemDeckIncomingCallPolicyText.title(policy, controller.text)).tag(policy)
+                    }
+                }
+            } label: {
+                Image(systemName: doNotDisturb ? "moon.fill" : "moon")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(doNotDisturb ? .mdWarning : .mdMuted)
+                    .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
+                    .contentShape(Rectangle())
+            }
+            .disabled(store.savingLineID != nil || !controller.isOnline)
+            .accessibilityLabel(controller.text("\(line.displayName) 来电策略", "\(line.displayName) incoming call policy"))
+            .accessibilityValue(valueText(incoming, doNotDisturb: doNotDisturb))
+            .accessibilityIdentifier("home-line-incoming-policy-" + line.id)
+            .alert(
+                controller.text("无法更改来电策略", "Couldn’t Change the Call Policy"),
+                isPresented: Binding(get: { !failure.isEmpty }, set: { if !$0 { failure = "" } })
+            ) {
+                Button(controller.text("好", "OK"), role: .cancel) {}
+            } message: {
+                Text(failure)
+            }
+        }
+    }
+
+    private func valueText(_ incoming: ModemDeckLineIncomingCalls, doNotDisturb: Bool) -> String {
+        let own = ModemDeckIncomingCallPolicyText.title(incoming.policy, controller.text)
+        guard store.accountDoNotDisturb(incoming) else { return own }
+        return own + " · " + ModemDeckIncomingCallPolicyText.accountNote(controller.text)
+    }
+
+    private func choose(_ policy: String) {
+        Task {
+            do { try await store.setLinePolicy(policy, lineID: line.id) } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+                failure = error.localizedDescription
+            }
+        }
     }
 }
 

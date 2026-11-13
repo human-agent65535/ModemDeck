@@ -3,6 +3,7 @@ import CryptoKit
 import AVFoundation
 import CallKit
 import Darwin
+import Intents
 import PushKit
 import Security
 import UIKit
@@ -693,7 +694,38 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         }
     }
 
+    /// The number a system call request asks this app to call: a tap on one of this
+    /// app's entries in Phone Recents, this app chosen on a contact card, or Siri.
+    /// Recents still sends the older audio-call intent, so both are read.
+    static func dialNumber(from activity: NSUserActivity) -> String? {
+        let intent = activity.interaction?.intent
+        let contacts = (intent as? INStartCallIntent)?.contacts ?? (intent as? INStartAudioCallIntent)?.contacts
+        let number = contacts?.first?.personHandle?.value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return number.isEmpty ? nil : number
+    }
+
+    /// Tells the system a real call with this number went through this app, which is
+    /// what lets it offer the app for that contact. Test calls are never donated.
+    private func donateCall(number: String, displayName: String, outgoing: Bool) {
+        let person = INPerson(
+            personHandle: INPersonHandle(value: number, type: .phoneNumber),
+            nameComponents: nil, displayName: displayName, image: nil,
+            contactIdentifier: nil, customIdentifier: nil
+        )
+        let intent = INStartCallIntent(
+            callRecordFilter: nil, callRecordToCallBack: nil, audioRoute: .unknown,
+            destinationType: .normal, contacts: [person], callCapability: .audioCall
+        )
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.direction = outgoing ? .outgoing : .incoming
+        interaction.donate { error in
+            if let error { ModemDeckDiagnostics.shared.record(.callkit, "call_donation_failed", error: error) }
+        }
+    }
+
     func clearConfiguration() {
+        // The numbers this pairing called leave with it.
+        INInteraction.deleteAll { _ in }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.cancelPendingCallEnds()
@@ -1014,7 +1046,12 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             let action = CXStartCallAction(call: uuid, handle: handle)
             action.isVideo = false
             self.callController.request(CXTransaction(action: action)) { [weak self] error in
-                guard let error else { return }
+                guard let error else {
+                    DispatchQueue.main.async {
+                        self?.donateCall(number: remoteNumber, displayName: displayName, outgoing: true)
+                    }
+                    return
+                }
                 DispatchQueue.main.async {
                     guard let pending = self?.pendingOutgoingCalls.removeValue(
                         forKey: uuid
@@ -1463,6 +1500,9 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                     self.scheduleTestCallTimeout(uuid, after: self.answeredCallUUIDs.contains(uuid) ? 60 : 30)
                     self.publishCallState()
                 } else if self.callAudioSessions[uuid] != nil {
+                    if let number = update.remoteHandle?.value {
+                        self.donateCall(number: number, displayName: update.localizedCallerName ?? number, outgoing: false)
+                    }
                     self.startRuntimeCallStream(forceRestart: true)
                     self.publishCallState()
                 } else {

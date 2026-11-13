@@ -22,11 +22,23 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.window = window
         window.makeKeyAndVisible()
 
+        // A launch from Phone Recents or a contact card arrives here, not in scene(_:continue:).
+        connectionOptions.userActivities.forEach(requestDial)
+
         if let response = connectionOptions.notificationResponse {
             ModemDeckPushCoordinator.shared.handleNotificationResponse(
                 response.notification.request.content.userInfo
             )
         }
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        requestDial(userActivity)
+    }
+
+    private func requestDial(_ activity: NSUserActivity) {
+        guard let number = ModemDeckPushCoordinator.dialNumber(from: activity) else { return }
+        sessionController?.requestDial(number: number)
     }
 
     func sceneWillResignActive(_ scene: UIScene) {
