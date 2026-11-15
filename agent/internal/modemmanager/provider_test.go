@@ -949,6 +949,77 @@ func TestStartCallUsesVoiceCreateThenCallStartAndOpaqueReceipt(t *testing.T) {
 	}
 }
 
+// ModemManager exports SIM objects outside GetManagedObjects. A dial or message
+// must read that SIM before comparing it with the caller's expectation.
+func TestCommandsMatchExpectedSIMOutsideManagedObjects(t *testing.T) {
+	t.Parallel()
+	newProvider := func(t *testing.T) (*fakeCaller, *Provider, string) {
+		t.Helper()
+		objects := emptyLineObjects(true, true)
+		simProperties := objects[testSIMPath][simInterface]
+		delete(objects, testSIMPath)
+		caller := newFakeCaller(objects)
+		caller.externalSIMs[testSIMPath] = simProperties
+		provider := newTestProvider(caller)
+		return caller, provider, parsedLineID(objects, provider.ids)
+	}
+
+	t.Run("start call", func(t *testing.T) {
+		t.Parallel()
+		caller, provider, lineID := newProvider(t)
+		if _, err := provider.StartCall(context.Background(), domain.StartCallRequest{
+			ExpectedSIMIdentifier: testSIMIdentifier,
+			RequestID:             "request-dial-external-sim",
+			LineID:                lineID,
+			Number:                "+818012345678",
+		}); err != nil {
+			t.Fatalf("StartCall: %v", err)
+		}
+		assertMethods(t, caller.invocations(),
+			objectManagerInterface+".GetManagedObjects",
+			propertiesInterface+".GetAll",
+			voiceInterface+".CreateCall",
+			callInterface+".Start",
+		)
+	})
+
+	t.Run("send message", func(t *testing.T) {
+		t.Parallel()
+		caller, provider, lineID := newProvider(t)
+		if _, err := provider.SendMessage(context.Background(), domain.SendMessageRequest{
+			ExpectedSIMIdentifier: testSIMIdentifier,
+			RequestID:             "request-sms-external-sim",
+			LineID:                lineID,
+			Number:                "+818012345678",
+			Text:                  "hello",
+		}); err != nil {
+			t.Fatalf("SendMessage: %v", err)
+		}
+		assertMethods(t, caller.invocations(),
+			objectManagerInterface+".GetManagedObjects",
+			propertiesInterface+".GetAll",
+			messagingInterface+".Create",
+			smsInterface+".Send",
+		)
+	})
+
+	t.Run("changed SIM is still refused", func(t *testing.T) {
+		t.Parallel()
+		caller, provider, lineID := newProvider(t)
+		_, err := provider.StartCall(context.Background(), domain.StartCallRequest{
+			ExpectedSIMIdentifier: "8986019999999999999",
+			RequestID:             "request-dial-other-sim",
+			LineID:                lineID,
+			Number:                "+818012345678",
+		})
+		assertOperationError(t, err, domain.ErrorConflict, "start_call")
+		assertMethods(t, caller.invocations(),
+			objectManagerInterface+".GetManagedObjects",
+			propertiesInterface+".GetAll",
+		)
+	})
+}
+
 func TestStartCallRejectsSecondOngoingCallOnSameLine(t *testing.T) {
 	objects := emptyLineObjects(true, false)
 	addCall(objects, "/org/freedesktop/ModemManager1/Call/1", 4)

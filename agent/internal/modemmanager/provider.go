@@ -1129,6 +1129,13 @@ func (p *Provider) snapshotContent(
 	if err != nil {
 		return ParsedObjects{}, err
 	}
+	// ModemManager does not export SIM objects through GetManagedObjects.
+	// Commands compare the line's SIM with the caller's expectation, so the
+	// command snapshot must read the same SIM properties as Snapshot.
+	objects, err = p.hydrateReferencedSIMs(ctx, operation, objects)
+	if err != nil {
+		return ParsedObjects{}, err
+	}
 	parsed := ParseManagedObjects(objects, identity)
 	observedAt := p.now().UTC()
 	if !p.projectCallLifecycle(&parsed, callWatermark, observedAt) {
