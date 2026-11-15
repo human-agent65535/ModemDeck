@@ -484,21 +484,17 @@ private struct ModemDeckSettingsMenuRow: View {
     let choices: [ModemDeckSettingsChoice]
     /// The chosen item, when the row's value says more than that item's title.
     var selectedID: String?
+    /// Heads the choices when the chosen item is not what applies now.
+    var choicesTitle: String?
     var disabled = false
     let select: (String) -> Void
 
     var body: some View {
         Menu {
-            ForEach(choices) { choice in
-                Button {
-                    select(choice.id)
-                } label: {
-                    if selectedID.map({ $0 == choice.id }) ?? (choice.title == value) {
-                        Label(choice.title, systemImage: "checkmark")
-                    } else {
-                        Text(choice.title)
-                    }
-                }
+            if let choicesTitle {
+                Section(choicesTitle) { choiceButtons }
+            } else {
+                choiceButtons
             }
         } label: {
             HStack(spacing: 11) {
@@ -524,6 +520,20 @@ private struct ModemDeckSettingsMenuRow: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+    }
+
+    private var choiceButtons: some View {
+        ForEach(choices) { choice in
+            Button {
+                select(choice.id)
+            } label: {
+                if selectedID.map({ $0 == choice.id }) ?? (choice.title == value) {
+                    Label(choice.title, systemImage: "checkmark")
+                } else {
+                    Text(choice.title)
+                }
+            }
+        }
     }
 }
 
@@ -1501,16 +1511,13 @@ private struct ModemDeckDevicesSettingsView: View {
         ModemDeckIncomingCallPolicyText.title(policy, controller.text)
     }
 
-    /// The line's own choice; while the account-wide mode overrides a line set to
-    /// receive calls, the row says so instead of showing a choice that is not in effect.
+    /// What applies to the line now: the account-wide mode while it overrides
+    /// the line, otherwise the line's own choice.
     private func policyValue(_ incoming: ModemDeckLineIncomingCalls?) -> String {
         guard let incoming else {
             return incomingCallMode.linePoliciesLoaded ? controller.text("不可用", "Unavailable") : "—"
         }
-        let own = policyTitle(incoming.policy)
-        guard incomingCallMode.accountDoNotDisturb(incoming),
-              ModemDeckIncomingCallPolicyText.choice(incoming.policy) == "receive" else { return own }
-        return own + " · " + controller.text("全局免打扰中", "Do Not Disturb for all")
+        return ModemDeckIncomingCallPolicyText.summary(incoming, controller.text)
     }
 
     private var policyFooter: String {
@@ -1569,8 +1576,16 @@ private struct ModemDeckDevicesSettingsView: View {
                                 ModemDeckSettingsChoice(id: $0, title: policyTitle($0))
                             },
                             selectedID: incoming.map { ModemDeckIncomingCallPolicyText.choice($0.policy) },
+                            choicesTitle: incoming.flatMap {
+                                incomingCallMode.accountDoNotDisturb($0)
+                                    ? ModemDeckIncomingCallPolicyText.afterAccountOff(controller.text)
+                                    : nil
+                            },
                             disabled: incoming == nil || incomingCallMode.savingLineID != nil || !controller.isOnline
                         ) { setPolicy($0, line: line) }
+                        .accessibilityValue(incoming.map {
+                            ModemDeckIncomingCallPolicyText.spokenSummary($0, controller.text)
+                        } ?? policyValue(nil))
                         .accessibilityIdentifier("line-incoming-policy-" + line.id)
                     }
                 }

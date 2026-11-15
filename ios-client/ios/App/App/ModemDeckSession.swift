@@ -1581,9 +1581,37 @@ enum ModemDeckIncomingCallPolicyText {
         choice(policy) == "do_not_disturb" ? text("免打扰", "Do Not Disturb") : text("接听来电", "Receive Calls")
     }
 
-    /// Said beside a line's own choice while the account-wide mode overrides it.
-    static func accountNote(_ text: (String, String) -> String) -> String {
-        text("全局免打扰已开启，关闭后恢复此线路的设置", "Do Not Disturb is on for all lines. This line’s setting returns when it is off.")
+    /// What applies to a line while the account-wide mode overrides its own choice.
+    static func accountSummary(_ text: (String, String) -> String) -> String {
+        text("全局免打扰", "Do Not Disturb for All")
+    }
+
+    /// Heads the line's own choice while the account-wide mode overrides it, so
+    /// the checked item reads as what returns later, not what applies now.
+    static func afterAccountOff(_ text: (String, String) -> String) -> String {
+        text("关闭全局免打扰后", "When Do Not Disturb for All Is Off")
+    }
+
+    static func turnOffAccount(_ text: (String, String) -> String) -> String {
+        text("关闭全局免打扰", "Turn Off Do Not Disturb for All")
+    }
+
+    /// The row value and spoken value: what applies now, then the line's own
+    /// choice when the account-wide mode is overriding it.
+    static func summary(
+        _ incoming: ModemDeckLineIncomingCalls,
+        _ text: (String, String) -> String
+    ) -> String {
+        guard !incoming.globalReceiveCalls else { return title(incoming.policy, text) }
+        return accountSummary(text)
+    }
+
+    static func spokenSummary(
+        _ incoming: ModemDeckLineIncomingCalls,
+        _ text: (String, String) -> String
+    ) -> String {
+        guard !incoming.globalReceiveCalls else { return title(incoming.policy, text) }
+        return accountSummary(text) + ". " + afterAccountOff(text) + ": " + title(incoming.policy, text)
     }
 }
 

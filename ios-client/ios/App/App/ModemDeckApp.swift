@@ -1511,22 +1511,22 @@ private struct ModemDeckLineIncomingPolicyMenu: View {
             let doNotDisturb = store.doNotDisturb(incoming)
             Menu {
                 if store.accountDoNotDisturb(incoming) {
-                    // A disabled row is the one way a menu shows explanatory text reliably.
-                    Section {
-                        Button(ModemDeckIncomingCallPolicyText.accountNote(controller.text)) {}
-                            .disabled(true)
+                    // The account-wide mode is what applies now, so it leads the
+                    // menu; the line's own choice below only returns after it.
+                    Section(ModemDeckIncomingCallPolicyText.accountSummary(controller.text)) {
+                        if controller.session?.role == "admin" {
+                            Button {
+                                turnOffAccountDoNotDisturb()
+                            } label: {
+                                Label(ModemDeckIncomingCallPolicyText.turnOffAccount(controller.text), systemImage: "phone")
+                            }
+                        }
                     }
-                }
-                Picker(
-                    controller.text("来电策略", "Incoming Call Policy"),
-                    selection: Binding(
-                        get: { ModemDeckIncomingCallPolicyText.choice(incoming.policy) },
-                        set: { choose($0) }
-                    )
-                ) {
-                    ForEach(ModemDeckIncomingCallPolicyText.choices, id: \.self) { policy in
-                        Text(ModemDeckIncomingCallPolicyText.title(policy, controller.text)).tag(policy)
+                    Section(ModemDeckIncomingCallPolicyText.afterAccountOff(controller.text)) {
+                        ownPolicyPicker(incoming)
                     }
+                } else {
+                    ownPolicyPicker(incoming)
                 }
             } label: {
                 Image(systemName: doNotDisturb ? "moon.fill" : "moon")
@@ -1535,9 +1535,9 @@ private struct ModemDeckLineIncomingPolicyMenu: View {
                     .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
                     .contentShape(Rectangle())
             }
-            .disabled(store.savingLineID != nil || !controller.isOnline)
+            .disabled(store.savingLineID != nil || store.saving || !controller.isOnline)
             .accessibilityLabel(controller.text("\(line.displayName) 来电策略", "\(line.displayName) incoming call policy"))
-            .accessibilityValue(valueText(incoming, doNotDisturb: doNotDisturb))
+            .accessibilityValue(ModemDeckIncomingCallPolicyText.spokenSummary(incoming, controller.text))
             .accessibilityIdentifier("home-line-incoming-policy-" + line.id)
             .alert(
                 controller.text("无法更改来电策略", "Couldn’t Change the Call Policy"),
@@ -1550,10 +1550,30 @@ private struct ModemDeckLineIncomingPolicyMenu: View {
         }
     }
 
-    private func valueText(_ incoming: ModemDeckLineIncomingCalls, doNotDisturb: Bool) -> String {
-        let own = ModemDeckIncomingCallPolicyText.title(incoming.policy, controller.text)
-        guard store.accountDoNotDisturb(incoming) else { return own }
-        return own + " · " + ModemDeckIncomingCallPolicyText.accountNote(controller.text)
+    /// Buttons rather than an inline Picker: a menu drops the title of a section
+    /// that holds a Picker, and that title is what says when the checked choice applies.
+    private func ownPolicyPicker(_ incoming: ModemDeckLineIncomingCalls) -> some View {
+        ForEach(ModemDeckIncomingCallPolicyText.choices, id: \.self) { policy in
+            let title = ModemDeckIncomingCallPolicyText.title(policy, controller.text)
+            Button {
+                choose(policy)
+            } label: {
+                if ModemDeckIncomingCallPolicyText.choice(incoming.policy) == policy {
+                    Label(title, systemImage: "checkmark")
+                } else {
+                    Text(title)
+                }
+            }
+        }
+    }
+
+    private func turnOffAccountDoNotDisturb() {
+        Task {
+            do { try await store.setDoNotDisturb(false) } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+                failure = error.localizedDescription
+            }
+        }
     }
 
     private func choose(_ policy: String) {
