@@ -439,6 +439,7 @@ export default {
     "releaseSummary": "Ghi chú phát hành",
     "fullReleaseNotes": "Thêm nội dung cập nhật",
     "componentsToUpdate": "{count} container cần cập nhật",
+    "componentsUnchanged": "Đã là bản mới nhất: {names}",
     "containersUpdating": "Đang cập nhật {count} container",
     "updateProgress": "Tiến trình cập nhật container",
     "componentState": {

@@ -439,6 +439,7 @@ export default {
     "releaseSummary": "Notas de la versión",
     "fullReleaseNotes": "Más notas de la versión",
     "componentsToUpdate": "{count} contenedores para actualizar",
+    "componentsUnchanged": "Ya actualizado: {names}",
     "containersUpdating": "Actualizando {count} contenedores",
     "updateProgress": "Progreso de actualización de contenedores",
     "componentState": {

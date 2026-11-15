@@ -439,6 +439,7 @@ export default {
     "releaseSummary": "Versionshinweise",
     "fullReleaseNotes": "Weitere Versionshinweise",
     "componentsToUpdate": "{count} Container zu aktualisieren",
+    "componentsUnchanged": "Bereits aktuell: {names}",
     "containersUpdating": "{count} Container werden aktualisiert",
     "updateProgress": "Fortschritt der Container-Aktualisierung",
     "componentState": {

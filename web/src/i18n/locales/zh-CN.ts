@@ -439,6 +439,7 @@ export default {
     releaseSummary: '版本说明',
     fullReleaseNotes: '更多更新内容',
     componentsToUpdate: '更新 {count} 个容器',
+    componentsUnchanged: '无需更新：{names}',
     containersUpdating: '正在更新 {count} 个容器',
     updateProgress: '容器更新进度',
     componentState: {

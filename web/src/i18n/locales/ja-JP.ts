@@ -439,6 +439,7 @@ export default {
     "releaseSummary": "リリースノート",
     "fullReleaseNotes": "その他の更新内容",
     "componentsToUpdate": "更新対象のコンテナ {count} 個",
+    "componentsUnchanged": "更新不要：{names}",
     "containersUpdating": "{count} 個のコンテナを更新中",
     "updateProgress": "コンテナ更新の進行状況",
     "componentState": {

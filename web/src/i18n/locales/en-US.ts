@@ -443,6 +443,7 @@ export default {
     releaseSummary: 'Release notes',
     fullReleaseNotes: 'More release notes',
     componentsToUpdate: '{count} containers to update',
+    componentsUnchanged: 'Already current: {names}',
     containersUpdating: 'Updating {count} containers',
     updateProgress: 'Container update progress',
     componentState: {

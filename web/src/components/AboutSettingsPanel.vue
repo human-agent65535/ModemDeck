@@ -40,7 +40,7 @@ import { releaseNoteRemainder, releaseNoteSummary } from '../utils/releaseNotes'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const repositoryURL = 'https://github.com/human-agent65535/ModemDeck'
 const licenseURL = `${repositoryURL}/blob/modemdeck/LICENSE`
 const noticesURL = `${repositoryURL}/blob/modemdeck/THIRD_PARTY_NOTICES.md`
@@ -61,6 +61,17 @@ const displayedVersion = computed(
 const changedComponents = computed(
   () => update.value?.components?.filter(component => component.changed) || []
 )
+
+// A release can reuse a component's image unchanged. Naming those components
+// shows they were considered and stay as they are, rather than left out.
+const unchangedComponentNames = computed(() => {
+  if (applying.value || !changedComponents.value.length) return ''
+  const names = (update.value?.components || [])
+    .filter(component => !component.changed)
+    .map(component => componentLabel(component.name))
+  if (!names.length) return ''
+  return new Intl.ListFormat(locale.value, { type: 'conjunction' }).format(names)
+})
 const activeOperation = computed<UpdateOperation | undefined>(() => {
   const currentUpdate = update.value
   const operation = currentUpdate?.operation
@@ -410,6 +421,9 @@ onBeforeUnmount(() => {
                 </small>
               </div>
             </div>
+            <p v-if="unchangedComponentNames" class="about-update__unchanged">
+              {{ t('about.componentsUnchanged', { names: unchangedComponentNames }) }}
+            </p>
           </div>
           <button
             v-if="update?.apply_available || applying"
@@ -773,6 +787,12 @@ onBeforeUnmount(() => {
 .about-update__component-row {
   display: inline-flex;
   align-items: center;
+}
+
+.about-update__unchanged {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
 }
 
 .about-update__component-tag {

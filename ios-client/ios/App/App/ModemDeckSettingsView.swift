@@ -2370,6 +2370,13 @@ private struct ModemDeckServerUpdateModule: View {
         check?.components?.filter(\.changed) ?? []
     }
 
+    /// A release can reuse a component unchanged; naming it shows it was
+    /// considered and stays as it is, rather than silently left out.
+    private var unchangedComponents: [ModemDeckUpdateComponent] {
+        guard !changedComponents.isEmpty else { return [] }
+        return check?.components?.filter { !$0.changed } ?? []
+    }
+
     var body: some View {
         ModemDeckSettingsModule(title: controller.text("服务器更新", "Server Update"), footer: footer) {
             if check == nil && checking {
@@ -2446,6 +2453,14 @@ private struct ModemDeckServerUpdateModule: View {
                     .compactMap { $0 }
                     .joined(separator: " → "),
                 icon: "shippingbox"
+            )
+        }
+        ForEach(unchangedComponents) { component in
+            ModemDeckRowDivider()
+            ModemDeckValueRow(
+                title: componentName(component.name),
+                value: controller.text("无需更新", "Already Current"),
+                icon: "checkmark.circle"
             )
         }
         if let notes = releaseSummary {
