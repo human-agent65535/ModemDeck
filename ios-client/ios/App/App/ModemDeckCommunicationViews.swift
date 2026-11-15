@@ -1541,9 +1541,15 @@ struct ModemDeckNewMessageView: View {
     let onSent: () -> Void
     @Environment(\.presentationMode) private var presentationMode
     @State private var selectedLineID = ""
-    @State private var recipient = ""
+    @State private var recipient: String
     @State private var content = ""
     @State private var sendAttempt = ModemDeckOutgoingMessage.newAttempt()
+
+    init(controller: ModemDeckSessionController, recipient: String = "", onSent: @escaping () -> Void) {
+        self.controller = controller
+        self.onSent = onSent
+        _recipient = State(initialValue: recipient)
+    }
     @State private var sending = false
     @State private var errorMessage = ""
 
@@ -1738,6 +1744,7 @@ struct ModemDeckMessagesView: View {
         nonmutating set { sectionSelection.route = newValue.map(ModemDeckRoute.message) }
     }
     @State private var composeOpen = false
+    @State private var composeRecipient = ""
     @State private var batchBusy = false
     @State private var confirmBatchDelete = false
 
@@ -1798,6 +1805,8 @@ struct ModemDeckMessagesView: View {
                 .padding(.horizontal, ModemDeckSpacing.md)
         }
         .task {
+            // A cold launch from a contact card asks before this view exists.
+            applyRequestedCompose()
             await store.load()
             applyRequestedThread()
         }
@@ -1811,8 +1820,11 @@ struct ModemDeckMessagesView: View {
             guard selecting else { return }
             selectedIDs.formIntersection(Set(visibleIDs))
         }
-        .sheet(isPresented: $composeOpen) {
-            ModemDeckNewMessageView(controller: controller) {
+        .onChange(of: controller.requestedComposeRecipient) { _ in
+            applyRequestedCompose()
+        }
+        .sheet(isPresented: $composeOpen, onDismiss: { composeRecipient = "" }) {
+            ModemDeckNewMessageView(controller: controller, recipient: composeRecipient) {
                 Task { await store.load() }
             }
         }
@@ -1830,6 +1842,14 @@ struct ModemDeckMessagesView: View {
                 "This permanently deletes \(selectedThreads.count) \(selectedThreads.count == 1 ? "conversation" : "conversations")."
             ))
         }
+    }
+
+    /// Each system request opens New Message once, with the number filled in.
+    private func applyRequestedCompose() {
+        guard let number = controller.requestedComposeRecipient, !composeOpen else { return }
+        composeRecipient = number
+        composeOpen = true
+        controller.acceptRequestedCompose()
     }
 
     private func applyRequestedThread() {

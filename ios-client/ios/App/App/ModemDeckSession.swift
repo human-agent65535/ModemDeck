@@ -75,6 +75,8 @@ final class ModemDeckSessionController: ObservableObject {
     @Published var callsFilter = "all"
     @Published private(set) var callsNavigationRevision = 0
     @Published private(set) var requestedMessageThreadKey: String?
+    /// A number the system asked this app to write to; Messages opens New Message once for it.
+    @Published private(set) var requestedComposeRecipient: String?
     /// Changes each time the system asks for the dialer; the shell opens it once per change.
     @Published private(set) var dialRequestRevision = 0
     @Published private(set) var connectionState: ModemDeckConnectionState = .checking {
@@ -143,7 +145,11 @@ final class ModemDeckSessionController: ObservableObject {
         callController = ModemDeckCallController(api: api)
         let contactsStore = ModemDeckContactsStore(api: api)
         self.contactsStore = contactsStore
-        messagesStore = ModemDeckMessagesStore(api: api, contactsStore: contactsStore)
+        messagesStore = ModemDeckMessagesStore(
+            api: api,
+            contactsStore: contactsStore,
+            onDelivered: ModemDeckPushCoordinator.donateSentMessage(to:)
+        )
         callsStore = ModemDeckCallsStore(api: api, contactsStore: contactsStore)
         incomingCallMode = ModemDeckIncomingCallModeStore(api: api)
         protectedDataObserver = NotificationCenter.default
@@ -662,6 +668,19 @@ final class ModemDeckSessionController: ObservableObject {
     func acceptRequestedMessage(threadKey: String) {
         guard requestedMessageThreadKey == threadKey else { return }
         requestedMessageThreadKey = nil
+    }
+
+    /// Opens New Message for a number the system asked this app to write to. The
+    /// user still picks the line and sends, because the system request names no line.
+    func requestMessage(number: String) {
+        let number = String(number.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
+        guard !number.isEmpty else { return }
+        requestedComposeRecipient = number
+        selectedSection = .messages
+    }
+
+    func acceptRequestedCompose() {
+        requestedComposeRecipient = nil
     }
 
     func handleAuthenticationFailure() async {
@@ -1777,10 +1796,14 @@ final class ModemDeckMessagesStore: ObservableObject {
         return draft
     }
 
-    init(api: ModemDeckAPIClient, contactsStore: ModemDeckContactsStore) {
+    init(
+        api: ModemDeckAPIClient,
+        contactsStore: ModemDeckContactsStore,
+        onDelivered: @escaping (String) -> Void = { _ in }
+    ) {
         self.api = api
         self.contactsStore = contactsStore
-        pendingSends = ModemDeckMessageOutbox(api: api)
+        pendingSends = ModemDeckMessageOutbox(api: api, onDelivered: onDelivered)
         contactsStore.$contacts.assign(to: &$contacts)
     }
 
@@ -1941,9 +1964,13 @@ final class ModemDeckMessageOutbox: ObservableObject {
     private let api: ModemDeckAPIClient
     private var restored = false
     private var scope = 0
+    /// Called with the peer of each SMS the server confirms, so the system can
+    /// offer this app for that contact.
+    private let onDelivered: (String) -> Void
 
-    init(api: ModemDeckAPIClient) {
+    init(api: ModemDeckAPIClient, onDelivered: @escaping (String) -> Void = { _ in }) {
         self.api = api
+        self.onDelivered = onDelivered
         restore()
     }
 
@@ -1984,6 +2011,7 @@ final class ModemDeckMessageOutbox: ObservableObject {
                 lineID: lineID, to: peer, content: content, requestID: outgoing.requestID
             )
             if scope == self.scope { discard(attempt) }
+            onDelivered(peer)
             return message
         } catch {
             if scope == self.scope {

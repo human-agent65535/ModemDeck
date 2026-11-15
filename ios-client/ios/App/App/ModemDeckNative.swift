@@ -704,6 +704,37 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         return number.isEmpty ? nil : number
     }
 
+    /// The number a system message request asks this app to write to: this app
+    /// chosen on a contact card's message button, or a Siri suggestion.
+    static func messageRecipient(from activity: NSUserActivity) -> String? {
+        guard let intent = activity.interaction?.intent as? INSendMessageIntent else { return nil }
+        let number = intent.recipients?.first?.personHandle?.value?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return number.isEmpty ? nil : number
+    }
+
+    /// Tells the system an SMS to this number went through this app, which is what
+    /// lets a contact card's message button offer the app. The text is not donated.
+    static func donateSentMessage(to number: String) {
+        let number = number.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !number.isEmpty else { return }
+        let person = INPerson(
+            personHandle: INPersonHandle(value: number, type: .phoneNumber),
+            nameComponents: nil, displayName: nil, image: nil,
+            contactIdentifier: nil, customIdentifier: nil
+        )
+        let intent = INSendMessageIntent(
+            recipients: [person], outgoingMessageType: .outgoingMessageText, content: nil,
+            speakableGroupName: nil, conversationIdentifier: number, serviceName: nil,
+            sender: nil, attachments: nil
+        )
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.direction = .outgoing
+        interaction.donate { error in
+            if let error { ModemDeckDiagnostics.shared.record(.app, "message_donation_failed", error: error) }
+        }
+    }
+
     /// Tells the system a real call with this number went through this app, which is
     /// what lets it offer the app for that contact. Test calls are never donated.
     private func donateCall(number: String, displayName: String, outgoing: Bool) {
@@ -724,7 +755,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func clearConfiguration() {
-        // The numbers this pairing called leave with it.
+        // The numbers this pairing called or wrote to leave with it.
         INInteraction.deleteAll { _ in }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }

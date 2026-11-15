@@ -36,6 +36,7 @@
 	<array>
 		<string>INStartCallIntent</string>
 		<string>INStartAudioCallIntent</string>
+		<string>INSendMessageIntent</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
