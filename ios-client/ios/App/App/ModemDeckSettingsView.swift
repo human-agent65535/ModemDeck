@@ -161,8 +161,8 @@ struct ModemDeckSettingsView: View {
                     directoryItem(
                         .about,
                         icon: "info.circle",
-                        title: controller.text("关于", "About"),
-                        subtitle: "ModemDeck \(ModemDeckDeviceInfo.appVersion)"
+                        title: controller.text("关于与更新", "About & Updates"),
+                        subtitle: controller.text("版本信息与服务器更新", "Versions and server updates")
                     )
                 }
 
@@ -2257,9 +2257,11 @@ private struct ModemDeckAboutSettingsView: View {
 
     var body: some View {
         ModemDeckSettingsDetailScaffold(
-            title: controller.text("关于", "About"),
+            title: controller.text("关于与更新", "About & Updates"),
             backTitle: controller.text("返回设置", "Back to Settings")
         ) {
+            ModemDeckServerUpdateModule(controller: controller)
+
             ModemDeckSettingsModule(title: controller.text("应用", "Application")) {
                 ModemDeckValueRow(
                     title: controller.text("App 版本", "App Version"),
@@ -2322,6 +2324,391 @@ private struct ModemDeckAboutSettingsView: View {
                     valueColor: controller.bootstrap?.capabilities.agentConnected == true ? .mdAccent : .mdDanger
                 )
             }
+        }
+    }
+}
+
+/// Checks GitHub for a newer server release and updates the server's containers, as the
+/// Web About page does. Only administrators reach it; the server enforces that as well.
+private struct ModemDeckServerUpdateModule: View {
+    @ObservedObject var controller: ModemDeckSessionController
+    @State private var check: ModemDeckUpdateCheck?
+    @State private var operation: ModemDeckUpdateOperation?
+    @State private var checking = false
+    @State private var starting = false
+    /// The API restarts during an update; status reads fail until it is back.
+    @State private var reconnecting = false
+    @State private var completedVersion = ""
+    @State private var errorMessage = ""
+    @State private var showingConfirmation = false
+
+    /// Polling stops after this long without a finished operation.
+    private static let followLimit: TimeInterval = 15 * 60
+    private static let componentProgress: [String: Double] = [
+        "pending": 0, "pulling": 0.2, "staged": 0.45, "restarting": 0.72,
+        "rolling_back": 0.78, "rolled_back": 1, "ready": 1, "failed": 1
+    ]
+
+    private var running: Bool { starting || operation?.state == "running" }
+    private var followedOperationID: String? { operation?.state == "running" ? operation?.id : nil }
+    private var changedComponents: [ModemDeckUpdateComponent] {
+        check?.components?.filter(\.changed) ?? []
+    }
+
+    var body: some View {
+        ModemDeckSettingsModule(title: controller.text("服务器更新", "Server Update"), footer: footer) {
+            if check == nil && checking {
+                ModemDeckSettingsLoadState(loading: true, error: "", emptyText: "")
+            } else {
+                ModemDeckSettingsStatusRow(
+                    icon: statusIcon,
+                    title: statusTitle,
+                    detail: statusDetail,
+                    active: check?.status != "unavailable" || running
+                )
+                .accessibilityIdentifier("server-update-status")
+                ModemDeckRowDivider()
+                ModemDeckValueRow(
+                    title: controller.text("当前版本", "Current Version"),
+                    value: check?.currentVersion ?? "—",
+                    icon: "server.rack"
+                )
+                if running {
+                    progressRows
+                } else if check?.status == "update_available" {
+                    availableRows
+                }
+                if !errorMessage.isEmpty {
+                    ModemDeckRowDivider()
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundColor(.mdDanger)
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("server-update-error")
+                }
+                if !running {
+                    ModemDeckRowDivider()
+                    ModemDeckSettingsActionRow(
+                        title: controller.text("重新检查", "Check Again"),
+                        icon: "arrow.clockwise",
+                        busy: checking
+                    ) {
+                        Task { await load(refresh: true) }
+                    }
+                    .accessibilityIdentifier("server-update-check")
+                }
+            }
+        }
+        .task { await load(refresh: false) }
+        .task(id: followedOperationID) { await follow() }
+        .alert(confirmationTitle, isPresented: $showingConfirmation) {
+            Button(controller.text("取消", "Cancel"), role: .cancel) {}
+            Button(controller.text("开始更新", "Update")) {
+                Task { await apply() }
+            }
+        } message: {
+            Text(confirmationMessage)
+        }
+    }
+
+    @ViewBuilder
+    private var availableRows: some View {
+        if let latest = check?.latestVersion {
+            ModemDeckRowDivider()
+            ModemDeckValueRow(
+                title: controller.text("最新版本", "Latest Version"),
+                value: latest,
+                icon: "sparkles",
+                valueColor: .mdAccent
+            )
+        }
+        ForEach(changedComponents) { component in
+            ModemDeckRowDivider()
+            ModemDeckValueRow(
+                title: componentName(component.name),
+                value: [component.currentVersion, component.targetVersion]
+                    .compactMap { $0 }
+                    .joined(separator: " → "),
+                icon: "shippingbox"
+            )
+        }
+        if let notes = releaseSummary {
+            ModemDeckRowDivider()
+            Text(notes)
+                .font(.footnote)
+                .foregroundColor(.mdMuted)
+                .lineLimit(8)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if let link = check?.releaseUrl.flatMap(URL.init(string:)) {
+            ModemDeckRowDivider()
+            Link(destination: link) {
+                HStack(spacing: 11) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(width: ModemDeckLayout.iconColumnWidth)
+                    Text(controller.text("查看 Release", "View Release"))
+                        .font(.subheadline.weight(.medium))
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .opacity(0.45)
+                }
+                .foregroundColor(.mdAccent)
+                .padding(.horizontal, 14)
+                .frame(minHeight: ModemDeckLayout.compactRowHeight)
+            }
+        }
+        if check?.applyAvailable == true, let latest = check?.latestVersion {
+            ModemDeckRowDivider()
+            ModemDeckSettingsActionRow(
+                title: controller.text("更新到 \(latest)", "Update to \(latest)"),
+                icon: "arrow.down.circle"
+            ) {
+                showingConfirmation = true
+            }
+            .accessibilityIdentifier("server-update-apply")
+        }
+    }
+
+    @ViewBuilder
+    private var progressRows: some View {
+        ModemDeckRowDivider()
+        VStack(alignment: .leading, spacing: 8) {
+            ProgressView(value: progress)
+                .tint(.mdAccent)
+                .accessibilityLabel(controller.text("更新进度", "Update progress"))
+            Text(reconnecting
+                 ? controller.text("服务正在重启，正在重新连接…", "The server is restarting. Reconnecting…")
+                 : controller.text("更新期间服务会短暂中断，可以离开此页面。", "The server may disconnect briefly. You can leave this page."))
+                .font(.footnote)
+                .foregroundColor(.mdMuted)
+        }
+        .padding(14)
+        ForEach(operation?.components ?? []) { component in
+            ModemDeckRowDivider()
+            ModemDeckValueRow(
+                title: componentName(component.name),
+                value: componentState(component.state),
+                icon: "shippingbox",
+                valueColor: component.state == "failed" ? .mdDanger
+                    : component.state == "ready" ? .mdAccent : .mdMuted
+            )
+        }
+    }
+
+    private var progress: Double {
+        let components = operation?.components ?? []
+        guard !components.isEmpty else { return 0 }
+        let total = components.reduce(0) { $0 + (Self.componentProgress[$1.state] ?? 0) }
+        return total / Double(components.count)
+    }
+
+    private var statusIcon: String {
+        if running { return "arrow.triangle.2.circlepath" }
+        switch check?.status {
+        case "up_to_date": return "checkmark.seal.fill"
+        case "update_available": return "arrow.down.circle.fill"
+        case "development": return "hammer.fill"
+        default: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var statusTitle: String {
+        if running { return controller.text("正在更新…", "Updating…") }
+        if !completedVersion.isEmpty { return controller.text("更新完成", "Update Complete") }
+        switch check?.status {
+        case "up_to_date": return controller.text("已是最新版本", "Up to Date")
+        case "update_available": return controller.text("有新版本可用", "Update Available")
+        case "development": return controller.text("开发构建", "Development Build")
+        default: return controller.text("检查更新失败", "Couldn’t Check for Updates")
+        }
+    }
+
+    private var statusDetail: String {
+        if running {
+            let target = operation?.targetVersion ?? check?.latestVersion ?? ""
+            return controller.text("正在更新到 \(target)", "Updating to \(target)")
+        }
+        if !completedVersion.isEmpty {
+            return controller.text("服务器已更新到 \(completedVersion)。", "The server now runs \(completedVersion).")
+        }
+        let current = check?.currentVersion ?? "—"
+        let latest = check?.latestVersion ?? "—"
+        switch check?.status {
+        case "up_to_date":
+            return controller.text("当前版本 \(current) 与最新正式版本一致。", "\(current) is the latest release.")
+        case "update_available":
+            return controller.text("GitHub 已发布 \(latest)，当前为 \(current)。", "\(latest) is available. This server runs \(current).")
+        case "development":
+            return controller.text("当前构建 \(current) 不低于最新正式版本 \(latest)。", "Build \(current) is not older than the latest release, \(latest).")
+        default:
+            return controller.text("无法获取最新 Release，请稍后再试。", "The latest release couldn’t be read. Try again later.")
+        }
+    }
+
+    private var footer: String {
+        guard !running, check?.status == "update_available", check?.applyAvailable == false else { return "" }
+        return controller.text(
+            "此部署不支持自动更新，请在服务器上手动升级。",
+            "This deployment can’t update itself. Upgrade it on the server."
+        )
+    }
+
+    private var confirmationTitle: String {
+        check?.hardwareConfirmationRequired == true
+            ? controller.text("确认更新（含 Hardware）", "Update Including Hardware?")
+            : controller.text("更新服务器？", "Update the Server?")
+    }
+
+    private var confirmationMessage: String {
+        let target = check?.latestVersion ?? ""
+        var message = controller.text(
+            "服务器将更新到 \(target)。更新期间服务会短暂中断，进行中的通话可能断开。",
+            "The server updates to \(target). It disconnects briefly, and calls in progress may drop."
+        )
+        if check?.hardwareConfirmationRequired == true {
+            message += "\n\n" + controller.text(
+                "更新 Hardware 会重启 ModemManager 和设备 Agent，可能造成蜂窝硬件下线，极少数情况下需要人工重新插拔设备。",
+                "Updating Hardware restarts ModemManager and the device agent. Cellular hardware may go offline, and in rare cases needs to be replugged."
+            )
+        }
+        return message
+    }
+
+    /// The opening lines of the release notes, without Markdown markers.
+    private var releaseSummary: String? {
+        guard let notes = check?.releaseNotes else { return nil }
+        let lines = notes.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { line in
+                var text = Substring(line)
+                while let first = text.first, "#*->".contains(first) { text = text.dropFirst() }
+                return text.trimmingCharacters(in: .whitespaces)
+            }
+            .filter { !$0.isEmpty }
+        return lines.isEmpty ? nil : lines.prefix(8).joined(separator: "\n")
+    }
+
+    private func componentName(_ name: String) -> String {
+        switch name {
+        case "api": return "API"
+        case "web": return "Web"
+        case "hardware": return "Hardware"
+        case "updater": return "Updater"
+        case "cloudflared": return "Cloudflared"
+        default: return name
+        }
+    }
+
+    private func componentState(_ state: String) -> String {
+        switch state {
+        case "pending": return controller.text("等待", "Waiting")
+        case "pulling": return controller.text("拉取中", "Downloading")
+        case "staged": return controller.text("已拉取", "Downloaded")
+        case "restarting": return controller.text("重启中", "Restarting")
+        case "rolling_back": return controller.text("回滚中", "Rolling Back")
+        case "rolled_back": return controller.text("已回滚", "Rolled Back")
+        case "ready": return controller.text("已上线", "Ready")
+        case "failed": return controller.text("失败", "Failed")
+        default: return state
+        }
+    }
+
+    private func load(refresh: Bool) async {
+        guard !checking else { return }
+        checking = true
+        defer { checking = false }
+        do {
+            let result = try await controller.api.checkForUpdates(refresh: refresh)
+            check = result
+            if result.operation?.state == "running" { operation = result.operation }
+            errorMessage = ""
+        } catch is CancellationError {
+        } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+            errorMessage = controller.text("无法检查服务器更新。", "Couldn’t check for server updates.")
+        }
+    }
+
+    private func apply() async {
+        guard let check, let version = check.latestVersion, !running else { return }
+        starting = true
+        errorMessage = ""
+        completedVersion = ""
+        defer { starting = false }
+        do {
+            operation = try await controller.api.applySoftwareUpdate(
+                version: version,
+                confirmHardware: check.hardwareConfirmationRequired
+            )
+        } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
+            errorMessage = applyErrorText(error)
+        }
+    }
+
+    private func applyErrorText(_ error: Error) -> String {
+        if case ModemDeckAPIError.server(_, let code, _) = error {
+            switch code {
+            case "update_in_progress":
+                return controller.text("已有更新正在进行。", "An update is already running.")
+            case "updater_unavailable":
+                return controller.text("此服务器暂时无法自动更新。", "This server can’t update itself right now.")
+            case "admin_required":
+                return controller.text("只有管理员可以更新服务器。", "Only administrators can update the server.")
+            case "hardware_confirmation_required":
+                return controller.text("此更新包含 Hardware，请重新检查后再确认。", "This update includes Hardware. Check again, then confirm.")
+            default:
+                break
+            }
+        }
+        return controller.text("无法启动服务器更新。", "Couldn’t start the server update.")
+    }
+
+    /// Reads the operation every two seconds until it finishes. The API itself restarts during
+    /// the update, so failed reads mean "reconnecting" rather than failure.
+    private func follow() async {
+        guard let id = followedOperationID else { return }
+        let deadline = Date().addingTimeInterval(Self.followLimit)
+        while !Task.isCancelled, Date() < deadline {
+            do {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+            } catch { return }
+            do {
+                let latest = try await controller.api.softwareUpdateStatus()
+                guard latest.id == id else { return }
+                reconnecting = false
+                operation = latest
+                if latest.state == "succeeded" {
+                    completedVersion = latest.targetVersion
+                    // A finished operation ends this task, so the follow-up reads run on their own.
+                    Task {
+                        await load(refresh: false)
+                        await controller.refresh()
+                    }
+                    return
+                }
+                if latest.state == "failed" {
+                    errorMessage = controller.text(
+                        "服务器更新失败，已停止自动操作。",
+                        "The server update failed and stopped. Check the server."
+                    )
+                    return
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                reconnecting = true
+            }
+        }
+        if !Task.isCancelled, operation?.state == "running" {
+            errorMessage = controller.text(
+                "长时间未收到更新结果，请稍后重新检查。",
+                "No result after a long wait. Check again later."
+            )
         }
     }
 }

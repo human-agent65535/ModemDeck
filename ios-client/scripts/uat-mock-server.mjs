@@ -504,6 +504,56 @@ function unreadSummary() {
 }
 
 const diagnosticBatches = []
+
+// A simulated server update: the API "restarts" partway through, as a real update does.
+const updateFixture = { current: '1.24.0', latest: '1.25.0', operation: null, startedAt: 0 }
+const updateComponentNames = ['api', 'web', 'hardware']
+const updateSteps = ['pending', 'pulling', 'staged', 'restarting', 'ready']
+
+function updateOperation() {
+  const operation = updateFixture.operation
+  if (!operation) return null
+  const step = Math.floor((Date.now() - updateFixture.startedAt) / 3000)
+  operation.components = updateComponentNames.map((name, index) => ({
+    name,
+    state: updateSteps[Math.max(0, Math.min(updateSteps.length - 1, step - index))]
+  }))
+  if (operation.components.every(component => component.state === 'ready') && operation.state === 'running') {
+    operation.state = 'succeeded'
+    operation.finished_at = new Date().toISOString()
+    updateFixture.current = operation.target_version
+  }
+  return operation
+}
+
+function updateRestarting() {
+  return updateFixture.operation?.state === 'running' &&
+    updateOperation()?.components.some(component => component.name === 'api' && component.state === 'restarting')
+}
+
+function updateCheck() {
+  const operation = updateOperation()
+  const available = updateFixture.current !== updateFixture.latest
+  return {
+    status: available ? 'update_available' : 'up_to_date',
+    current_version: updateFixture.current,
+    latest_version: updateFixture.latest,
+    release_name: `ModemDeck v${updateFixture.latest}`,
+    release_url: 'https://example.com/releases/modemdeck',
+    release_notes: '## Highlights\n- Dialer finds contacts by pinyin and keypad letters\n- Administrators can update the server from iOS',
+    published_at: '2026-11-10T08:00:00Z',
+    checked_at: new Date().toISOString(),
+    apply_available: available,
+    hardware_confirmation_required: available,
+    components: updateComponentNames.map(name => ({
+      name,
+      current_version: updateFixture.current,
+      target_version: updateFixture.latest,
+      changed: available
+    })),
+    ...(operation ? { operation } : {})
+  }
+}
 let fixtureRecordingEnabled = false
 let contactDeleteDelayMS = 0
 let messageReadDelayMS = 0
@@ -548,6 +598,7 @@ async function fixtureWrite(request, response, pathname) {
     historyReadsCompleted = 0
     operations.length = 0
     diagnosticBatches.length = 0
+    Object.assign(updateFixture, { current: '1.24.0', operation: null, startedAt: 0 })
   } else if (pathname === '/api/v1/mobile/diagnostics') {
     diagnosticBatches.push(body)
   } else if (pathname === '/__uat/configure') {
@@ -688,6 +739,34 @@ const server = https.createServer(
     } else if (!online) {
       status = 503
       send(response, status, { code: 'uat_offline', message: 'The local fixture server is temporarily unavailable' })
+    } else if (url.pathname.startsWith('/api/v1/updates/') && updateRestarting()) {
+      status = 503
+      send(response, status, { code: 'uat_restarting', message: 'The simulated API is restarting' })
+    } else if (url.pathname === '/api/v1/updates/check' && request.method === 'GET') {
+      send(response, 200, updateCheck())
+    } else if (url.pathname === '/api/v1/updates/status' && request.method === 'GET') {
+      const operation = updateOperation()
+      status = operation ? 200 : 503
+      send(response, status, operation ?? { code: 'updater_unavailable', message: 'No update has run' })
+    } else if (mutable && url.pathname === '/api/v1/updates/apply' && request.method === 'POST') {
+      const body = await readJSON(request)
+      if (body.confirm_hardware !== true) {
+        status = 409
+        send(response, status, { code: 'hardware_confirmation_required', message: 'Hardware update confirmation is required' })
+      } else if (updateFixture.operation?.state === 'running') {
+        status = 409
+        send(response, status, { code: 'update_in_progress', message: 'A software update is already running' })
+      } else {
+        updateFixture.startedAt = Date.now()
+        updateFixture.operation = {
+          id: `uat-update-${updateFixture.startedAt}`,
+          state: 'running',
+          target_version: body.version,
+          started_at: new Date().toISOString()
+        }
+        status = 202
+        send(response, status, updateOperation())
+      }
     } else if (
       request.method === 'GET' &&
       (url.pathname === '/api/v1/runtime/events' || url.pathname === '/api/v1/messages/events')

@@ -839,6 +839,56 @@ struct ModemDeckDiagnosticCall: Decodable, Identifiable, Equatable {
     let mediaAvailable: Bool
 }
 
+/// The server's software update state, as `GET /api/v1/updates/check` reports it (admin only).
+struct ModemDeckUpdateCheck: Decodable, Equatable {
+    /// `up_to_date`, `update_available`, `development` or `unavailable`.
+    let status: String
+    let currentVersion: String
+    let latestVersion: String?
+    let releaseName: String?
+    let releaseUrl: String?
+    let releaseNotes: String?
+    let publishedAt: String?
+    let checkedAt: String
+    let errorCode: String?
+    let applyAvailable: Bool
+    let components: [ModemDeckUpdateComponent]?
+    let hardwareConfirmationRequired: Bool
+    let operation: ModemDeckUpdateOperation?
+}
+
+struct ModemDeckUpdateComponent: Decodable, Equatable, Identifiable {
+    /// `api`, `web`, `hardware`, `updater` or `cloudflared`.
+    let name: String
+    let currentVersion: String?
+    let targetVersion: String?
+    let changed: Bool
+    var id: String { name }
+}
+
+struct ModemDeckUpdateOperation: Decodable, Equatable {
+    let id: String
+    /// `running`, `succeeded` or `failed`.
+    let state: String
+    let targetVersion: String
+    let startedAt: String
+    let finishedAt: String?
+    let errorCode: String?
+    let components: [ModemDeckUpdateOperationComponent]?
+}
+
+struct ModemDeckUpdateOperationComponent: Decodable, Equatable, Identifiable {
+    let name: String
+    /// `pending`, `pulling`, `staged`, `restarting`, `rolling_back`, `rolled_back`, `ready` or `failed`.
+    let state: String
+    var id: String { name }
+}
+
+private struct ModemDeckUpdateApplyRequest: Encodable {
+    let version: String
+    let confirmHardware: Bool
+}
+
 struct ModemDeckDiagnosticSnapshot: Decodable, Equatable {
     let status: String
     let observedAt: String
@@ -1727,6 +1777,29 @@ final class ModemDeckAPIClient {
             ModemDeckTelegramUnitsResponse.self,
             path: "/api/v1/settings/telegram"
         ).units
+    }
+
+    /// `refresh` asks the server to read GitHub again instead of its cached release.
+    func checkForUpdates(refresh: Bool = false) async throws -> ModemDeckUpdateCheck {
+        try await decode(
+            ModemDeckUpdateCheck.self,
+            path: "/api/v1/updates/check" + (refresh ? "?refresh=1" : "")
+        )
+    }
+
+    /// Starts updating the server's containers to `version`. Hardware updates restart the modem
+    /// service, so the server refuses them unless `confirmHardware` is set.
+    func applySoftwareUpdate(version: String, confirmHardware: Bool) async throws -> ModemDeckUpdateOperation {
+        try await decode(
+            ModemDeckUpdateOperation.self,
+            path: "/api/v1/updates/apply",
+            method: "POST",
+            body: try encoder.encode(ModemDeckUpdateApplyRequest(version: version, confirmHardware: confirmHardware))
+        )
+    }
+
+    func softwareUpdateStatus() async throws -> ModemDeckUpdateOperation {
+        try await decode(ModemDeckUpdateOperation.self, path: "/api/v1/updates/status")
     }
 
     func diagnostics() async throws -> ModemDeckDiagnosticSnapshot {

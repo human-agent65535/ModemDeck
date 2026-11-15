@@ -1089,3 +1089,24 @@ test('native interaction feedback follows platform conventions', async () => {
   assert.match(mock, /pathname === '\/api\/v1\/messages'\) \{[\s\S]*#fail/)
   assert.match(mock, /pathname === '\/api\/v1\/settings\/system'/)
 })
+
+test('administrators update the server from About with confirmation and restart-tolerant progress', async () => {
+  const [settings, api, mock] = await Promise.all([
+    source('ios/App/App/ModemDeckSettingsView.swift'),
+    source('ios/App/App/ModemDeckAPI.swift'),
+    source('scripts/uat-mock-server.mjs')
+  ])
+  // The About page, and so the update module, is listed for administrators only.
+  assert.match(settings, /if controller\.session\?\.role == "admin" \{[\s\S]*?directoryItem\([\s\S]*?\.about,/)
+  assert.match(settings, /ModemDeckServerUpdateModule\(controller: controller\)/)
+  // Every update is confirmed, and the hardware warning is part of that confirmation.
+  assert.match(settings, /\.alert\(confirmationTitle, isPresented: \$showingConfirmation\)/)
+  assert.match(settings, /confirmHardware: check\.hardwareConfirmationRequired/)
+  // The API restarts mid-update: failed status reads mean reconnecting, within a time limit.
+  assert.match(settings, /\} catch \{\s*reconnecting = true\s*\}/)
+  assert.match(settings, /private static let followLimit: TimeInterval = 15 \* 60/)
+  assert.match(api, /path: "\/api\/v1\/updates\/apply",\s*method: "POST"/)
+  assert.match(api, /path: "\/api\/v1\/updates\/check" \+ \(refresh \? "\?refresh=1" : ""\)/)
+  // The UAT server simulates the update, including the restart.
+  assert.match(mock, /url\.pathname\.startsWith\('\/api\/v1\/updates\/'\) && updateRestarting\(\)/)
+})
