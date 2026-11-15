@@ -231,37 +231,164 @@ final class ModemDeckDialDraft: ObservableObject {
     }
 }
 
-/// Uses native text selection and paste, with the app keypad as its input surface.
+struct ModemDeckDialSuggestion: Identifiable {
+    let contact: ModemDeckContact
+    let phone: ModemDeckContactPhone
+    var id: String { "\(contact.id)|\(phone.displayNumber)" }
+}
+
+/// Forms of a contact name the dialer searches: Chinese characters as pinyin syllables, so
+/// letters match full pinyin from any syllable or the initials, and keypad digits match the
+/// same forms through the letters printed on the keys. The Web dialer applies the same rules.
+struct ModemDeckNameSearchKeys {
+    /// Each word or pinyin syllable joined from that point to the end of the name.
+    let suffixes: [String]
+    let initials: String
+    let keypadSuffixes: [String]
+    let keypadInitials: String
+
+    private static let keypad: [Character: Character] = {
+        var map: [Character: Character] = [:]
+        for (digit, letters) in ModemDeckDialKey.all {
+            for letter in letters.lowercased() { map[letter] = Character(digit) }
+        }
+        return map
+    }()
+
+    init(name: String) {
+        let latin = name.applyingTransform(.mandarinToLatin, reverse: false) ?? name
+        let plain = (latin.applyingTransform(.stripDiacritics, reverse: false) ?? latin).lowercased()
+        let words = plain.split { !($0.isASCII && ($0.isLetter || $0.isNumber)) }.map(String.init)
+        suffixes = words.indices.map { words[$0...].joined() }
+        initials = String(words.compactMap(\.first))
+        keypadSuffixes = suffixes.map(Self.keypadDigits)
+        keypadInitials = Self.keypadDigits(initials)
+    }
+
+    private static func keypadDigits(_ value: String) -> String {
+        String(value.map { keypad[$0] ?? $0 })
+    }
+
+    /// Typed letters, without spaces or tone marks, as full pinyin from a syllable or initials.
+    func matches(letters query: String) -> Bool {
+        !query.isEmpty && (suffixes.contains { $0.hasPrefix(query) } || initials.contains(query))
+    }
+
+    /// Keypad digits spelling the name the same way.
+    func matches(keypad digits: String) -> Bool {
+        !digits.isEmpty && (keypadSuffixes.contains { $0.hasPrefix(digits) } || keypadInitials.contains(digits))
+    }
+
+    @MainActor private static var cache: [String: ModemDeckNameSearchKeys] = [:]
+
+    /// Converting names to pinyin is slow enough to cache across keystrokes.
+    @MainActor static func cached(for name: String) -> ModemDeckNameSearchKeys {
+        if let keys = cache[name] { return keys }
+        if cache.count > 5_000 { cache.removeAll() }
+        let keys = ModemDeckNameSearchKeys(name: name)
+        cache[name] = keys
+        return keys
+    }
+}
+
+extension Array where Element == ModemDeckContact {
+    /// Phones of contacts matching the entry, best first. Letters search the name as written,
+    /// as pinyin or as initials. Digits search phone numbers (from three digits) and, from two
+    /// keypad digits, the name spelled with the letters on the keys.
+    @MainActor
+    func modemDeckDialSuggestions(for value: String, limit: Int) -> [ModemDeckDialSuggestion] {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, limit > 0 else { return [] }
+        let searchesName = text.contains { $0.isLetter }
+        let digits = text.filter { $0.isASCII && $0.isNumber }
+        let isKeypadEntry = !searchesName && !text.contains { "+*#".contains($0) }
+        let letters = (text.applyingTransform(.stripDiacritics, reverse: false) ?? text)
+            .lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
+        guard searchesName || digits.count >= 2 else { return [] }
+
+        var nameMatches: [ModemDeckDialSuggestion] = []
+        var numberMatches: [ModemDeckDialSuggestion] = []
+        for contact in self {
+            let keys = ModemDeckNameSearchKeys.cached(for: contact.displayName)
+            let nameMatched = searchesName
+                ? contact.displayName.localizedStandardContains(text) || keys.matches(letters: letters)
+                : isKeypadEntry && keys.matches(keypad: digits)
+            for phone in contact.phones {
+                let suggestion = ModemDeckDialSuggestion(contact: contact, phone: phone)
+                if nameMatched {
+                    nameMatches.append(suggestion)
+                } else if !searchesName, digits.count >= 3,
+                          phone.displayNumber.filter({ $0.isASCII && $0.isNumber }).contains(digits) {
+                    numberMatches.append(suggestion)
+                }
+            }
+            if nameMatches.count >= limit { break }
+        }
+        return [ModemDeckDialSuggestion]((nameMatches + numberMatches).prefix(limit))
+    }
+}
+
+/// Uses native text selection and paste. The app keypad is its input surface until the
+/// person switches to the system keyboard to search contacts by name.
 private struct ModemDeckDialNumberField: UIViewRepresentable {
     @Binding var text: String
     let placeholder: String
     let accessibilityLabel: String
+    var systemKeyboard = false
+    var onReturn: () -> Void = {}
 
     final class Coordinator: NSObject, UITextFieldDelegate {
         var parent: ModemDeckDialNumberField
+        var appliedSystemKeyboard: Bool?
         init(_ parent: ModemDeckDialNumberField) { self.parent = parent }
         @objc func changed(_ field: UITextField) { parent.text = String((field.text ?? "").prefix(64)) }
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            parent.onReturn()
+            return false
+        }
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UITextField {
         let field = UITextField()
         field.delegate = context.coordinator
         field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
-        field.inputView = UIView(frame: .zero)
         field.textAlignment = .center
         field.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: .systemFont(ofSize: 34))
         field.adjustsFontForContentSizeCategory = true
         field.adjustsFontSizeToFitWidth = true
         field.minimumFontSize = 18
-        field.textContentType = .telephoneNumber
-        field.keyboardType = .phonePad
         field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.spellCheckingType = .no
+        field.returnKeyType = .search
         field.accessibilityIdentifier = "dial-number"
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        applyInputMode(to: field, coordinator: context.coordinator)
         return field
+    }
+    /// The keypad mode hides the system keyboard; the keyboard mode shows letters and digits.
+    private func applyInputMode(to field: UITextField, coordinator: Coordinator) {
+        guard coordinator.appliedSystemKeyboard != systemKeyboard else { return }
+        let firstApply = coordinator.appliedSystemKeyboard == nil
+        coordinator.appliedSystemKeyboard = systemKeyboard
+        if systemKeyboard {
+            field.inputView = nil
+            field.keyboardType = .namePhonePad
+            field.textContentType = .name
+        } else {
+            field.inputView = UIView(frame: .zero)
+            field.keyboardType = .phonePad
+            field.textContentType = .telephoneNumber
+        }
+        guard !firstApply else { return }
+        field.reloadInputViews()
+        DispatchQueue.main.async {
+            if systemKeyboard { field.becomeFirstResponder() } else { field.resignFirstResponder() }
+        }
     }
     func updateUIView(_ field: UITextField, context: Context) {
         context.coordinator.parent = self
+        applyInputMode(to: field, coordinator: context.coordinator)
         if field.text != text { field.text = text }
         field.textColor = UIColor(Color.mdText)
         field.tintColor = UIColor(Color.mdAccent)
@@ -352,6 +479,7 @@ struct ModemDeckDialerView: View {
     @State private var contactQuery = ""
     @State private var recordingError = ""
     @State private var validationAttempted = false
+    @State private var systemKeyboard = false
 
     private let keys = ModemDeckDialKey.all
 
@@ -377,18 +505,17 @@ struct ModemDeckDialerView: View {
         !callController.busy && callController.call == nil
     }
 
-    /// Contacts whose number contains what has been typed, offered before the number is complete.
-    private var suggestedContact: (contact: ModemDeckContact, phone: String)? {
-        guard matchedContact == nil else { return nil }
-        let typed = draft.number.filter(\.isNumber)
-        guard typed.count >= 3 else { return nil }
-        for contact in contactsStore.contacts {
-            if let phone = contact.phones.first(where: { $0.displayNumber.filter(\.isNumber).contains(typed) }) {
-                return (contact, phone.displayNumber)
-            }
-        }
-        return nil
+    /// Letters in the entry make it a name search rather than a number to dial.
+    private var searchesName: Bool { draft.number.contains { $0.isLetter } }
+
+    /// Contacts matching the typed name or number, offered before the number is complete.
+    private var contactSuggestions: [ModemDeckDialSuggestion] {
+        guard matchedContact == nil else { return [] }
+        return contactsStore.contacts.modemDeckDialSuggestions(for: draft.number, limit: 20)
     }
+
+    /// The keypad has room for one suggestion under the number.
+    private var suggestedContact: ModemDeckDialSuggestion? { contactSuggestions.first }
 
     /// One status line under the number: problems first, then who is being called, then guidance.
     private var statusLine: (text: String, problem: Bool)? {
@@ -397,12 +524,19 @@ struct ModemDeckDialerView: View {
         if lines.isEmpty || !controller.isOnline {
             return (controller.text("无可用线路，请检查线路连接。", "No available line. Check your connection."), true)
         }
+        if searchesName {
+            return contactSuggestions.isEmpty
+                ? (controller.text("没有匹配的联系人", "No matching contacts"), false)
+                : nil
+        }
         if !draft.number.isEmpty && dialTarget.error != .none {
             return (controller.text("请输入有效的电话号码", "Enter a valid phone number"), true)
         }
         if let matchedContact { return (matchedContact.displayName, false) }
         if draft.number.isEmpty {
-            return (controller.text("选择联系人，或直接输入号码", "Choose a contact or enter a number"), false)
+            return systemKeyboard
+                ? (controller.text("输入姓名或号码搜索联系人", "Type a name or number to search contacts"), false)
+                : (controller.text("选择联系人，或直接输入号码", "Choose a contact or enter a number"), false)
         }
         return nil
     }
@@ -413,19 +547,24 @@ struct ModemDeckDialerView: View {
             VStack(spacing: 0) {
                 numberSection
                 optionsRow.padding(.top, ModemDeckSpacing.xs)
-                Spacer(minLength: ModemDeckDialerMetrics.minimumGap)
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.fixed(metrics.key), spacing: metrics.columnSpacing), count: 3),
-                    spacing: metrics.rowSpacing
-                ) {
-                    ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
-                        ModemDeckDialKeyButton(digit: key.0, letters: key.1, size: metrics.key,
-                                               plusHint: controller.text("长按输入 +", "Long press to enter plus"),
-                                               action: appendDigit)
-                            .accessibilityIdentifier("dial-key-\(key.0)")
+                if systemKeyboard {
+                    // The system keyboard takes the keypad's place; matches fill the space above it.
+                    suggestionList.padding(.vertical, ModemDeckDialerMetrics.minimumGap)
+                } else {
+                    Spacer(minLength: ModemDeckDialerMetrics.minimumGap)
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.fixed(metrics.key), spacing: metrics.columnSpacing), count: 3),
+                        spacing: metrics.rowSpacing
+                    ) {
+                        ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
+                            ModemDeckDialKeyButton(digit: key.0, letters: key.1, size: metrics.key,
+                                                   plusHint: controller.text("长按输入 +", "Long press to enter plus"),
+                                                   action: appendDigit)
+                                .accessibilityIdentifier("dial-key-\(key.0)")
+                        }
                     }
+                    Spacer(minLength: ModemDeckDialerMetrics.minimumGap)
                 }
-                Spacer(minLength: ModemDeckDialerMetrics.minimumGap)
                 // The call key never scrolls out of reach: this row is pinned to the bottom.
                 actionRow(callSize: metrics.callKey)
             }
@@ -469,31 +608,62 @@ struct ModemDeckDialerView: View {
 
     private var numberSection: some View {
         VStack(spacing: 3) {
-            ModemDeckDialNumberField(text: $draft.number,
-                placeholder: controller.text("输入号码", "Enter number"),
-                accessibilityLabel: controller.text("电话号码", "Phone number"))
-                .frame(height: ModemDeckDialerMetrics.numberHeight)
+            HStack(spacing: 0) {
+                keyboardToggle
+                ModemDeckDialNumberField(text: $draft.number,
+                    placeholder: systemKeyboard
+                        ? controller.text("姓名或号码", "Name or number")
+                        : controller.text("输入号码", "Enter number"),
+                    accessibilityLabel: controller.text("电话号码或联系人姓名", "Phone number or contact name"),
+                    systemKeyboard: systemKeyboard,
+                    onReturn: {
+                        if let first = contactSuggestions.first { choose(first) } else { systemKeyboard = false }
+                    })
+                // Balances the toggle so the number stays centred.
+                Color.clear.frame(width: ModemDeckLayout.controlHitSize, height: 1).accessibilityHidden(true)
+            }
+            .frame(height: ModemDeckDialerMetrics.numberHeight)
             Group {
-                if let suggestedContact {
-                    Button {
-                        draft.number = suggestedContact.phone
-                        if !draft.lineSelectionOverridden {
-                            draft.selectedLineID = controller.voiceDialLine(
-                                preferredID: suggestedContact.contact.preferredLineId
-                            )?.id ?? ""
+                if !systemKeyboard, let suggestedContact {
+                    HStack(spacing: 8) {
+                        Button { choose(suggestedContact) } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.crop.circle")
+                                Text(suggestedContact.contact.displayName).fontWeight(.semibold)
+                                Text(suggestedContact.phone.displayNumber).foregroundColor(.mdMuted)
+                            }
+                            .lineLimit(1)
+                            .foregroundColor(.mdAccent)
                         }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "person.crop.circle")
-                            Text(suggestedContact.contact.displayName).fontWeight(.semibold)
-                            Text(suggestedContact.phone).foregroundColor(.mdMuted)
+                        .buttonStyle(.plain)
+                        .accessibilityHint(controller.text("填入此号码", "Fills in this number"))
+                        .accessibilityIdentifier("dial-suggestion")
+                        // Keypad letters often fit several names; the rest stay one tap away.
+                        if contactSuggestions.count > 1 {
+                            Menu {
+                                ForEach(contactSuggestions.dropFirst()) { suggestion in
+                                    Button("\(suggestion.contact.displayName)  \(suggestion.phone.displayNumber)") {
+                                        choose(suggestion)
+                                    }
+                                }
+                            } label: {
+                                Text("+\(contactSuggestions.count - 1)")
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.mdAccent)
+                                    .padding(.horizontal, 8).frame(minHeight: 22)
+                                    .background(Capsule().fill(Color.mdSurfaceHover))
+                                    .frame(minWidth: ModemDeckLayout.controlHitSize, minHeight: ModemDeckLayout.controlHitSize)
+                                    .contentShape(Rectangle())
+                                    // A full-size hit target without growing the status row.
+                                    .padding(.vertical, -10)
+                            }
+                            .accessibilityLabel(controller.text(
+                                "另外 \(contactSuggestions.count - 1) 个匹配的联系人",
+                                "\(contactSuggestions.count - 1) more matching contacts"
+                            ))
+                            .accessibilityIdentifier("dial-more-suggestions")
                         }
-                        .lineLimit(1)
-                        .foregroundColor(.mdAccent)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint(controller.text("填入此号码", "Fills in this number"))
-                    .accessibilityIdentifier("dial-suggestion")
                 } else if let statusLine {
                     Text(statusLine.text)
                         .foregroundColor(statusLine.problem ? .mdDanger : .mdMuted)
@@ -506,6 +676,69 @@ struct ModemDeckDialerView: View {
             .font(.footnote)
             .frame(minHeight: ModemDeckDialerMetrics.statusHeight)
         }
+    }
+
+    /// Switches between the app keypad and the system keyboard, which can type names.
+    private var keyboardToggle: some View {
+        Button {
+            systemKeyboard.toggle()
+            UISelectionFeedbackGenerator().selectionChanged()
+        } label: {
+            Image(systemName: systemKeyboard ? "circle.grid.3x3" : "keyboard")
+                .font(.body.weight(.medium))
+                .foregroundColor(systemKeyboard ? .mdAccent : .mdMuted)
+                .frame(width: ModemDeckLayout.controlHitSize, height: ModemDeckLayout.controlHitSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(systemKeyboard
+            ? controller.text("显示拨号键盘", "Show keypad")
+            : controller.text("用键盘搜索联系人", "Search contacts with keyboard"))
+        .accessibilityIdentifier("dial-keyboard-toggle")
+    }
+
+    /// Every match for the typed name or number while the system keyboard is up.
+    private var suggestionList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(contactSuggestions) { suggestion in
+                    Button { choose(suggestion) } label: {
+                        HStack(spacing: 12) {
+                            ModemDeckAvatar(name: suggestion.contact.displayName,
+                                            avatarSource: suggestion.contact.avatar,
+                                            paletteKey: suggestion.contact.id, size: 36)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(suggestion.contact.displayName)
+                                    .font(.body.weight(.semibold)).foregroundColor(.mdText)
+                                Text("\(controller.phoneLabelText(suggestion.phone.label)) · \(suggestion.phone.displayNumber)")
+                                    .font(.footnote).foregroundColor(.mdMuted)
+                            }
+                            .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, ModemDeckSpacing.sm)
+                        .frame(minHeight: 52)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(controller.text("填入此号码", "Fills in this number"))
+                    .accessibilityIdentifier("dial-suggestion")
+                }
+            }
+        }
+        .scrollDismissesKeyboard(.never)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Fills in a suggested phone and returns to the keypad so the call key is in reach.
+    private func choose(_ suggestion: ModemDeckDialSuggestion) {
+        draft.number = suggestion.phone.displayNumber
+        if !draft.lineSelectionOverridden {
+            draft.selectedLineID = controller.voiceDialLine(
+                preferredID: suggestion.contact.preferredLineId
+            )?.id ?? ""
+        }
+        systemKeyboard = false
     }
 
     /// Line and per-call recording sit side by side; narrow widths stack them.

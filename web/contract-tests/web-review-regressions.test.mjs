@@ -246,3 +246,10 @@ test('call timer is excluded from live announcements', async () => {
   assert.match(surface, /<strong v-if="duration" class="call-surface__timer" aria-live="off">\{\{ duration \}\}<\/strong>/)
   assert.doesNotMatch(surface, /class="call-surface" aria-live=/)
 })
+
+test('contact search fields offer a letter keyboard on phones', async () => {
+  const suggest = await source('../src/components/ContactSuggestInput.vue')
+  // A tel input shows only the number pad on phones, so names could not be typed.
+  assert.doesNotMatch(suggest, /type="tel"/)
+  assert.match(suggest, /type="text"\s*:inputmode="inputMode"/)
+})

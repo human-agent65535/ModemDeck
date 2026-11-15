@@ -1000,6 +1000,14 @@ test('native layouts adapt to the space and text size instead of clipping', asyn
   // Recording is a real per-call toggle beside the line picker, not a static label.
   assert.match(calls, /private var recordingToggle: some View \{\s*Button \{\s*draft\.recording\.toggle\(\)/)
   assert.match(calls, /private var suggestedContact:/)
+  // The dial field can switch to the system keyboard and suggests contacts by name as well as number.
+  assert.match(calls, /field\.inputView = nil\s*field\.keyboardType = \.namePhonePad/)
+  assert.match(calls, /accessibilityIdentifier\("dial-keyboard-toggle"\)/)
+  assert.match(calls, /contact\.displayName\.localizedStandardContains\(text\)/)
+  // Names are also found as pinyin, initials and keypad digits, with the same rules as the Web dialer.
+  assert.match(calls, /name\.applyingTransform\(\.mandarinToLatin, reverse: false\)/)
+  assert.match(calls, /isKeypadEntry && keys\.matches\(keypad: digits\)/)
+  assert.match(calls, /accessibilityIdentifier\("dial-more-suggestions"\)/)
   // The in-call keypad shows all twelve keys, and one control grid spans dialling to connected.
   assert.match(calls, /static func keypadKey\(for size: CGSize\) -> CGFloat/)
   assert.match(calls, /return canRecordBeforeConnect \? \[\.mute, \.keypad, \.audio, \.record\] : \[\]/)

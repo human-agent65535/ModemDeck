@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import {
   Circle,
   Delete,
+  Grid3x3,
+  Keyboard,
   LoaderCircle,
   Minus,
   Phone,
@@ -45,6 +47,7 @@ import { playDTMFTone } from '../state/dtmfAudio'
 import { normalizeDialTarget } from '../utils/dialTarget'
 import { formatDialInput, isDialEntry, phoneDestination, stripDialFormatting } from '../utils/format'
 import { phoneKeypad } from '../utils/phoneKeypad'
+import { dialSuggestions } from '../utils/dialSearch'
 import BaseAvatar from './BaseAvatar.vue'
 import ContactSuggestInput from './ContactSuggestInput.vue'
 import CallSurface from './CallSurface.vue'
@@ -324,10 +327,50 @@ watch(number, (value, previous) => {
 })
 
 function appendDigit(digit: string): void {
+  typedOnKeypad.value = true
   number.value += digit
   contactLabel.value = ''
   selectedContactPreferredLineID.value = ''
   void playDTMFTone(digit)
+  // Suggestions show while the field has focus; a tap on a phone keypad key can take it away.
+  if (!numberFocused.value) focusNumber()
+}
+
+// A list under the field would cover the keys being pressed, so keypad entry shows the best
+// match as one line under the number; "+N" opens the full list.
+const typedOnKeypad = ref(false)
+const keypadSuggestions = computed(() =>
+  typedOnKeypad.value && !contactLabel.value
+    ? dialSuggestions(contactsResource.data, number.value, {
+        spellsNames: true,
+        minimumNumberDigits: 3,
+        limit: 6
+      })
+    : []
+)
+
+function showAllMatches(): void {
+  typedOnKeypad.value = false
+  focusNumber()
+}
+
+// Touch screens type with the keypad above; the system keyboard is there for names.
+const touchInput = ref(false)
+const systemKeyboard = ref(false)
+const numberInput = ref<InstanceType<typeof ContactSuggestInput> | null>(null)
+const numberInputMode = computed<'text' | 'none'>(() =>
+  touchInput.value && !systemKeyboard.value ? 'none' : 'text'
+)
+let coarsePointerQuery: MediaQueryList | undefined
+
+function syncTouchInput(): void {
+  touchInput.value = Boolean(coarsePointerQuery?.matches)
+}
+
+function setSystemKeyboard(on: boolean): void {
+  if (systemKeyboard.value === on) return
+  systemKeyboard.value = on
+  numberInput.value?.refocus(numberInputMode.value)
 }
 
 function clearZeroHold(): void {
@@ -387,6 +430,7 @@ function removeDigit(): void {
 const dialCharacter = /[\d+*#]/
 
 function editNumber(value: string): void {
+  typedOnKeypad.value = false
   contactLabel.value = ''
   selectedContactPreferredLineID.value = ''
   const stripped = stripDialFormatting(value)
@@ -430,6 +474,8 @@ function chooseContact(suggestion: {
   numberTouched.value = false
   validationAttempted.value = false
   syncResolvedLine(true)
+  // As on iOS: once a contact is chosen the keypad and call button come back into view.
+  setSystemKeyboard(false)
 }
 
 function focusNumberInput(): void {
@@ -519,9 +565,13 @@ function trapCallFocus(event: KeyboardEvent): void {
 onMounted(() => {
   applyDialRequest(false)
   void loadContacts()
+  coarsePointerQuery = window.matchMedia('(pointer: coarse)')
+  syncTouchInput()
+  coarsePointerQuery.addEventListener('change', syncTouchInput)
 })
 
 onBeforeUnmount(() => {
+  coarsePointerQuery?.removeEventListener('change', syncTouchInput)
   clearZeroHold()
   restoreDialogFocus()
 })
@@ -628,12 +678,31 @@ onBeforeUnmount(() => {
                     'is-invalid': validationVisible
                   }"
                 >
+                  <span v-if="touchInput" class="dialer-number-leading">
+                    <button
+                      class="icon-button dialer-keyboard-button"
+                      :class="{ 'is-active': systemKeyboard }"
+                      type="button"
+                      :title="systemKeyboard ? t('dialer.showKeypad') : t('dialer.searchWithKeyboard')"
+                      :aria-label="systemKeyboard ? t('dialer.showKeypad') : t('dialer.searchWithKeyboard')"
+                      :aria-pressed="systemKeyboard"
+                      @mousedown.prevent
+                      @click="setSystemKeyboard(!systemKeyboard)"
+                    >
+                      <Grid3x3 v-if="systemKeyboard" :size="18" />
+                      <Keyboard v-else :size="18" />
+                    </button>
+                  </span>
                   <ContactSuggestInput
+                    ref="numberInput"
                     :model-value="formattedNumber"
                     :contacts="contactsResource.data"
                     :autofocus="inputAutofocus"
                     :invalid="validationVisible"
                     :described-by="validationVisible ? validationMessageId : ''"
+                    spells-names
+                    :input-mode="numberInputMode"
+                    :menu-hidden="typedOnKeypad"
                     @update:model-value="editNumber"
                     @select="chooseContact"
                     @submit="placeCall"
@@ -670,6 +739,30 @@ onBeforeUnmount(() => {
                     <strong>{{ contactLabel }}</strong>
                   </span>
                 </div>
+                <div v-else-if="keypadSuggestions[0]" class="dialer-keypad-match">
+                  <button
+                    class="dialer-contact-match dialer-keypad-match__best"
+                    type="button"
+                    @mousedown.prevent
+                    @click="chooseContact(keypadSuggestions[0])"
+                  >
+                    <BaseAvatar :name="keypadSuggestions[0].contact.display_name" size="small" />
+                    <span class="dialer-contact-match__copy">
+                      <strong>{{ keypadSuggestions[0].contact.display_name }}</strong>
+                      <small>{{ keypadSuggestions[0].phone.number }}</small>
+                    </span>
+                  </button>
+                  <button
+                    v-if="keypadSuggestions.length > 1"
+                    class="dialer-keypad-match__more"
+                    type="button"
+                    :aria-label="t('dialer.moreMatches', { count: keypadSuggestions.length - 1 })"
+                    @mousedown.prevent
+                    @click="showAllMatches"
+                  >
+                    +{{ keypadSuggestions.length - 1 }}
+                  </button>
+                </div>
               </div>
 
               <p v-if="dialerRecordingState.status === 'ready'" class="dialer-recording-note">
@@ -694,6 +787,7 @@ onBeforeUnmount(() => {
                     :class="{ 'keypad__key--zero': key.digit === '0' }"
                     type="button"
                     :aria-label="key.digit"
+                    @mousedown.prevent
                     @click="handleKeyClick(key.digit, $event)"
                     @contextmenu="preventZeroContextMenu(key.digit, $event)"
                     @pointerdown="key.digit === '0' && startZeroHold($event)"
@@ -1016,6 +1110,25 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.dialer-number-leading {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 7px;
+  display: inline-flex;
+  transform: translateY(-50%);
+}
+
+.dialer-number-leading .dialer-keyboard-button {
+  width: 38px;
+  height: 38px;
+  color: var(--muted);
+}
+
+.dialer-number-leading .dialer-keyboard-button.is-active {
+  color: var(--accent);
+}
+
 .dialer-number-trailing .dialer-backspace-button {
   width: 38px;
   height: 38px;
@@ -1056,6 +1169,43 @@ onBeforeUnmount(() => {
   font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dialer-keypad-match {
+  display: flex;
+  max-width: calc(100% - 16px);
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: 0 auto;
+}
+
+.dialer-keypad-match .dialer-keypad-match__best {
+  min-width: 0;
+  margin-inline: 0;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.dialer-keypad-match__best:hover {
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.dialer-keypad-match__more {
+  min-width: 44px;
+  min-height: 36px;
+  margin-top: 9px;
+  padding: 0 var(--space-2);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  background: var(--surface-hover);
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
 }
 
 .keypad__key {

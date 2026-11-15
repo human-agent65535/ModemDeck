@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Search } from '@lucide/vue'
 import type { Contact, ContactPhone } from '../api/types'
 import { phoneDestination, primaryPhone } from '../utils/format'
-import { communicationQuery, matchesCommunicationQuery } from '../utils/communicationSearch'
+import { dialSuggestions } from '../utils/dialSearch'
 import BaseAvatar from './BaseAvatar.vue'
 import PopoverTransition from './PopoverTransition.vue'
 
@@ -22,12 +22,21 @@ const props = withDefaults(
     autofocus?: boolean
     invalid?: boolean
     describedBy?: string
+    /** A dial pad field: digits also spell names with the letters on the keys. */
+    spellsNames?: boolean
+    /** `none` keeps the on-screen keyboard away while an app keypad does the typing. */
+    inputMode?: 'text' | 'none'
+    /** Keeps the list closed, for a caller that shows the best match its own way. */
+    menuHidden?: boolean
   }>(),
   {
     placeholder: '',
     autofocus: false,
     invalid: false,
-    describedBy: ''
+    describedBy: '',
+    spellsNames: false,
+    inputMode: 'text',
+    menuHidden: false
   }
 )
 
@@ -46,24 +55,17 @@ const inputId = `contact-suggest-${useId()}`
 const listboxId = `${inputId}-listbox`
 const resolvedPlaceholder = computed(() => props.placeholder || t('dialer.numberOrContact'))
 
-const suggestions = computed<Suggestion[]>(() => {
-  const query = communicationQuery(props.modelValue)
-  if (!query.text) return []
-  return props.contacts
-    .flatMap(contact =>
-      contact.phones
-        .filter(phone =>
-          matchesCommunicationQuery(query, {
-            text: [contact.display_name],
-            numbers: [phone.number]
-          })
-        )
-        .map(phone => ({ contact, phone }))
-    )
-    .slice(0, 6)
-})
+const suggestions = computed<Suggestion[]>(() =>
+  dialSuggestions(props.contacts, props.modelValue, {
+    spellsNames: props.spellsNames,
+    minimumNumberDigits: props.spellsNames ? 3 : 1,
+    limit: 6
+  })
+)
 
-const showSuggestions = computed(() => focused.value && suggestions.value.length > 0)
+const showSuggestions = computed(
+  () => focused.value && !props.menuHidden && suggestions.value.length > 0
+)
 const activeDescendant = computed(() =>
   showSuggestions.value ? `${listboxId}-option-${activeIndex.value}` : undefined
 )
@@ -111,6 +113,20 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
+/**
+ * Applies a keyboard choice at once: phones read `inputmode` only when a field gains focus,
+ * and the change must happen inside the tap that asked for it.
+ */
+function refocus(mode: 'text' | 'none'): void {
+  const field = input.value
+  if (!field) return
+  field.inputMode = mode
+  field.blur()
+  field.focus()
+}
+
+defineExpose({ refocus })
+
 function onFocus(event: FocusEvent): void {
   focused.value = true
   emit('focus', event)
@@ -132,7 +148,12 @@ function onBlur(event: FocusEvent): void {
         :id="inputId"
         ref="input"
         :value="modelValue"
-        type="tel"
+        type="text"
+        :inputmode="inputMode"
+        enterkeyhint="go"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck="false"
         autocomplete="off"
         role="combobox"
         aria-autocomplete="list"
