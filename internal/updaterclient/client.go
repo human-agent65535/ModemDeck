@@ -69,7 +69,9 @@ func New(options Options) (*Client, error) {
 func (client *Client) Check(ctx context.Context) updatecheck.Result {
 	var result updatecheck.Result
 	path := "/v1/updates/check"
-	if updatecheck.RefreshRequested(ctx) {
+	if updatecheck.TunnelCheckRequested(ctx) {
+		path += "?component=cloudflared"
+	} else if updatecheck.RefreshRequested(ctx) {
 		path += "?refresh=1"
 	}
 	if err := client.request(ctx, http.MethodGet, path, nil, &result); err != nil {

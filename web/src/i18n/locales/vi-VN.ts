@@ -457,6 +457,7 @@ export default {
     "updateInProgress": "Các container đang cập nhật. Trang này có thể ngắt kết nối trong chốc lát.",
     "hardwareUpdateTitle": "Xác nhận cập nhật Hardware",
     "hardwareUpdateWarning": "Cập nhật Hardware sẽ khởi động lại ModemManager và Agent thiết bị. Phần cứng di động có thể ngoại tuyến và trong một số ít trường hợp cần cắm lại thủ công. Tiếp tục?",
+    "tunnelRestart": "Đường hầm sẽ khởi động lại. Kết nối từ xa có thể gián đoạn trong chốc lát.",
     "confirmUpdate": "Xác nhận cập nhật",
     "updateSucceeded": "Đã cập nhật ModemDeck",
     "updateFailed": "Cập nhật ModemDeck thất bại; thao tác tự động đã dừng",

@@ -124,8 +124,8 @@ export interface ModemDeckGateway {
   releaseCallTestMedia(id: string, ownerToken: string): Promise<void>
   readonly interactions?: GatewayInteractions
   getAbout(): Promise<AboutInfo>
-  checkForUpdates(refresh?: boolean): Promise<UpdateCheck>
-  applySoftwareUpdate(version: string, confirmHardware: boolean): Promise<UpdateOperation>
+  checkForUpdates(refresh?: boolean, tunnel?: boolean): Promise<UpdateCheck>
+  applySoftwareUpdate(version: string, confirmHardware: boolean, tunnelDigest?: string): Promise<UpdateOperation>
   getSoftwareUpdateStatus(): Promise<UpdateOperation>
   getBootstrap(): Promise<BootstrapResponse>
   listUsers(): Promise<UserAccount[]>

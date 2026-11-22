@@ -562,6 +562,8 @@ function parseUpdateCheck(value: unknown): UpdateCheck {
   }
   return {
     status,
+    tunnel_managed: source.tunnel_managed === true,
+    tunnel_digest: stringValue(source, 'tunnel_digest') || undefined,
     current_version: requiredStringValue(source, 'update_check', 'current_version'),
     latest_version: stringValue(source, 'latest_version') || undefined,
     release_name: stringValue(source, 'release_name') || undefined,
@@ -1240,20 +1242,21 @@ const realGateway: ConfiguredModemDeckGateway = {
     return parseAbout(await get(`${API_ROOT}/about`))
   },
 
-  async checkForUpdates(refresh = false): Promise<UpdateCheck> {
-    const query = refresh ? '?refresh=1' : ''
+  async checkForUpdates(refresh = false, tunnel = false): Promise<UpdateCheck> {
+    const query = tunnel ? '?component=cloudflared' : refresh ? '?refresh=1' : ''
     return parseUpdateCheck(await get(`${API_ROOT}/updates/check${query}`))
   },
 
   async applySoftwareUpdate(
     version: string,
-    confirmHardware: boolean
+    confirmHardware: boolean,
+    tunnelDigest?: string
   ): Promise<UpdateOperation> {
     return parseUpdateOperation(
       await writeJSON(
         `${API_ROOT}/updates/apply`,
         'POST',
-        { version, confirm_hardware: confirmHardware },
+        { version, confirm_hardware: confirmHardware, tunnel_digest: tunnelDigest },
         202
       )
     )

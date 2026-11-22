@@ -457,6 +457,7 @@ export default {
     "updateInProgress": "Les conteneurs sont en cours de mise à jour. Cette page peut être brièvement déconnectée.",
     "hardwareUpdateTitle": "Confirmer la mise à jour Hardware",
     "hardwareUpdateWarning": "La mise à jour Hardware redémarre ModemManager et l'Agent de l'appareil. Le matériel cellulaire peut être hors ligne et, dans de rares cas, nécessiter un rebranchement manuel. Continuer ?",
+    "tunnelRestart": "Le tunnel va redémarrer. L’accès à distance peut être brièvement interrompu.",
     "confirmUpdate": "Confirmer la mise à jour",
     "updateSucceeded": "Mise à jour de ModemDeck terminée",
     "updateFailed": "La mise à jour de ModemDeck a échoué ; l'opération automatique est arrêtée",

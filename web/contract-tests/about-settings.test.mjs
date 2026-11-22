@@ -330,3 +330,26 @@ test('root VERSION is the single release version for every image', async () => {
   assert.doesNotMatch(dockerfile, /main\.(?:commit|buildDate)=/)
   assert.match(dockerfile, /org\.opencontainers\.image\.revision="\$\{VCS_REF\}"/)
 })
+
+test('independent tunnel update submits the previewed version and digest', async () => {
+  const originalFetch = globalThis.fetch
+  const digest = 'sha256:' + 'a'.repeat(64)
+  const latest = '2026.11.1'
+  const requests = []
+  globalThis.fetch = async (input, init) => {
+    requests.push({ url: String(input), body: init?.body && JSON.parse(init.body) })
+    const response = init?.method === 'POST'
+      ? { id: 'tunnel-update', state: 'running', target_version: latest, started_at: updateResponse.checked_at }
+      : { ...updateResponse, status: 'update_available', latest_version: latest, tunnel_digest: digest, tunnel_managed: true, apply_available: true }
+    return new Response(JSON.stringify(response), { status: init?.method === 'POST' ? 202 : 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    const preview = await gateway.checkForUpdates(false, true)
+    assert.equal(preview.tunnel_managed, true)
+    await gateway.applySoftwareUpdate(preview.latest_version, false, preview.tunnel_digest)
+    assert.equal(requests[0].url, '/api/v1/updates/check?component=cloudflared')
+    assert.deepEqual(requests[1].body, { version: latest, confirm_hardware: false, tunnel_digest: digest })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

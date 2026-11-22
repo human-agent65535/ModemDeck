@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -47,12 +48,13 @@ type Options struct {
 }
 
 type Controller struct {
-	checker    ReleaseChecker
-	manifests  ManifestLoader
-	runtime    Runtime
-	operations OperationStore
-	now        func() time.Time
-	mu         sync.Mutex
+	tunnelClient HTTPClient
+	checker      ReleaseChecker
+	manifests    ManifestLoader
+	runtime      Runtime
+	operations   OperationStore
+	now          func() time.Time
+	mu           sync.Mutex
 }
 
 type Target struct {
@@ -72,11 +74,13 @@ type Target struct {
 }
 
 type Plan struct {
-	Result  updatecheck.Result
-	Targets []Target
+	TunnelOnly bool
+	Result     updatecheck.Result
+	Targets    []Target
 }
 
 type WorkerRequest struct {
+	TunnelDigest    string
 	ExpectedVersion string
 	ConfirmHardware bool
 	Operation       updatecheck.Operation
@@ -92,20 +96,30 @@ func New(options Options) (*Controller, error) {
 		now = time.Now
 	}
 	return &Controller{
-		checker:    options.Checker,
-		manifests:  options.Manifests,
-		runtime:    options.Runtime,
-		operations: options.Operations,
-		now:        now,
+		tunnelClient: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		checker:      options.Checker,
+		manifests:    options.Manifests,
+		runtime:      options.Runtime,
+		operations:   options.Operations,
+		now:          now,
 	}, nil
 }
 
 func (controller *Controller) Check(ctx context.Context) updatecheck.Result {
+	if updatecheck.TunnelCheckRequested(ctx) {
+		plan, err := controller.tunnelPlan(ctx)
+		if err != nil {
+			plan.Result.ErrorCode = "cloudflared_release_unavailable"
+		}
+		return plan.Result
+	}
 	plan, err := controller.plan(ctx)
+	plan.Result.TunnelManaged = controller.runtime.Managed("cloudflared")
 	if err == nil {
 		return plan.Result
 	}
 	result := controller.checker.Check(ctx)
+	result.TunnelManaged = controller.runtime.Managed("cloudflared")
 	result.ApplyAvailable = false
 	if errors.Is(err, ErrManifestUnavailable) {
 		result.ErrorCode = "ota_manifest_unavailable"
@@ -129,7 +143,7 @@ func (controller *Controller) Apply(
 		operation != nil && operation.State == updatecheck.OperationRunning {
 		return updatecheck.Operation{}, ErrOperationRunning
 	}
-	plan, err := controller.plan(ctx)
+	plan, err := controller.applyPlan(ctx, request.TunnelDigest)
 	if err != nil {
 		return updatecheck.Operation{}, err
 	}
@@ -154,6 +168,7 @@ func (controller *Controller) Apply(
 	}
 	if err := controller.runtime.StartWorker(ctx, WorkerRequest{
 		ExpectedVersion: request.Version,
+		TunnelDigest:    request.TunnelDigest,
 		ConfirmHardware: request.ConfirmHardware,
 		Operation:       operation,
 	}); err != nil {
@@ -181,7 +196,7 @@ func (controller *Controller) RunWorker(
 	ctx context.Context,
 	request WorkerRequest,
 ) error {
-	plan, err := controller.plan(ctx)
+	plan, err := controller.applyPlan(ctx, request.TunnelDigest)
 	if err == nil && plan.Result.LatestVersion != request.ExpectedVersion {
 		err = ErrVersionChanged
 	}
@@ -255,6 +270,20 @@ func setOperationComponentState(
 	}
 }
 
+func (controller *Controller) applyPlan(ctx context.Context, digest string) (Plan, error) {
+	if digest == "" {
+		return controller.plan(ctx)
+	}
+	if !digestPattern.MatchString(digest) {
+		return Plan{}, ErrVersionChanged
+	}
+	plan, err := controller.tunnelPlan(ctx)
+	if err == nil && plan.Result.TunnelDigest != digest {
+		return Plan{}, ErrVersionChanged
+	}
+	return plan, err
+}
+
 func (controller *Controller) plan(ctx context.Context) (Plan, error) {
 	result := controller.checker.Check(ctx)
 	result.ApplyAvailable = false
@@ -312,6 +341,10 @@ func (controller *Controller) plan(ctx context.Context) (Plan, error) {
 		}
 		target.Reference = target.Image + ":" + target.Version + "@" + target.Digest
 		target.Changed = !present || imageDigest(currentRef) != target.Digest
+		if target.Name == "cloudflared" && newerTunnel(imageVersion(currentRef), target.Version) {
+			target.Changed = false
+			target.Version = target.Current
+		}
 		if target.Name == "hardware" && target.Changed {
 			result.HardwareConfirmationRequired = true
 		}

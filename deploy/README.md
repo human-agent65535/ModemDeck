@@ -315,3 +315,12 @@ Both modes use separate persistent volumes for `/run/modemdeck` and
 `/var/lib/ModemManager`. The application receives only a read-only
 `/run/modemdeck` mount; it never receives hardware state, host devices, host
 D-Bus, or host process visibility.
+
+### Independent Cloudflare Tunnel updates
+
+With OTA and the managed tunnel enabled, open **Settings → About → Cloudflare Tunnel**
+to compare the installed connector with Cloudflare's latest stable GitHub release.
+Confirming pulls the official Docker Hub image by its verified manifest digest and
+recreates the cloudflared service. Remote access can disconnect during the restart.
+The updater waits for tunnel readiness and attempts to restore the previous Compose
+configuration if startup fails. A later ModemDeck update retains a newer connector.

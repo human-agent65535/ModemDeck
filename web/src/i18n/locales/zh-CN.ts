@@ -458,6 +458,7 @@ export default {
     hardwareUpdateTitle: '确认 Hardware 更新',
     hardwareUpdateWarning:
       '更新 Hardware 会重启 ModemManager 和设备 Agent，可能造成蜂窝硬件下线，极少数情况下需要人工重新插拔设备。确认继续？',
+    tunnelRestart: '隧道将重启，远程访问可能短暂中断。',
     confirmUpdate: '确认更新',
     updateSucceeded: 'ModemDeck 更新完成',
     updateFailed: 'ModemDeck 更新失败，已停止自动操作',

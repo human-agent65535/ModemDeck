@@ -163,6 +163,9 @@ func (runtime *DockerRuntime) StartWorker(
 		"--operation-id", request.Operation.ID,
 		"--started-at", request.Operation.StartedAt,
 	}
+	if request.TunnelDigest != "" {
+		arguments = append(arguments, "--tunnel-digest", request.TunnelDigest)
+	}
 	if request.ConfirmHardware {
 		arguments = append(arguments, "--confirm-hardware")
 	}
@@ -196,7 +199,10 @@ func (runtime *DockerRuntime) Apply(
 	if err != nil {
 		return &ApplyError{Cause: fmt.Errorf("read Compose environment: %w", err)}
 	}
-	values := map[string]string{"MODEMDECK_VERSION": plan.Result.LatestVersion}
+	values := map[string]string{}
+	if !plan.TunnelOnly {
+		values["MODEMDECK_VERSION"] = plan.Result.LatestVersion
+	}
 	for _, target := range plan.Targets {
 		if !target.Changed {
 			continue
@@ -217,9 +223,6 @@ func (runtime *DockerRuntime) Apply(
 	if err != nil {
 		return &ApplyError{Cause: err}
 	}
-	if err := replaceFile(environmentPath, next); err != nil {
-		return &ApplyError{Cause: err}
-	}
 	if err := reportChangedTargets(
 		plan.Targets,
 		report,
@@ -227,7 +230,13 @@ func (runtime *DockerRuntime) Apply(
 	); err != nil {
 		return err
 	}
+	if err := replaceFile(environmentPath, next); err != nil {
+		return &ApplyError{Cause: err}
+	}
 	if !hasChangedTarget(plan.Targets) {
+		if plan.TunnelOnly {
+			return nil
+		}
 		return runtime.recordInstalledVersion(plan.Result.LatestVersion)
 	}
 	if err := runtime.composeUp(ctx, next, plan.Targets); err == nil {
@@ -238,16 +247,15 @@ func (runtime *DockerRuntime) Apply(
 		); err != nil {
 			return err
 		}
+		if plan.TunnelOnly {
+			return nil
+		}
 		return runtime.recordInstalledVersion(plan.Result.LatestVersion)
 	} else {
 		applyErr := err
-		if reportErr := reportChangedTargets(
-			plan.Targets,
-			report,
-			updatecheck.OperationComponentRollingBack,
-		); reportErr != nil {
-			return errors.Join(&ApplyError{Cause: applyErr}, reportErr)
-		}
+		applyErr = errors.Join(applyErr, reportChangedTargets(
+			plan.Targets, report, updatecheck.OperationComponentRollingBack,
+		))
 		if restoreErr := replaceFile(environmentPath, previous); restoreErr != nil {
 			return &ApplyError{Cause: errors.Join(applyErr, restoreErr), RollbackFailed: true}
 		}

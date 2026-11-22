@@ -462,6 +462,7 @@ export default {
     hardwareUpdateTitle: 'Confirm Hardware update',
     hardwareUpdateWarning:
       'Updating Hardware restarts ModemManager and the device Agent. Cellular hardware may go offline and, in rare cases, require manual replugging. Continue?',
+    tunnelRestart: 'The tunnel will restart. Remote access may disconnect briefly.',
     confirmUpdate: 'Confirm update',
     updateSucceeded: 'ModemDeck update completed',
     updateFailed: 'ModemDeck update failed; automatic operation has stopped',

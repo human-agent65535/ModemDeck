@@ -47,6 +47,8 @@ const noticesURL = `${repositoryURL}/blob/modemdeck/THIRD_PARTY_NOTICES.md`
 const licenseName = 'PolyForm Noncommercial 1.0.0'
 const about = ref<AboutInfo | null>(null)
 const update = ref<UpdateCheck | null>(null)
+const tunnel = ref(false)
+const tunnelManaged = ref(false)
 const checking = ref(false)
 const applying = ref(false)
 const startingUpdate = ref(false)
@@ -55,7 +57,7 @@ const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadB
 let closeRuntimeUpdateSubscription: (() => void) | undefined
 
 const displayedVersion = computed(
-  () => update.value?.current_version || about.value?.version || t('about.notAvailable')
+  () => (!tunnel.value && update.value?.current_version) || about.value?.version || t('about.notAvailable')
 )
 
 const changedComponents = computed(
@@ -178,11 +180,27 @@ const statusDescription = computed(() => {
   })
 })
 
+async function selectTunnel(selected: boolean): Promise<void> {
+  if (checking.value || applying.value || tunnel.value === selected) return
+  tunnel.value = selected
+  update.value = null
+  await checkForUpdates()
+}
+
 async function checkForUpdates(refresh = false): Promise<void> {
   if (checking.value) return
   checking.value = true
   try {
-    const result = await gateway.checkForUpdates(refresh)
+    let result = tunnel.value
+      ? await gateway.checkForUpdates(refresh, true)
+      : await gateway.checkForUpdates(refresh)
+    if (!tunnel.value) tunnelManaged.value = result.tunnel_managed === true
+    if (!tunnel.value && result.operation?.state === 'running' &&
+        result.operation.components?.some(component => component.name === 'cloudflared') &&
+        !result.operation.target_version.startsWith('v')) {
+      tunnel.value = true
+      result = await gateway.checkForUpdates(false, true)
+    }
     update.value = result
     if (result.operation?.state === 'running') {
       applying.value = true
@@ -234,6 +252,11 @@ function handleUpdateOperation(operation: UpdateOperation): void {
 async function applyUpdate(): Promise<void> {
   const current = update.value
   if (!current?.apply_available || !current.latest_version || applying.value) return
+  if (tunnel.value && (!current.tunnel_digest || !(await requestConfirmation({
+    title: 'Cloudflare Tunnel',
+    message: t('about.tunnelRestart'),
+    confirmLabel: t('about.confirmUpdate')
+  })))) return
   let confirmHardware = false
   if (current.hardware_confirmation_required) {
     confirmHardware = await requestConfirmation({
@@ -249,7 +272,8 @@ async function applyUpdate(): Promise<void> {
   try {
     const operation = await gateway.applySoftwareUpdate(
       current.latest_version,
-      confirmHardware
+      confirmHardware,
+      current.tunnel_digest
     )
     const observedOperation = update.value?.operation
     update.value = {
@@ -354,6 +378,17 @@ onBeforeUnmount(() => {
         </button>
       </template>
 
+      <div v-if="tunnelManaged" class="about-update__scope">
+        <button
+          v-for="choice in [false, true]"
+          :key="String(choice)"
+          type="button"
+          :class="choice === tunnel ? 'primary-button' : 'secondary-button'"
+          :aria-pressed="choice === tunnel"
+          :disabled="checking || applying"
+          @click="selectTunnel(choice)"
+        >{{ choice ? 'Cloudflare Tunnel' : 'ModemDeck' }}</button>
+      </div>
       <div class="about-status">
         <div class="about-status__summary">
           <span class="about-status__icon">
@@ -528,6 +563,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.about-update__scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .about-settings {
   display: grid;
   gap: 14px;

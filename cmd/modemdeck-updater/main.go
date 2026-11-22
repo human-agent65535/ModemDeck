@@ -182,6 +182,7 @@ func runWorker(ctx context.Context, controller *ota.Controller, arguments []stri
 	expectedVersion := flags.String("expected-version", "", "release version to apply")
 	operationID := flags.String("operation-id", "", "update operation identifier")
 	startedAt := flags.String("started-at", "", "update operation start time")
+	tunnelDigest := flags.String("tunnel-digest", "", "expected cloudflared manifest digest")
 	confirmHardware := flags.Bool("confirm-hardware", false, "confirm Hardware interruption")
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -191,6 +192,7 @@ func runWorker(ctx context.Context, controller *ota.Controller, arguments []stri
 	}
 	return controller.RunWorker(ctx, ota.WorkerRequest{
 		ExpectedVersion: *expectedVersion,
+		TunnelDigest:    *tunnelDigest,
 		ConfirmHardware: *confirmHardware,
 		Operation: updatecheck.Operation{
 			ID:            *operationID,

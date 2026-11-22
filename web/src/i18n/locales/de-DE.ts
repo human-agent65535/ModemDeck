@@ -457,6 +457,7 @@ export default {
     "updateInProgress": "Die Container werden aktualisiert. Diese Seite kann kurzzeitig getrennt werden.",
     "hardwareUpdateTitle": "Hardware-Update bestätigen",
     "hardwareUpdateWarning": "Ein Hardware-Update startet ModemManager und den Geräte-Agent neu. Die Mobilfunkhardware kann offline gehen und in seltenen Fällen ein manuelles Neuverbinden erfordern. Fortfahren?",
+    "tunnelRestart": "Der Tunnel startet neu. Der Fernzugriff kann kurz unterbrochen werden.",
     "confirmUpdate": "Update bestätigen",
     "updateSucceeded": "ModemDeck-Update abgeschlossen",
     "updateFailed": "ModemDeck-Update fehlgeschlagen; der automatische Vorgang wurde beendet",

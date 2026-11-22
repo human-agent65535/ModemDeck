@@ -34,6 +34,8 @@ const (
 )
 
 type Result struct {
+	TunnelManaged                bool        `json:"tunnel_managed,omitempty"`
+	TunnelDigest                 string      `json:"tunnel_digest,omitempty"`
 	Status                       Status      `json:"status"`
 	CurrentVersion               string      `json:"current_version"`
 	LatestVersion                string      `json:"latest_version,omitempty"`
@@ -93,12 +95,24 @@ type Operation struct {
 }
 
 type ApplyRequest struct {
+	TunnelDigest    string `json:"tunnel_digest,omitempty"`
 	Version         string `json:"version"`
 	ConfirmHardware bool   `json:"confirm_hardware"`
 }
 
 type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
+}
+
+type tunnelContextKey struct{}
+
+func WithTunnelCheck(ctx context.Context) context.Context {
+	return context.WithValue(ctx, tunnelContextKey{}, true)
+}
+
+func TunnelCheckRequested(ctx context.Context) bool {
+	requested, _ := ctx.Value(tunnelContextKey{}).(bool)
+	return requested
 }
 
 type refreshContextKey struct{}

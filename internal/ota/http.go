@@ -47,6 +47,9 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		ctx := request.Context()
+		if request.URL.Query().Get("component") == "cloudflared" {
+			ctx = updatecheck.WithTunnelCheck(ctx)
+		}
 		if request.URL.Query().Get("refresh") == "1" {
 			ctx = updatecheck.WithRefresh(ctx)
 		}

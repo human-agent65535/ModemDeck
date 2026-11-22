@@ -457,6 +457,7 @@ export default {
     "updateInProgress": "コンテナを更新しています。このページは一時的に切断される場合があります。",
     "hardwareUpdateTitle": "Hardware 更新の確認",
     "hardwareUpdateWarning": "Hardware を更新すると ModemManager とデバイス Agent が再起動します。セルラーハードウェアがオフラインになり、まれに手動で再接続が必要になる場合があります。続行しますか？",
+    "tunnelRestart": "トンネルが再起動し、リモート接続が一時的に切断される場合があります。",
     "confirmUpdate": "更新を確認",
     "updateSucceeded": "ModemDeck の更新が完了しました",
     "updateFailed": "ModemDeck の更新に失敗し、自動操作を停止しました",

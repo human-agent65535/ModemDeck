@@ -283,6 +283,8 @@ export type UpdateStatus =
   | 'unavailable'
 
 export type UpdateCheck = {
+  tunnel_managed?: boolean
+  tunnel_digest?: string
   status: UpdateStatus
   current_version: string
   latest_version?: string
